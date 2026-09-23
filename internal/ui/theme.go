@@ -136,6 +136,13 @@ var (
 	Text    lipgloss.Style
 	Bold    lipgloss.Style
 	Faint   lipgloss.Style
+
+	// Band is reverse video in the accent color: the accent as background
+	// with the terminal's own background as the text color. Used for section
+	// bands, which must not read as "a brighter row". The only other filled
+	// background in a list is the yellow filter-match highlight, and that one
+	// covers a few runes mid-row rather than a full-width line.
+	Band lipgloss.Style
 )
 
 // Pal returns the current palette, for code that needs raw colors (borders,
@@ -199,6 +206,11 @@ func SetPalette(p Palette) {
 	Text = Fg(p.Text)
 	Bold = lipgloss.NewStyle().Bold(true)
 	Faint = lipgloss.NewStyle().Faint(true)
+	// Reverse rather than an explicit Background/Foreground pair: the palette
+	// has no "base" color to use for the text, and reverse video picks up
+	// whatever background the terminal actually has, so the band stays
+	// readable on both the light and the dark built-in themes.
+	Band = Fg(p.Accent).Reverse(true).Bold(true)
 }
 
 func init() { SetPalette(builtins["default"]) }

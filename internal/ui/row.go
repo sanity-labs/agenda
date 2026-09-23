@@ -67,12 +67,22 @@ func twoLineRow(width int, selected bool, glyphs, metaPlain, metaStyled, right, 
 	return line1 + "\n" + line2
 }
 
-// SectionSeparator draws a labeled section divider as a two-line block
-// (blank line + rule), sized for the two-line row layout every view uses.
+// SectionSeparator draws a section header as a two-line block (blank line +
+// full-width reverse-video band), sized for the two-line row layout every
+// view uses.
+//
+// A band rather than a labeled rule: GroupHeader already draws a thin rule,
+// and a section boundary has to read as a different *kind* of object, not a
+// brighter version of the same one, or the eye files the two lists as one
+// list with a line through it. A filled line is the one shape no row can
+// produce, so it survives peripheral vision.
 func SectionSeparator(label string, width int) string {
-	text := " " + label + " "
-	lead := Dim.Render("──")
-	fill := max(0, width-2-lipgloss.Width(text)-1)
-	rule := lead + Yellow.Bold(true).Render(text) + Dim.Render(strings.Repeat("─", fill))
-	return "\n" + rule
+	if width < 1 {
+		return "\n"
+	}
+	// Truncate the padded label as a whole, so a very narrow pane clips the
+	// band instead of overflowing it and breaking the two-line row height.
+	text := Truncate(" "+label+" ", width)
+	pad := max(0, width-lipgloss.Width(text))
+	return "\n" + Band.Render(text+strings.Repeat(" ", pad))
 }

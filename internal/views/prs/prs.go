@@ -1253,25 +1253,66 @@ func (v *View) maybeFetchDiff() tea.Cmd {
 }
 
 // applySort rebuilds the list: own PRs sorted, then, when the toggle is on
-// and there are any, a separator and the review-requested PRs, sorted the
-// same way.
+// and there are any, the review-requested PRs, sorted the same way.
+//
+// Both sections get a labeled band, but only when there really are two of
+// them. A lone section needs no header — it would cost two rows to tell the
+// user what the whole screen already is — so a list that is all own PRs, or
+// all review requests, renders flat exactly as it did before. The one
+// exception is a failed review fetch, which has nowhere else to report
+// itself and so keeps its band regardless.
 func (v *View) applySort() {
-	items := v.groupSection(sortPRs(v.raw, v.sort, v.rev))
-	if v.showReview && (len(v.reviewRaw) > 0 || v.reviewErr != nil) {
-		label := "Review Requested"
-		if v.reviewErr != nil {
-			label += "  ·  fetch failed (ctrl+r)"
+	mine := sortPRs(v.raw, v.sort, v.rev)
+	rev := sortPRs(v.reviewRaw, v.sort, v.rev)
+	if v.cfg.MarkReviewed {
+		for i := range rev {
+			rev[i].Reviewed = rev[i].reviewedByMe()
 		}
-		items = append(items, pr{Separator: label})
-		rev := sortPRs(v.reviewRaw, v.sort, v.rev)
-		if v.cfg.MarkReviewed {
-			for i := range rev {
-				rev[i].Reviewed = rev[i].reviewedByMe()
-			}
-		}
-		items = append(items, v.groupSection(rev)...)
 	}
+
+	if !v.showReview || (len(rev) == 0 && v.reviewErr == nil) {
+		v.list.SetItems(v.groupSection(mine))
+		return
+	}
+	if len(mine) == 0 && v.reviewErr == nil {
+		v.list.SetItems(v.groupSection(rev))
+		return
+	}
+
+	var items []pr
+	if len(mine) > 0 {
+		items = append(items, pr{Separator: sectionLabel("MY PULL REQUESTS", len(mine), 0)})
+		items = append(items, v.groupSection(mine)...)
+	}
+	items = append(items, pr{Separator: v.reviewLabel(rev)})
+	items = append(items, v.groupSection(rev)...)
 	v.list.SetItems(items)
+}
+
+// reviewLabel is the review section's band text: a count, plus how many of
+// those the viewer has already reviewed (so the dimmed rows below are
+// accounted for before you read them), or the fetch error if there was one.
+func (v *View) reviewLabel(rev []pr) string {
+	if v.reviewErr != nil {
+		return "REVIEW REQUESTED  ·  fetch failed (ctrl+r)"
+	}
+	var reviewed int
+	for _, p := range rev {
+		if p.Reviewed {
+			reviewed++
+		}
+	}
+	return sectionLabel("REVIEW REQUESTED", len(rev), reviewed)
+}
+
+// sectionLabel formats a band label: an upper-case name (distinct from the
+// Title Case swimlane headers nested under it) and a count.
+func sectionLabel(name string, n, reviewed int) string {
+	label := fmt.Sprintf("%s  ·  %d", name, n)
+	if reviewed > 0 {
+		label += fmt.Sprintf("  ·  %d reviewed", reviewed)
+	}
+	return label
 }
 
 // groupSection inserts swimlane headers into one sorted section when

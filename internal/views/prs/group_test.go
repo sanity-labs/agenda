@@ -19,8 +19,8 @@ func TestGroupingWithReviewSection(t *testing.T) {
 	v.raw, v.reviewRaw = []pr{a, b}, []pr{r}
 	v.applySort()
 
-	// mine: repo lanes for alpha and beta; then the yellow section split;
-	// then the review section's own repo lane.
+	// A band per section, each with its count, and repo lanes nested under
+	// them: the bands mark the two lists, the lanes subdivide each one.
 	var got []string
 	for _, p := range v.list.Items() {
 		switch {
@@ -33,9 +33,10 @@ func TestGroupingWithReviewSection(t *testing.T) {
 		}
 	}
 	want := []string{
+		"section:MY PULL REQUESTS  ·  2",
 		"lane:acme/alpha", "mine-a",
 		"lane:acme/beta", "mine-b",
-		"section:Review Requested",
+		"section:REVIEW REQUESTED  ·  1",
 		"lane:acme/alpha", "theirs",
 	}
 	if len(got) != len(want) {
