@@ -33,15 +33,12 @@ func TestMineAndReviewDeliverIndependently(t *testing.T) {
 	}
 	found := false
 	for _, p := range v.list.Items() {
-		if p.Separator != "" && p.Group == false {
+		if p.Separator != "" && !p.Group && strings.Contains(p.Separator, "fetch failed") {
 			found = true
-			if want := "fetch failed"; !strings.Contains(p.Separator, want) {
-				t.Errorf("separator %q missing failure hint", p.Separator)
-			}
 		}
 	}
 	if !found {
-		t.Error("no section separator rendered for the failed review search")
+		t.Error("no section band reported the failed review search")
 	}
 
 	// A later success replaces the error and fills the section.
@@ -49,8 +46,8 @@ func TestMineAndReviewDeliverIndependently(t *testing.T) {
 	if v.reviewErr != nil {
 		t.Error("reviewErr should clear on success")
 	}
-	if v.list.Total() != 3 {
-		t.Errorf("rows = %d, want mine + separator + review PR", v.list.Total())
+	if v.list.Total() != 4 {
+		t.Errorf("rows = %d, want mine + 2 section bands + review PR", v.list.Total())
 	}
 }
 
