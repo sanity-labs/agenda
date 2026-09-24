@@ -71,6 +71,13 @@ agenda completion bash > /usr/local/etc/bash_completion.d/agenda
 agenda completion fish > ~/.config/fish/completions/agenda.fish
 ```
 
+### Working on agenda
+
+```sh
+go run .            # not `go run main.go`: the commands live in cli.go
+go test ./...
+```
+
 ### Updates
 
 agenda checks GitHub once at startup for a newer release and shows it at the
