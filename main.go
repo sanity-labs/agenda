@@ -23,12 +23,17 @@ import (
 )
 
 func main() {
-	// Before config load, so a broken config never blocks a version check.
+	// Subcommands run before config load, so a broken config never blocks
+	// `agenda version` or `agenda help`.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "version", "--version", "-v":
-			fmt.Println("agenda", versionString())
-			return
+		case "--version", "-v":
+			os.Exit(runVersion(os.Stdout, nil))
+		case "--help", "-h":
+			os.Exit(runHelp(os.Stdout, nil))
+		}
+		if c, ok := lookup(os.Args[1]); ok && c.run != nil {
+			os.Exit(c.run(os.Stdout, os.Args[2:]))
 		}
 	}
 
@@ -80,13 +85,13 @@ func main() {
 			}
 		}
 		if !found {
-			fmt.Fprintf(os.Stderr, "agenda: unknown or disabled view %q (enabled: %s)\n",
+			fmt.Fprintf(os.Stderr, "agenda: unknown or disabled view %q (enabled: %s)\ntry 'agenda help'\n",
 				os.Args[1], strings.Join(enabled, ", "))
 			os.Exit(1)
 		}
 	}
 
-	p := tea.NewProgram(tui.New(cfg, views).WithInitialView(initial))
+	p := tea.NewProgram(tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "agenda:", err)
 		os.Exit(1)

@@ -25,6 +25,11 @@ type Config struct {
 	Refresh RefreshConfig `yaml:"refresh"`
 	Notify  NotifyConfig  `yaml:"notifications"`
 
+	// UpdateCheck asks GitHub once at startup whether a newer release
+	// exists, and shows it in the tab bar. Default on; it never writes to
+	// disk, it only reports. Set false to skip the network call entirely.
+	UpdateCheck *bool `yaml:"update_check"`
+
 	// Grouping renders lists as swimlanes derived from the active sort
 	// (status lanes for Linear's status sort, time buckets for date sorts,
 	// and so on). Off by default: flat lists, the original behavior. Sorts
@@ -60,6 +65,9 @@ type ThemeConfig struct {
 	// Font, but this lets a plain-font setup drop the extras.
 	Glyphs *bool `yaml:"glyphs"`
 }
+
+// UpdateCheckEnabled reports whether the startup release check runs.
+func (c Config) UpdateCheckEnabled() bool { return c.UpdateCheck == nil || *c.UpdateCheck }
 
 // GlyphsEnabled reports whether decorative Nerd Font icons render.
 func (c Config) GlyphsEnabled() bool { return c.Theme.Glyphs == nil || *c.Theme.Glyphs }

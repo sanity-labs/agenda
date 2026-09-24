@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -132,5 +134,49 @@ func TestConcealIgnoredForDeliberateShow(t *testing.T) {
 	m = got.(Model)
 	if m.previewHidden {
 		t.Error("conceal hid a deliberately-visible preview")
+	}
+}
+
+func TestVersionTagShowsUpdateArrow(t *testing.T) {
+	m := New(config.Default(), []View{&stubView{"PRs"}}).WithVersion("0.1.2")
+	if got := m.versionTag(); !strings.Contains(got, "v0.1.2") {
+		t.Errorf("versionTag() = %q, want it to carry v0.1.2", got)
+	}
+	if strings.Contains(m.versionTag(), "↑") {
+		t.Error("arrow shown with no newer release known")
+	}
+
+	m.newer = "0.2.0"
+	got := m.versionTag()
+	if !strings.Contains(got, "↑v0.2.0") {
+		t.Errorf("versionTag() = %q, want the ↑v0.2.0 hint", got)
+	}
+
+	// A build with no version (devel) renders nothing rather than "v".
+	if tag := New(config.Default(), []View{&stubView{"PRs"}}).versionTag(); tag != "" {
+		t.Errorf("versionTag() with empty version = %q, want empty", tag)
+	}
+}
+
+func TestTabBarCarriesVersionTag(t *testing.T) {
+	m := New(config.Default(), []View{&stubView{"PRs"}}).WithVersion("0.1.2")
+	m.width, m.height, m.ready = 120, 40, true
+	m.newer = "0.2.0"
+
+	tabs := m.renderTabs()
+	if !strings.Contains(tabs, "v0.1.2") || !strings.Contains(tabs, "↑v0.2.0") {
+		t.Errorf("tab bar missing version tag:\n%s", tabs)
+	}
+	if w := lipgloss.Width(strings.Split(tabs, "\n")[0]); w > 120 {
+		t.Errorf("tab bar width = %d, want <= 120", w)
+	}
+}
+
+func TestTabBarDropsVersionWhenNarrow(t *testing.T) {
+	m := New(config.Default(), []View{&stubView{"PRs"}}).WithVersion("0.1.2")
+	m.width, m.height, m.ready = 20, 40, true
+	tabs := m.renderTabs()
+	if w := lipgloss.Width(strings.Split(tabs, "\n")[0]); w > 20 {
+		t.Errorf("narrow tab bar width = %d, want <= 20", w)
 	}
 }

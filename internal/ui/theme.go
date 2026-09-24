@@ -187,6 +187,9 @@ func Glyph(icon, fallback string) string {
 	return fallback + " "
 }
 
+// GlyphsOn reports whether decorative Nerd Font glyphs render.
+func GlyphsOn() bool { return glyphsOn }
+
 // Fg is a foreground style for an arbitrary lipgloss color string.
 func Fg(c string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(c)) }
 

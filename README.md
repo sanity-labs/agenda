@@ -53,8 +53,38 @@ go install github.com/sanity-labs/agenda@latest
 ```
 
 `agenda` opens on the first tab; `agenda prs` / `agenda sessions` /
-`agenda linear` open straight on that view. `agenda version` prints the
-build's version.
+`agenda linear` open straight on that view. `agenda help` lists every
+command.
+
+```sh
+agenda help              # commands and where config lives
+agenda version           # the running build
+agenda update            # is a newer release out?
+agenda completion zsh    # completion script (also bash, fish)
+```
+
+Shell completion, once per shell:
+
+```sh
+agenda completion zsh  > "${fpath[1]}/_agenda"          # zsh
+agenda completion bash > /usr/local/etc/bash_completion.d/agenda
+agenda completion fish > ~/.config/fish/completions/agenda.fish
+```
+
+### Working on agenda
+
+```sh
+go run .            # not `go run main.go`: the commands live in cli.go
+go test ./...
+```
+
+### Updates
+
+agenda checks GitHub once at startup for a newer release and shows it at the
+right of the tab bar (`v0.1.2  ↑v0.2.0`); `agenda update` asks on demand and
+prints the command that upgrades this particular install. It never replaces
+the binary: whatever installed it (go install, Homebrew, a release archive)
+owns that file. Set `update_check: false` to skip the network call.
 
 Requirements:
 - A **Nerd Font** in your terminal (for the status glyphs) — same as gh-dash.
@@ -143,6 +173,8 @@ out of the box agenda looks and acts as it did before these options existed.
   notification (`popup: desktop`), optionally with a sound. Bodies summarize
   the new items (`repo#N: title (@author)`).
 - **Keybinds**: every action remappable per scope.
+- **Update check**: `update_check` (default on) looks for a newer release at
+  startup and flags it in the tab bar. Reports only, never self-updates.
 - **Nav-only mode**: `v` hides the preview pane so the list takes the full
   width — `z`'s counterpart, for narrow terminals; `hide_preview: true`
   makes it the startup state.

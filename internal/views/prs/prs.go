@@ -1604,10 +1604,19 @@ func labelPills(labels []label) string {
 	pills := make([]string, 0, len(labels))
 	for _, l := range labels {
 		style := lipgloss.NewStyle().Padding(0, 1)
-		if c := "#" + l.Color; len(l.Color) == 6 {
-			style = style.Background(lipgloss.Color(c)).Foreground(contrastFg(l.Color))
+		if len(l.Color) != 6 {
+			pills = append(pills, style.Render(l.Name))
+			continue
 		}
-		pills = append(pills, style.Render(l.Name))
+		c := lipgloss.Color("#" + l.Color)
+		body := style.Background(c).Foreground(contrastFg(l.Color)).Render(l.Name)
+		// Powerline half-circles in the label colour round the ends; without
+		// decorative glyphs the plain padded block is the fallback.
+		if ui.GlyphsOn() {
+			cap := lipgloss.NewStyle().Foreground(c)
+			body = cap.Render(ui.IconPillLeft) + body + cap.Render(ui.IconPillRight)
+		}
+		pills = append(pills, body)
 	}
 	return strings.Join(pills, " ")
 }
