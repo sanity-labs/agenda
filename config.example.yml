@@ -10,6 +10,11 @@
 # reordering this list.
 views: [prs, sessions, linear]
 
+# Check GitHub for a newer release at startup and show it in the tab bar.
+# Reports only: agenda never replaces its own binary. Set false to skip the
+# network call entirely.
+update_check: true
+
 # Render lists as swimlanes derived from the active sort: Linear sorted by
 # status gets status lanes, date sorts get Today/Yesterday/7d/30d/Older
 # buckets, sessions by cwd get cwd lanes, and so on. Sorts with no sensible
