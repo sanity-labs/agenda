@@ -64,6 +64,11 @@ type Model struct {
 	// helpOpen shows the full-keymap overlay ('?').
 	helpOpen bool
 
+	// version is this build's version, shown at the right of the tab bar;
+	// newer is set once a background check finds a newer release.
+	version string
+	newer   string
+
 	// toast is the in-app notification popup (nil = none); toastGen ties
 	// the auto-dismiss timer to the toast it was started for.
 	toast    *ui.ToastMsg
@@ -112,6 +117,12 @@ func New(cfg config.Config, views []View) Model {
 	}
 }
 
+// WithVersion sets the version shown in the tab bar.
+func (m Model) WithVersion(v string) Model {
+	m.version = v
+	return m
+}
+
 // WithInitialView picks the tab shown at startup (a CLI argument, e.g.
 // `agenda linear`).
 func (m Model) WithInitialView(i int) Model {
@@ -157,6 +168,9 @@ func (m Model) Init() tea.Cmd {
 	// The views start out fetching, so kick the spinner loop; it stops itself
 	// once nothing is loading.
 	cmds = append(cmds, spinnerTick())
+	if m.cfg.UpdateCheckEnabled() {
+		cmds = append(cmds, checkUpdate(m.version))
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -209,6 +223,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case updateAvailableMsg:
+		m.newer = string(msg)
+		return m, nil
 	case ui.RevealPreviewMsg:
 		if m.previewHidden {
 			m.previewHidden, m.previewTransient = false, true
@@ -909,7 +926,26 @@ func (m Model) renderTabs() string {
 		labels[i] = style.Render(label)
 	}
 	row := lipgloss.JoinHorizontal(lipgloss.Bottom, labels...)
+	if tag := m.versionTag(); tag != "" {
+		gap := m.width - lipgloss.Width(row) - lipgloss.Width(tag) - 2
+		if gap > 0 {
+			row += strings.Repeat(" ", gap) + tag
+		}
+	}
 	return m.theme.tabBar.Width(m.width).Render(row)
+}
+
+// versionTag is the right-hand tab-bar label: the running version, plus an
+// accent-coloured arrow when a newer release exists.
+func (m Model) versionTag() string {
+	if m.version == "" {
+		return ""
+	}
+	tag := ui.Dim.Render("v" + strings.TrimPrefix(m.version, "v"))
+	if m.newer != "" {
+		tag += "  " + ui.Accent.Render("↑v"+strings.TrimPrefix(m.newer, "v"))
+	}
+	return tag
 }
 
 // glyphLegend explains the focused view's row glyphs; a grey dot always
