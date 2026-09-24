@@ -943,7 +943,10 @@ func (m Model) versionTag() string {
 	}
 	tag := ui.Dim.Render("v" + strings.TrimPrefix(m.version, "v"))
 	if m.newer != "" {
-		tag += "  " + ui.Accent.Render("↑v"+strings.TrimPrefix(m.newer, "v"))
+		// Yellow-bold: the palette's attention colour everywhere else (pending
+		// checks, review required), and unlike Accent it is not already the
+		// colour of the active tab beside it.
+		tag += "  " + ui.Yellow.Bold(true).Render("↑v"+strings.TrimPrefix(m.newer, "v"))
 	}
 	return tag
 }
