@@ -725,6 +725,7 @@ func (m Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion // enable mouse wheel events
+	v.WindowTitle = m.windowTitle()
 	if !m.ready || len(m.views) == 0 {
 		v.Content = "Loading agenda…"
 		return v
@@ -933,6 +934,15 @@ func (m Model) renderTabs() string {
 		}
 	}
 	return m.theme.tabBar.Width(m.width).Render(row)
+}
+
+// windowTitle names the terminal window/tab after the focused view, so a
+// multiplexer shows "agenda · PRs" rather than the raw argv.
+func (m Model) windowTitle() string {
+	if len(m.views) == 0 || m.current >= len(m.views) {
+		return "agenda"
+	}
+	return "agenda · " + m.views[m.current].Title()
 }
 
 // versionTag is the right-hand tab-bar label: the running version, plus an
