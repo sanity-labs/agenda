@@ -221,3 +221,17 @@ func TestLinearLimitClamped(t *testing.T) {
 		t.Errorf("Limit = %d, want clamped to 250", cfg.Linear.Filter.Limit)
 	}
 }
+
+func TestUpdateCheckDefaultsOn(t *testing.T) {
+	if !Default().UpdateCheckEnabled() {
+		t.Error("UpdateCheckEnabled() false by default, want on")
+	}
+	writeConfig(t, "update_check: false\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if cfg.UpdateCheckEnabled() {
+		t.Error("update_check: false did not disable the check")
+	}
+}
