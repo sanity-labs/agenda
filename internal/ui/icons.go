@@ -18,6 +18,14 @@ const (
 	IconDot       = "·"
 )
 
+// Pill caps (powerline half-circles), used to round the ends of label pills.
+// Both fall back to nothing when decorative glyphs are off, leaving the plain
+// padded background the view rendered before.
+const (
+	IconPillLeft  = "\ue0b6" //
+	IconPillRight = "\ue0b4" //
+)
+
 // Decorative icons, gated by the theme.glyphs toggle (see Glyph).
 const (
 	IconTabPRs      = "\ueb00" //  github
