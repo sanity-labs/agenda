@@ -923,7 +923,46 @@ func (v *View) applySort() {
 }
 
 // ScrollList moves the list selection by n rows (mouse wheel).
-func (v *View) ScrollList(n int) { v.list.ScrollBy(n) }
+func (v *View) ScrollList(n int) tea.Cmd {
+	before := v.list.Selected().Identifier
+	v.list.ScrollBy(n)
+	return v.mouseMoved(before)
+}
+
+// ClickList handles a click in the list column; x and y are relative to the
+// column's top-left. A click in the nav tree applies that source (and is not
+// a row hit); a click on a row selects it and moves focus to the list.
+func (v *View) ClickList(x, y int) (bool, tea.Cmd) {
+	if v.token == "" {
+		return false, nil
+	}
+	if v.navShown {
+		navW := lipgloss.Width(v.navView())
+		if x < navW {
+			return false, v.clickNav(y)
+		}
+	}
+	before := v.list.Selected().Identifier
+	if !v.list.ClickAt(y - 1) { // line 0 is the header
+		return false, nil
+	}
+	v.navFocus = false
+	return true, v.mouseMoved(before)
+}
+
+// Activate opens the selected issue in the browser (a double-click).
+func (v *View) Activate() tea.Cmd { return ui.OpenURL(v.list.Selected().URL) }
+
+// mouseMoved follows a mouse-driven selection change the way a j/k move does:
+// fetch the new issue's comments if that section is showing, restart the 'c'
+// jump cycle, and end a transient preview reveal.
+func (v *View) mouseMoved(before string) tea.Cmd {
+	if v.list.Selected().Identifier == before {
+		return nil
+	}
+	v.commentsJumped = false
+	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview)
+}
 
 func (v *View) SetSize(listW, prevW, h int) {
 	v.listW, v.prevW, v.height = listW, prevW, h

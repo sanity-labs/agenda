@@ -415,8 +415,35 @@ func (v *View) deleteSelected() tea.Cmd {
 	return v.fetch() // rescan so the row disappears and totals update
 }
 
-// ScrollList moves the list selection by n rows (mouse wheel).
-func (v *View) ScrollList(n int) { v.list.ScrollBy(n) }
+// ScrollList moves the list selection by n rows (mouse wheel). It disarms a
+// pending delete, so a y typed afterwards can't hit a row scrolled onto.
+func (v *View) ScrollList(n int) tea.Cmd {
+	v.confirmDel = false
+	before := v.list.Selected().Path
+	v.list.ScrollBy(n)
+	return v.mouseMoved(before)
+}
+
+// ClickList selects the row under a click in the list column; y is relative
+// to the column top, whose first line is the header.
+func (v *View) ClickList(_, y int) (bool, tea.Cmd) {
+	before := v.list.Selected().Path
+	if !v.list.ClickAt(y - 1) {
+		return false, nil
+	}
+	return true, v.mouseMoved(before)
+}
+
+// Activate resumes the selected session (a double-click).
+func (v *View) Activate() tea.Cmd { return v.resume() }
+
+// mouseMoved ends a transient preview reveal once the selection moves on.
+func (v *View) mouseMoved(before string) tea.Cmd {
+	if v.list.Selected().Path == before {
+		return nil
+	}
+	return ui.ConcealPreview
+}
 
 func (v *View) SetSize(listW, prevW, h int) {
 	v.listW, v.prevW, v.height = listW, prevW, h

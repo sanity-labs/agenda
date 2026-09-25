@@ -150,6 +150,14 @@ cursor walks the whole popup: the query box at the top, then the field toggles,
 then the case-sensitive row. `1`…`9` jump straight to a view by its tab position
 (shown as a number prefix in each tab label).
 
+The mouse works too: click a tab to switch view, click a row to select it, and
+double-click a row to run its `enter` action (open, or resume a session). In
+the Linear nav tree a click switches the source. The wheel scrolls whichever
+pane it's over: the list one row per notch, the preview as many lines as your
+terminal sends for a notch (three in Ghostty), and trackpad swipes scroll with
+their speed. Mouse capture means selecting text needs your terminal's bypass
+modifier (usually `shift`, or `option` in iTerm2).
+
 ## Configuration highlights
 
 Everything below is opt-in, and every default matches the original behavior:

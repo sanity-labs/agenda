@@ -64,6 +64,13 @@ type Model struct {
 	// helpOpen shows the full-keymap overlay ('?').
 	helpOpen bool
 
+	// lastClick remembers the previous row click, so a second click on the
+	// same row soon after counts as a double-click.
+	lastClick clickRecord
+
+	// wheelSt tells a wheel notch's burst of events from separate scrolls.
+	wheelSt *wheelState
+
 	// version is this build's version, shown at the right of the tab bar;
 	// newer is set once a background check finds a newer release.
 	version string
@@ -114,6 +121,7 @@ func New(cfg config.Config, views []View) Model {
 		theme:         defaultTheme(),
 		views:         views,
 		refresh:       refreshIntervals(cfg, views),
+		wheelSt:       &wheelState{},
 	}
 }
 
@@ -200,28 +208,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, spinnerTick()
 
 	case tea.MouseWheelMsg:
-		// Hover-targeted wheel scroll: wheel over the list column scrolls the
-		// list; wheel over the preview column scrolls the preview.
-		if !m.ready {
+		return m.wheel(msg)
+
+	case tea.MouseClickMsg:
+		if !m.ready || msg.Button != tea.MouseLeft {
 			return m, nil
 		}
-		const step = 3
-		var dir int
-		switch msg.Button {
-		case tea.MouseWheelUp:
-			dir = -step
-		case tea.MouseWheelDown:
-			dir = step
-		default:
-			return m, nil // ignore horizontal wheel
-		}
-		listW, _, _ := m.dims()
-		if msg.X >= listW {
-			m.scrollPreview(dir)
-		} else {
-			m.scrollList(dir)
-		}
-		return m, nil
+		return m.click(msg.X, msg.Y)
 
 	case updateAvailableMsg:
 		m.newer = string(msg)
@@ -604,22 +597,6 @@ type overlayProvider interface {
 	Overlay() string
 }
 
-// scroller is implemented by views whose list can be scrolled by the mouse wheel.
-type scroller interface {
-	ScrollList(n int)
-}
-
-// scrollList forwards a wheel scroll to the focused view's list, if it supports it.
-func (m *Model) scrollList(n int) {
-	if len(m.views) == 0 {
-		return
-	}
-	if s, ok := m.views[m.current].(scroller); ok {
-		s.ScrollList(n)
-		m.syncPreviewKey(false) // scrolling may move the selection
-	}
-}
-
 // currentRefs is the cross-references the focused view exposes for its
 // selection, filtered to those we can act on — either a loaded view resolves
 // them, or they carry a browser-fallback URL. This drops regex false-positives
@@ -722,9 +699,12 @@ func (m *Model) layout() {
 }
 
 func (m Model) View() tea.View {
+	if m.wheelSt != nil {
+		defer func() { m.wheelSt.drawnAt = time.Now() }()
+	}
 	var v tea.View
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion // enable mouse wheel events
+	v.MouseMode = tea.MouseModeCellMotion // wheel and click events (see mouse.go)
 	v.WindowTitle = m.windowTitle()
 	if !m.ready || len(m.views) == 0 {
 		v.Content = "Loading agenda…"
@@ -760,70 +740,35 @@ func (m Model) View() tea.View {
 
 	// Composite the picker modal centered over the content, if open.
 	if m.picker != nil {
-		box := m.picker.View()
-		x := max(0, (m.width-lipgloss.Width(box))/2)
-		y := max(0, (m.height-lipgloss.Height(box))/2)
-		content = lipgloss.NewCompositor(
-			lipgloss.NewLayer(content),
-			lipgloss.NewLayer(box).X(x).Y(y).Z(1),
-		).Render()
+		content = m.overlayCentered(content, m.picker.View())
 	}
 
 	// Composite the filter modal centered over the content, if open.
 	if m.filter != nil {
-		box := m.filter.View()
-		x := max(0, (m.width-lipgloss.Width(box))/2)
-		y := max(0, (m.height-lipgloss.Height(box))/2)
-		content = lipgloss.NewCompositor(
-			lipgloss.NewLayer(content),
-			lipgloss.NewLayer(box).X(x).Y(y).Z(1),
-		).Render()
+		content = m.overlayCentered(content, m.filter.View())
 	}
 
 	// Composite the focused view's own modal (e.g. the PR review popup),
 	// centered, when it has one.
 	if o, ok := cur.(overlayProvider); ok {
 		if box := o.Overlay(); box != "" {
-			x := max(0, (m.width-lipgloss.Width(box))/2)
-			y := max(0, (m.height-lipgloss.Height(box))/2)
-			content = lipgloss.NewCompositor(
-				lipgloss.NewLayer(content),
-				lipgloss.NewLayer(box).X(x).Y(y).Z(1),
-			).Render()
+			content = m.overlayCentered(content, box)
 		}
 	}
 
 	// Composite the help overlay centered over the content, if open.
 	if m.helpOpen {
-		box := m.helpView()
-		x := max(0, (m.width-lipgloss.Width(box))/2)
-		y := max(0, (m.height-lipgloss.Height(box))/2)
-		content = lipgloss.NewCompositor(
-			lipgloss.NewLayer(content),
-			lipgloss.NewLayer(box).X(x).Y(y).Z(1),
-		).Render()
+		content = m.overlayCentered(content, m.helpView())
 	}
 
 	// Composite the keybind editor centered over the content, if open.
 	if m.keysEd != nil {
-		box := m.keysEd.View(m.cfg.Keys, m.contentHeight()-10)
-		x := max(0, (m.width-lipgloss.Width(box))/2)
-		y := max(0, (m.height-lipgloss.Height(box))/2)
-		content = lipgloss.NewCompositor(
-			lipgloss.NewLayer(content),
-			lipgloss.NewLayer(box).X(x).Y(y).Z(1),
-		).Render()
+		content = m.overlayCentered(content, m.keysEd.View(m.cfg.Keys, m.contentHeight()-10))
 	}
 
 	// Composite the config overlay centered over the content, if open.
 	if m.settings != nil {
-		box := m.settings.View(m.cfg)
-		x := max(0, (m.width-lipgloss.Width(box))/2)
-		y := max(0, (m.height-lipgloss.Height(box))/2)
-		content = lipgloss.NewCompositor(
-			lipgloss.NewLayer(content),
-			lipgloss.NewLayer(box).X(x).Y(y).Z(1),
-		).Render()
+		content = m.overlayCentered(content, m.settings.View(m.cfg))
 	}
 
 	// The notification toast sits top-right, above everything.
@@ -838,6 +783,20 @@ func (m Model) View() tea.View {
 
 	v.Content = content
 	return v
+}
+
+// overlayCentered composites box centered over content.
+func (m Model) overlayCentered(content, box string) string {
+	x, y := m.centerOf(box)
+	return lipgloss.NewCompositor(
+		lipgloss.NewLayer(content),
+		lipgloss.NewLayer(box).X(x).Y(y).Z(1),
+	).Render()
+}
+
+// centerOf is the top-left cell of box when it is centered on screen.
+func (m Model) centerOf(box string) (x, y int) {
+	return max(0, (m.width-lipgloss.Width(box))/2), max(0, (m.height-lipgloss.Height(box))/2)
 }
 
 // renderToast draws the in-app notification popup.
@@ -908,6 +867,19 @@ func viewIndexForKey(s string) int {
 }
 
 func (m Model) renderTabs() string {
+	row := lipgloss.JoinHorizontal(lipgloss.Bottom, m.tabLabels()...)
+	if tag := m.versionTag(); tag != "" {
+		gap := m.width - lipgloss.Width(row) - lipgloss.Width(tag) - 2
+		if gap > 0 {
+			row += strings.Repeat(" ", gap) + tag
+		}
+	}
+	return m.theme.tabBar.Width(m.width).Render(row)
+}
+
+// tabLabels renders each view's tab label, in view order. renderTabs lays
+// them side by side from column 0, which tabAt relies on to hit-test clicks.
+func (m Model) tabLabels() []string {
 	labels := make([]string, len(m.views))
 	for i, v := range m.views {
 		style := m.theme.tabInactive
@@ -926,14 +898,7 @@ func (m Model) renderTabs() string {
 		}
 		labels[i] = style.Render(label)
 	}
-	row := lipgloss.JoinHorizontal(lipgloss.Bottom, labels...)
-	if tag := m.versionTag(); tag != "" {
-		gap := m.width - lipgloss.Width(row) - lipgloss.Width(tag) - 2
-		if gap > 0 {
-			row += strings.Repeat(" ", gap) + tag
-		}
-	}
-	return m.theme.tabBar.Width(m.width).Render(row)
+	return labels
 }
 
 // windowTitle names the terminal window/tab after the focused view, so a
@@ -1051,6 +1016,7 @@ func (m Model) helpView() string {
 	line("ctrl+u/d", "half page")
 	line("/", "quick filter")
 	line("esc", "clear filter")
+	line("click", "select · double-click runs enter")
 
 	if legend := glyphLegend(m.views[m.current].Title()); len(legend) > 0 {
 		b.WriteByte('\n')

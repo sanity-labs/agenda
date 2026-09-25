@@ -398,6 +398,23 @@ func (l *List[T]) ScrollBy(n int) {
 	l.clampCursor()
 }
 
+// ClickAt selects the item drawn at line y of the list (0 = the first line
+// View renders). Reports whether a selectable item was hit; separators,
+// group headers and the blank space below the last item are not.
+func (l *List[T]) ClickAt(y int) bool {
+	if y < 0 {
+		return false
+	}
+	row := y / max(l.rowHeight, 1)
+	i := l.offset + row
+	if row >= l.visibleItems() || i >= len(l.filtered) || !selectable(l.items[l.filtered[i]]) {
+		return false
+	}
+	l.cursor = i
+	l.clampCursor()
+	return true
+}
+
 func (l *List[T]) clampCursor() {
 	if len(l.filtered) == 0 {
 		l.cursor, l.offset = 0, 0

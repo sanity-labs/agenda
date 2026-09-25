@@ -1361,7 +1361,35 @@ func (v *View) notifyNewReviews(prev, next []pr) tea.Cmd {
 }
 
 // ScrollList moves the list selection by n rows (mouse wheel).
-func (v *View) ScrollList(n int) { v.list.ScrollBy(n) }
+func (v *View) ScrollList(n int) tea.Cmd {
+	before := v.list.Selected().URL
+	v.list.ScrollBy(n)
+	return v.mouseMoved(before)
+}
+
+// ClickList selects the row under a click in the list column; y is relative
+// to the column top, whose first line is the header.
+func (v *View) ClickList(_, y int) (bool, tea.Cmd) {
+	before := v.list.Selected().URL
+	if !v.list.ClickAt(y - 1) {
+		return false, nil
+	}
+	return true, v.mouseMoved(before)
+}
+
+// Activate runs the open action on the selection (a double-click).
+func (v *View) Activate() tea.Cmd { return v.openSelected() }
+
+// mouseMoved follows a mouse-driven selection change the way a j/k move does:
+// restart the annotation cycle, fetch the pane's data once the selection
+// settles, and end a transient preview reveal.
+func (v *View) mouseMoved(before string) tea.Cmd {
+	if v.list.Selected().URL == before {
+		return nil
+	}
+	v.annIdx = 0
+	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview)
+}
 
 func (v *View) SetSize(listW, prevW, h int) {
 	v.listW, v.prevW, v.height = listW, prevW, h
