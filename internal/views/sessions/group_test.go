@@ -52,3 +52,17 @@ func TestSessionGroupingByTool(t *testing.T) {
 		}
 	}
 }
+
+func TestWheelDisarmsPendingDelete(t *testing.T) {
+	v := &View{}
+	v.list.SetRowHeight(2)
+	v.list.SetSize(40, 20)
+	v.raw = []session{mkSess("/a", "claude", 1), mkSess("/b", "claude", 2)}
+	v.applyView()
+	v.confirmDel = true
+
+	v.ScrollList(1)
+	if v.confirmDel {
+		t.Error("delete still armed after the wheel moved the selection; y would delete the new row")
+	}
+}

@@ -368,3 +368,45 @@ func TestFilterLine(t *testing.T) {
 		t.Errorf("case-sensitive FilterLine = %q, want it to contain Aa", got)
 	}
 }
+
+func TestListClickAt(t *testing.T) {
+	l := NewList[sepItem]()
+	l.SetItems([]sepItem{
+		{text: "a\n."},
+		{text: "lane\n.", sep: true},
+		{text: "b\n."},
+		{text: "c\n."},
+		{text: "d\n."},
+	})
+	l.SetRowHeight(2)
+	l.SetSize(40, 7) // three two-line rows fit; line 6 is padding
+
+	if !l.ClickAt(1) || l.Selected().text != "a\n." {
+		t.Errorf("click on row 0's second line selected %q, want a", l.Selected().text)
+	}
+	if !l.ClickAt(4) || l.Selected().text != "b\n." {
+		t.Errorf("click on line 4 selected %q, want b (row 2)", l.Selected().text)
+	}
+	for _, y := range []int{2, 6, -1} {
+		if l.ClickAt(y) {
+			t.Errorf("ClickAt(%d) hit; want a miss (separator / below window / above list)", y)
+		}
+		if l.Selected().text != "b\n." {
+			t.Errorf("ClickAt(%d) moved the cursor to %q", y, l.Selected().text)
+		}
+	}
+
+	// Scrolled down, line 0 is the first visible item, not the first item.
+	l.ScrollBy(10)
+	if !l.ClickAt(0) || l.Selected().text != "b\n." {
+		t.Errorf("click on line 0 after scrolling selected %q, want b (offset 2)", l.Selected().text)
+	}
+}
+
+func TestListClickBelowLastItemMisses(t *testing.T) {
+	l := newTestList("a", "b")
+	l.SetSize(40, 10)
+	if l.ClickAt(5) {
+		t.Error("click in the empty space under a short list hit an item")
+	}
+}

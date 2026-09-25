@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -185,5 +186,67 @@ func TestCommentsKeyCycle(t *testing.T) {
 	v.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if v.commentsJumped {
 		t.Fatal("selection change should reset the jump cycle")
+	}
+}
+
+func TestNavItemAtMatchesRenderedTree(t *testing.T) {
+	ui.SetGlyphs(false)
+	defer ui.SetGlyphs(true)
+	v := New(config.LinearConfig{Token: "x"}, nil, nil, nil)
+	v.navShown = true
+	v.favs = []navProject{{ID: "p1", Name: "Peekaboo"}}
+	v.rebuildNav()
+	v.SetSize(80, 60, 20)
+
+	lines := strings.Split(v.navView(), "\n")
+	for y, line := range lines {
+		i := v.navItemAt(y)
+		if i < 0 {
+			continue
+		}
+		if label := v.navItems[i].source.Label; !strings.Contains(line, label) {
+			t.Errorf("navItemAt(%d) = %q, but that line renders %q", y, label, line)
+		}
+	}
+	// Every entry is reachable by a click; headers and the gaps are not.
+	hits := map[int]bool{}
+	for y := range lines {
+		if i := v.navItemAt(y); i >= 0 {
+			hits[i] = true
+		}
+	}
+	for i, it := range v.navItems {
+		if hits[i] == it.header {
+			t.Errorf("entry %d (%q, header=%v): clickable=%v", i, it.source.Label, it.header, hits[i])
+		}
+	}
+}
+
+func TestClickListRoutesTreeAndRows(t *testing.T) {
+	ui.SetGlyphs(false)
+	defer ui.SetGlyphs(true)
+	v := New(config.LinearConfig{Token: "x"}, nil, fakeNotifier{}, nil)
+	v.navShown, v.navFocus = true, true
+	v.rebuildNav()
+	v.SetSize(80, 60, 20)
+	v.raw = mkIDs("A-1", "A-2")
+	v.applySort()
+
+	// "All Issues" is the third entry: line 3 of the tree.
+	row, cmd := v.ClickList(1, 3)
+	if row || cmd == nil || v.source.Kind != "all" {
+		t.Fatalf("tree click: row=%v cmd=%v source=%+v, want a refetch of All Issues", row, cmd != nil, v.source)
+	}
+
+	v.navFocus = true
+	navW := lipgloss.Width(v.navView())
+	if row, _ := v.ClickList(navW+1, 0); row {
+		t.Error("click on the list header counted as a row")
+	}
+	if row, _ := v.ClickList(navW+1, 3); !row || v.list.Selected().Identifier != "A-2" {
+		t.Errorf("click on the second row selected %q (row=%v), want A-2", v.list.Selected().Identifier, row)
+	}
+	if v.navFocus {
+		t.Error("clicking a row left focus in the tree")
 	}
 }

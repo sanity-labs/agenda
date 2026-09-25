@@ -170,17 +170,53 @@ func (v *View) updateNav(msg tea.KeyMsg) tea.Cmd {
 	case "right", "esc":
 		v.navFocus = false
 	case "enter":
-		it := v.navItems[v.navSel]
-		if it.header || it.source == v.source {
-			v.navFocus = false
-			return nil
-		}
-		v.source = it.source
-		v.navFocus = false
-		v.loading = true
-		return v.fetch()
+		return v.applyNav()
 	}
 	return nil
+}
+
+// applyNav switches the list to the tree's selected source and hands focus
+// back to the list. Returns the refetch command, or nil when the source is
+// already showing.
+func (v *View) applyNav() tea.Cmd {
+	it := v.navItems[v.navSel]
+	v.navFocus = false
+	if it.header || it.source == v.source {
+		return nil
+	}
+	v.source = it.source
+	v.loading = true
+	return v.fetch()
+}
+
+// clickNav applies the tree entry drawn at line y of the tree column, as
+// selecting it and pressing enter would.
+func (v *View) clickNav(y int) tea.Cmd {
+	i := v.navItemAt(y)
+	if i < 0 {
+		return nil
+	}
+	v.navSel = i
+	return v.applyNav()
+}
+
+// navItemAt maps a line of the rendered tree to the index of the entry drawn
+// there, or -1 for the alignment line, a header, the error footer or empty
+// space. It walks the same layout navView draws: one alignment line, then a
+// line per entry, with each header taking two (a gap and its label).
+func (v *View) navItemAt(y int) int {
+	line := 1
+	for i, it := range v.navItems {
+		if it.header {
+			line += 2
+			continue
+		}
+		if y == line {
+			return i
+		}
+		line++
+	}
+	return -1
 }
 
 // navWidth is the tree column's content width (0 when hidden).
@@ -235,8 +271,11 @@ func (v *View) navView() string {
 		}
 		body += l
 	}
+	// Width counts the border, so w+1 leaves the full w cells for content;
+	// with just w the full-width favourites rule wrapped onto a line of its
+	// own and pushed every project below it down a row.
 	return lipgloss.NewStyle().
-		Width(w).
+		Width(w + 1).
 		Height(max(1, v.height)).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderRight(true).
