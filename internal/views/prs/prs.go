@@ -1619,8 +1619,14 @@ func (v *View) Bindings() []key.Binding {
 	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review}
 }
 
+// Status is the footer's right-hand slot. The list header already carries
+// the counts and sort, so repeating them there just says everything twice;
+// only a flash (an action's result) belongs in the footer.
 func (v *View) Status() string {
-	return ui.Dim.Render(v.statusText())
+	if v.flash != "" {
+		return v.flash
+	}
+	return ""
 }
 
 func (v *View) InputActive() bool {
