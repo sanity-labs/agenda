@@ -3,18 +3,38 @@
 name-template: "v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
 
-# Type labels come from the title autolabeler below and from path-based
-# labels (.github/labeler.yml via actions/labeler); either source is enough
-# to categorize a PR.
+# Categories are evaluated in order and every one of them is exclusive, so a
+# PR lands in exactly the first that matches. Without that, a PR carrying two
+# type labels (#29 had both dependencies and docs) is listed once per
+# category. Area labels from .github/labeler.yml (tui, prs-view, ...) are for
+# triage and deliberately match nothing here.
 categories:
   - title: Features
-    labels: [feature]
+    exclusive: true
+    semver-increment: minor
+    when:
+      label: feature
   - title: Fixes
-    labels: [fix]
+    exclusive: true
+    when:
+      labels: [fix, perf]
   - title: Dependencies
-    labels: [dependencies]
+    exclusive: true
+    when:
+      label: dependencies
   - title: Other
-    labels: [chore, docs, ci]
+    exclusive: true
+    when:
+      labels: [chore, docs, ci]
+
+  # Version: a breaking change is major, a feature minor (declared above),
+  # anything else patch.
+  - type: version-resolver
+    semver-increment: major
+    when:
+      label: breaking
+  - type: version-resolver
+    semver-increment: patch
 
 # Label PRs from their conventional-commit titles so categories and the
 # version bump need no manual labelling.
@@ -23,21 +43,14 @@ autolabeler:
     title: ['/^feat(\(|!|:)/i']
   - label: fix
     title: ['/^fix(\(|!|:)/i']
+  - label: perf
+    title: ['/^perf(\(|!|:)/i']
   - label: docs
     title: ['/^docs(\(|!|:)/i']
   - label: ci
     title: ['/^ci(\(|!|:)/i']
   - label: chore
     title: ['/^(chore|refactor|test|build)(\(|!|:)/i']
-
-version-resolver:
-  major:
-    labels: [breaking]
-  minor:
-    labels: [feature]
-  patch:
-    labels: [fix, chore, docs, ci, dependencies]
-  default: patch
 
 change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
 template: |

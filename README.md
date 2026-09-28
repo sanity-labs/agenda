@@ -90,6 +90,25 @@ Requirements:
 - A **Nerd Font** in your terminal (for the status glyphs) — same as gh-dash.
 - The **`gh` CLI**, authenticated (`gh auth login`) — powers the PRs view.
 
+## Releasing
+
+Merges to `main` accumulate into a **draft** release, which only maintainers
+can see. Publishing that draft creates the `vX.Y.Z` tag, and the tag triggers
+GoReleaser to build the binaries and attach them. Nothing ships until someone
+publishes the draft.
+
+The version and the changelog both come from PR labels, applied automatically:
+
+- The conventional-commit prefix on the **PR title** sets the type label
+  (`feat:` → `feature`, `fix:` → `fix`, `perf:`, `docs:`, `ci:`, `chore:`).
+- `feature` bumps the minor version, `breaking` the major, anything else the
+  patch.
+- Changed paths add area labels (`tui`, `prs-view`, `config`, ...) for triage.
+  These never decide a changelog category, so a PR appears exactly once.
+
+So a PR titled `fix(tui): …` lands under Fixes with a patch bump, with no
+manual labelling. If the notes look wrong, check the PR's labels first.
+
 ## Configuration
 
 Config lives at `$XDG_CONFIG_HOME/agenda/config.yml` (defaults to
