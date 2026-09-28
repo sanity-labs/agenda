@@ -50,3 +50,25 @@ func TestStatusRowAndOverlay(t *testing.T) {
 		t.Error("overlay lost the earlier message; it should keep history")
 	}
 }
+
+// A message changes the layout height, so the frame and preview caches from
+// the scroll work must not survive it.
+func TestStatusMessageInvalidatesCaches(t *testing.T) {
+	m := New(config.Default(), []View{&stubView{"PRs"}})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	_ = m.View()
+	if m.frameDirty() {
+		t.Fatal("frame not cached after a draw")
+	}
+	before := m.contentHeight()
+
+	got, _ := m.Update(ui.Status(ui.SeverityWarn, "PRs", "3 hidden", ""))
+	m = got.(Model)
+	if !m.frameDirty() {
+		t.Error("frame reused after a message changed the layout height")
+	}
+	if m.contentHeight() >= before {
+		t.Errorf("contentHeight %d -> %d, want the status row to take one", before, m.contentHeight())
+	}
+}
