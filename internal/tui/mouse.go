@@ -84,7 +84,11 @@ func (m Model) wheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 	listW, _, _ := m.dims()
 	if msg.X >= listW {
-		m.scrollPreview(dir * m.previewStep())
+		if !m.scrollPreview(dir * m.previewStep()) {
+			// Already at the end: nothing moved, so keep the composed frame
+			// rather than redrawing the screen for every event of a spin.
+			m.keepFrame()
+		}
 		return m, nil
 	}
 	if m.wheelBurst(dir) {

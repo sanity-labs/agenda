@@ -52,6 +52,9 @@ type Model struct {
 	// body per event is what made a fast scroll stall. It sits behind a
 	// pointer so the value-receiver View can fill it.
 	previewCache *previewCache
+	// frame holds the last composed view, reused when a message changed
+	// nothing on screen (a wheel event against the end of the preview).
+	frame *frameCache
 
 	// cross-reference picker (nil unless the modal is open).
 	picker     *ui.Picker
@@ -128,6 +131,7 @@ func New(cfg config.Config, views []View) Model {
 		refresh:       refreshIntervals(cfg, views),
 		wheelSt:       &wheelState{},
 		previewCache:  &previewCache{},
+		frame:         &frameCache{},
 	}
 }
 
@@ -198,6 +202,9 @@ func groupingCmd(on bool) tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Assume the screen changed; the wheel path opts out when it provably
+	// did not, so a missed case costs a redraw rather than a stale frame.
+	m.invalidateFrame()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -508,12 +515,39 @@ func (m *Model) syncPreviewKey(force bool) {
 	}
 }
 
+// frameCache holds the last composed frame so a no-op message can reuse it
+// instead of re-rendering the whole screen.
+type frameCache struct {
+	content string
+	valid   bool
+}
+
+// frameDirty reports whether the next View must compose a new frame.
+func (m Model) frameDirty() bool { return m.frame == nil || !m.frame.valid }
+
+// keepFrame re-validates the composed frame after Update invalidated it,
+// for a message that provably changed nothing on screen.
+func (m *Model) keepFrame() {
+	if m.frame != nil && m.frame.content != "" {
+		m.frame.valid = true
+	}
+}
+
+// invalidateFrame marks the composed frame stale. Everything except a no-op
+// scroll goes through here, so reuse is opt-in and a missed call costs a
+// redraw rather than a stale screen.
+func (m *Model) invalidateFrame() {
+	if m.frame != nil {
+		m.frame.valid = false
+	}
+}
+
 // previewCache memoizes one rendered preview and its line count, so a burst
 // of scroll events measures and re-renders nothing.
 type previewCache struct {
 	key   string
 	text  string
-	lines int
+	split []string // text pre-split, so a scroll slices instead of re-splitting
 }
 
 // previewInvalidate drops the cached preview, so the next render re-asks the
@@ -535,25 +569,38 @@ func (m Model) previewCacheKey() string {
 // renderedPreview returns the preview text and its line count, rendering only
 // when something that affects it has changed.
 func (m Model) renderedPreview(cur View) (string, int) {
-	key := m.previewCacheKey()
+	split := m.previewSplit(cur)
+	return m.previewCache.text, len(split)
+}
+
+// previewSplit returns the rendered preview as lines, rendering and splitting
+// only when something that affects the preview has changed.
+func (m Model) previewSplit(cur View) []string {
 	if m.previewCache == nil {
-		text := cur.PreviewView()
-		return text, strings.Count(text, "\n") + 1
+		return strings.Split(cur.PreviewView(), "\n")
 	}
-	if key != m.previewCache.key {
+	if key := m.previewCacheKey(); key != m.previewCache.key {
 		text := cur.PreviewView()
 		m.previewCache.key = key
 		m.previewCache.text = text
-		m.previewCache.lines = strings.Count(text, "\n") + 1
+		m.previewCache.split = strings.Split(text, "\n")
 	}
-	return m.previewCache.text, m.previewCache.lines
+	return m.previewCache.split
 }
 
 // scrollPreview moves the preview offset by delta lines, clamped to content.
-func (m *Model) scrollPreview(delta int) {
+// It reports whether the offset actually moved: scrolling past either end
+// changes nothing, and redrawing for that is what made a wheel spun at the
+// boundary feel like it had a queue to work through.
+func (m *Model) scrollPreview(delta int) bool {
 	_, lines := m.renderedPreview(m.views[m.current])
 	maxOff := max(0, lines-m.contentHeight())
-	m.previewScroll = clamp(m.previewScroll+delta, 0, maxOff)
+	next := clamp(m.previewScroll+delta, 0, maxOff)
+	if next == m.previewScroll {
+		return false
+	}
+	m.previewScroll = next
+	return true
 }
 
 func (m Model) contentHeight() int {
@@ -760,6 +807,10 @@ func (m Model) View() tea.View {
 		v.Content = "Loading agenda…"
 		return v
 	}
+	if m.frame != nil && m.frame.valid {
+		v.Content = m.frame.content
+		return v
+	}
 
 	_, previewContentW, contentH := m.dims()
 	cur := m.views[m.current]
@@ -831,6 +882,9 @@ func (m Model) View() tea.View {
 		).Render()
 	}
 
+	if m.frame != nil {
+		m.frame.content, m.frame.valid = content, true
+	}
 	v.Content = content
 	return v
 }
@@ -872,12 +926,12 @@ func (m Model) renderToast() string {
 // scroll offset, with a scrollbar gutter on the right (a bar only when the full
 // content overflows the viewport).
 func (m Model) previewPane(cur View, contentW, height int) string {
-	full, total := m.renderedPreview(cur)
-	lines := strings.Split(clipFrom(full, m.previewScroll, height), "\n")
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	lines = lines[:height]
+	all := m.previewSplit(cur)
+	total := len(all)
+	// Copy: the clip aliases the cached split, and the padding below writes
+	// to it, which would corrupt the cache for the next frame.
+	lines := make([]string, height)
+	copy(lines, clipLines(all, m.previewScroll, height))
 	bar := ui.Scrollbar(height, total, height, m.previewScroll)
 	for i := range lines {
 		pad := max(0, contentW-lipgloss.Width(lines[i]))
@@ -892,13 +946,21 @@ func clipFrom(s string, offset, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	lines := strings.Split(s, "\n")
+	return strings.Join(clipLines(strings.Split(s, "\n"), offset, n), "\n")
+}
+
+// clipLines returns at most n lines starting at offset, without copying the
+// rest: the preview is long and this runs every frame.
+func clipLines(lines []string, offset, n int) []string {
+	if n <= 0 {
+		return nil
+	}
 	offset = clamp(offset, 0, len(lines))
 	lines = lines[offset:]
 	if len(lines) > n {
 		lines = lines[:n]
 	}
-	return strings.Join(lines, "\n")
+	return lines
 }
 
 func clamp(v, lo, hi int) int {

@@ -123,3 +123,73 @@ func TestSpinningWheelAccelerates(t *testing.T) {
 		t.Errorf("after the wheel stopped, one event scrolled %d lines, want 1", d)
 	}
 }
+
+// Spinning the wheel past the end must not cost a frame each: the offset
+// cannot move, so the rendered view is identical and should be reused.
+func TestScrollAtBoundaryReusesFrame(t *testing.T) {
+	m, v := newBigModel()
+	listW, _, _ := m.dims()
+	down := tea.MouseWheelMsg{X: listW + 1, Y: 5, Button: tea.MouseWheelDown}
+
+	// Drive to the bottom.
+	for i := 0; i < 4000; i++ {
+		got, _ := m.wheel(down)
+		m = got.(Model)
+	}
+	_ = m.View()
+	atEnd := m.previewScroll
+
+	v.calls = 0
+	frames := 0
+	for i := 0; i < 50; i++ {
+		got, _ := m.wheel(down)
+		m = got.(Model)
+		if m.frameDirty() {
+			frames++
+		}
+		_ = m.View()
+	}
+	if m.previewScroll != atEnd {
+		t.Fatalf("offset moved past the end: %d -> %d", atEnd, m.previewScroll)
+	}
+	if frames != 0 {
+		t.Errorf("%d frames redrawn while pinned at the end, want 0", frames)
+	}
+	if v.calls != 0 {
+		t.Errorf("PreviewView called %d times while pinned, want 0", v.calls)
+	}
+}
+
+// The frame cache must never outlive a real change: scrolling back from the
+// boundary, moving the selection, and async data all have to redraw.
+func TestFrameCacheDoesNotGoStale(t *testing.T) {
+	m, _ := newBigModel()
+	listW, _, _ := m.dims()
+	down := tea.MouseWheelMsg{X: listW + 1, Y: 5, Button: tea.MouseWheelDown}
+	up := tea.MouseWheelMsg{X: listW + 1, Y: 5, Button: tea.MouseWheelUp}
+
+	for i := 0; i < 4000; i++ { // pin to the bottom
+		got, _ := m.Update(down)
+		m = got.(Model)
+		_ = m.View()
+	}
+	got, _ := m.Update(down) // no-op: frame reused
+	m = got.(Model)
+	if m.frameDirty() {
+		t.Error("frame invalidated by a no-op scroll, want it reused")
+	}
+
+	got, _ = m.Update(up) // real movement: must redraw
+	m = got.(Model)
+	if !m.frameDirty() {
+		t.Error("frame reused after scrolling back from the end, want a redraw")
+	}
+	_ = m.View()
+
+	// Any other message must redraw too.
+	got, _ = m.Update(tea.KeyPressMsg{Code: 'j'})
+	m = got.(Model)
+	if !m.frameDirty() {
+		t.Error("frame reused after a key press, want a redraw")
+	}
+}
