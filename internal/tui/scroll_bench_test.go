@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -91,5 +92,34 @@ func TestPreviewCacheRefreshesWhenDataLands(t *testing.T) {
 	}
 	if lines != 3 {
 		t.Errorf("lines = %d, want 3", lines)
+	}
+}
+
+// A free-spinning wheel floods events faster than frames can drain them. The
+// scroll must cover more ground per event so it keeps up, and must drop back
+// to one line per event the moment the wheel stops.
+func TestSpinningWheelAccelerates(t *testing.T) {
+	m, _ := newBigModel()
+	listW, _, _ := m.dims()
+	down := tea.MouseWheelMsg{X: listW + 1, Y: 5, Button: tea.MouseWheelDown}
+
+	// A steady spin: many events with no gap.
+	for i := 0; i < 20; i++ {
+		got, _ := m.wheel(down)
+		m = got.(Model)
+	}
+	spun := m.previewScroll
+	if spun <= 20 {
+		t.Errorf("20 spun events scrolled %d lines, want more than one per event", spun)
+	}
+
+	// The wheel stops: the next event after a pause is a single line again.
+	m.wheelSt.prevAt = time.Now().Add(-time.Second)
+	m.wheelSt.fast = 0
+	before := m.previewScroll
+	got, _ := m.wheel(down)
+	m = got.(Model)
+	if d := m.previewScroll - before; d != 1 {
+		t.Errorf("after the wheel stopped, one event scrolled %d lines, want 1", d)
 	}
 }
