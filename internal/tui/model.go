@@ -72,6 +72,12 @@ type Model struct {
 	// helpOpen shows the full-keymap overlay ('?').
 	helpOpen bool
 
+	// status is the app-level message log (fetch failures, stale data,
+	// completed actions). The newest renders in the status row; errors open
+	// statusOpen on arrival so their detail is not buried behind a key.
+	status     []ui.StatusMsg
+	statusOpen bool
+
 	// lastClick remembers the previous row click, so a second click on the
 	// same row soon after counts as a double-click.
 	lastClick clickRecord
@@ -229,6 +235,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.click(msg.X, msg.Y)
 
+	case ui.StatusMsg:
+		m.status = append(m.status, msg)
+		if len(m.status) > statusLogMax {
+			m.status = m.status[len(m.status)-statusLogMax:]
+		}
+		// An error is worth interrupting for: its detail says how to fix it,
+		// and a one-line summary cannot carry a wrapped API message.
+		if msg.Severity == ui.SeverityError && msg.Detail != "" {
+			m.statusOpen = true
+		}
+		return m, nil
 	case updateAvailableMsg:
 		m.newer = string(msg)
 		return m, nil
@@ -273,6 +290,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// While the help overlay is open, any key closes it.
+		if m.statusOpen {
+			m.statusOpen = false
+			return m, nil
+		}
 		if m.helpOpen {
 			m.helpOpen = false
 			return m, nil
@@ -384,6 +405,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Zoom):
 			m.zoomed = !m.zoomed
 			m.layout() // preview width changed; views re-wrap their content
+			return m, nil
+		case key.Matches(msg, m.keys.Messages):
+			m.statusOpen = !m.statusOpen
 			return m, nil
 		case key.Matches(msg, m.keys.TogglePreview):
 			// A deliberate toggle overrides any transient reveal state.
@@ -604,7 +628,15 @@ func (m *Model) scrollPreview(delta int) bool {
 }
 
 func (m Model) contentHeight() int {
-	return max(1, m.height-tabBarHeight-footerHeight)
+	return max(1, m.height-tabBarHeight-footerHeight-m.statusHeight())
+}
+
+// statusHeight is the row the status line occupies, if it has anything to say.
+func (m Model) statusHeight() int {
+	if m.statusLine() == "" {
+		return 0
+	}
+	return 1
 }
 
 // applyKeybind persists one keybind edit and re-resolves whatever can apply
@@ -769,7 +801,7 @@ func (m Model) pickerItems(refs []ui.Ref) ([]ui.PickerItem, []ui.Ref) {
 // border + padding (3) and its scrollbar gutter (2). When zoomed the preview
 // takes the whole width and the list drops out.
 func (m Model) dims() (listW, previewContentW, contentH int) {
-	contentH = max(1, m.height-tabBarHeight-footerHeight)
+	contentH = max(1, m.height-tabBarHeight-footerHeight-m.statusHeight())
 	previewPane := m.width * previewRatio / 100
 	if m.zoomed {
 		previewPane = m.width
@@ -783,6 +815,23 @@ func (m Model) dims() (listW, previewContentW, contentH int) {
 
 // scrollGutter is the width reserved for a scrollbar (the bar + a gap).
 const scrollGutter = 2
+
+// statusLogMax caps the message log; it is a tail, not an archive.
+const statusLogMax = 50
+
+// statusLine renders the newest message, or nothing when the log is empty or
+// the newest has been read (any message is cleared by opening the log).
+func (m Model) statusLine() string {
+	if len(m.status) == 0 || m.statusOpen {
+		return ""
+	}
+	latest := m.status[len(m.status)-1]
+	hint := ""
+	if bindings := m.keys.Messages.Keys(); len(bindings) > 0 {
+		hint = bindings[0]
+	}
+	return latest.Line(m.width, hint)
+}
 
 // layout recomputes per-view sizes after a resize.
 func (m *Model) layout() {
@@ -832,12 +881,12 @@ func (m Model) View() tea.View {
 		)
 	}
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		m.renderTabs(),
-		body,
-		m.renderFooter(),
-	)
+	rows := []string{m.renderTabs(), body}
+	if line := m.statusLine(); line != "" {
+		rows = append(rows, line)
+	}
+	rows = append(rows, m.renderFooter())
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 
 	// Composite the picker modal centered over the content, if open.
 	if m.picker != nil {
@@ -855,6 +904,11 @@ func (m Model) View() tea.View {
 		if box := o.Overlay(); box != "" {
 			content = m.overlayCentered(content, box)
 		}
+	}
+
+	// Composite the message log, if open.
+	if m.statusOpen {
+		content = m.overlayCentered(content, ui.DetailView(m.status, min(70, m.width-10)))
 	}
 
 	// Composite the help overlay centered over the content, if open.

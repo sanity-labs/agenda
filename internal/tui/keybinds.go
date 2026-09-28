@@ -34,6 +34,7 @@ func keyRegistry() []keyEntry {
 		{"global", "filter", "field filter", []string{"f"}},
 		{"global", "zoom", "zoom preview", []string{"z"}},
 		{"global", "toggle_preview", "show/hide preview", []string{"v"}},
+		{"global", "messages", "message log", []string{"!"}},
 		{"global", "config", "config overlay", []string{"ctrl+s"}},
 		{"global", "preview_up", "preview up", []string{"shift+up"}},
 		{"global", "preview_down", "preview down", []string{"shift+down"}},
