@@ -47,6 +47,11 @@ type Model struct {
 	// preview scrolling, owned centrally so it works the same in every view.
 	previewScroll int
 	previewKey    string
+	// previewCache holds the last rendered preview and its line count.
+	// Scrolling and drawing both need them, and re-rendering a long markdown
+	// body per event is what made a fast scroll stall. It sits behind a
+	// pointer so the value-receiver View can fill it.
+	previewCache *previewCache
 
 	// cross-reference picker (nil unless the modal is open).
 	picker     *ui.Picker
@@ -122,6 +127,7 @@ func New(cfg config.Config, views []View) Model {
 		views:         views,
 		refresh:       refreshIntervals(cfg, views),
 		wheelSt:       &wheelState{},
+		previewCache:  &previewCache{},
 	}
 }
 
@@ -458,7 +464,7 @@ func (m Model) updateCurrent(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if j, ok := m.views[m.current].(previewJumper); ok {
 		if line, jump := j.TakePreviewJump(); jump {
 			// Put the target line near the top of the viewport.
-			lines := strings.Count(m.views[m.current].PreviewView(), "\n") + 1
+			_, lines := m.renderedPreview(m.views[m.current])
 			maxOff := max(0, lines-m.contentHeight())
 			m.previewScroll = clamp(line-1, 0, maxOff)
 		}
@@ -489,6 +495,9 @@ func (m *Model) concealTransient() {
 // syncPreviewKey resets the preview scroll to the top when the selected item
 // changes (or always, when force is set, e.g. on a view switch).
 func (m *Model) syncPreviewKey(force bool) {
+	// Every path that can move the selection calls this, so the cache drop
+	// belongs here rather than at each call site.
+	m.previewInvalidate()
 	if len(m.views) == 0 {
 		return
 	}
@@ -499,9 +508,50 @@ func (m *Model) syncPreviewKey(force bool) {
 	}
 }
 
+// previewCache memoizes one rendered preview and its line count, so a burst
+// of scroll events measures and re-renders nothing.
+type previewCache struct {
+	key   string
+	text  string
+	lines int
+}
+
+// previewInvalidate drops the cached preview, so the next render re-asks the
+// view. Anything that can change the preview calls this; only the scroll and
+// draw paths rely on the cache surviving.
+func (m *Model) previewInvalidate() {
+	if m.previewCache != nil {
+		m.previewCache.key = ""
+	}
+}
+
+// previewCacheKey identifies the current preview render: which view, which
+// item, and the size it was laid out at.
+func (m Model) previewCacheKey() string {
+	_, prevW, contentH := m.dims()
+	return fmt.Sprintf("%d:%s:%d:%d", m.current, m.previewKey, prevW, contentH)
+}
+
+// renderedPreview returns the preview text and its line count, rendering only
+// when something that affects it has changed.
+func (m Model) renderedPreview(cur View) (string, int) {
+	key := m.previewCacheKey()
+	if m.previewCache == nil {
+		text := cur.PreviewView()
+		return text, strings.Count(text, "\n") + 1
+	}
+	if key != m.previewCache.key {
+		text := cur.PreviewView()
+		m.previewCache.key = key
+		m.previewCache.text = text
+		m.previewCache.lines = strings.Count(text, "\n") + 1
+	}
+	return m.previewCache.text, m.previewCache.lines
+}
+
 // scrollPreview moves the preview offset by delta lines, clamped to content.
 func (m *Model) scrollPreview(delta int) {
-	lines := strings.Count(m.views[m.current].PreviewView(), "\n") + 1
+	_, lines := m.renderedPreview(m.views[m.current])
 	maxOff := max(0, lines-m.contentHeight())
 	m.previewScroll = clamp(m.previewScroll+delta, 0, maxOff)
 }
@@ -822,8 +872,7 @@ func (m Model) renderToast() string {
 // scroll offset, with a scrollbar gutter on the right (a bar only when the full
 // content overflows the viewport).
 func (m Model) previewPane(cur View, contentW, height int) string {
-	full := cur.PreviewView()
-	total := strings.Count(full, "\n") + 1
+	full, total := m.renderedPreview(cur)
 	lines := strings.Split(clipFrom(full, m.previewScroll, height), "\n")
 	for len(lines) < height {
 		lines = append(lines, "")
