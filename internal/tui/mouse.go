@@ -60,6 +60,8 @@ type wheelState struct {
 	drawnAt time.Time // when View last returned
 	at      time.Time // the previous wheel event over the list
 	dir     int
+	prevAt  time.Time // the previous preview wheel event, for the velocity step
+	fast    int       // consecutive fast-arriving preview events
 }
 
 // wheel scrolls the pane under the pointer. The preview moves a line per
@@ -82,7 +84,11 @@ func (m Model) wheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 	listW, _, _ := m.dims()
 	if msg.X >= listW {
-		m.scrollPreview(dir)
+		if !m.scrollPreview(dir * m.previewStep()) {
+			// Already at the end: nothing moved, so keep the composed frame
+			// rather than redrawing the screen for every event of a spin.
+			m.keepFrame()
+		}
 		return m, nil
 	}
 	if m.wheelBurst(dir) {
@@ -93,6 +99,40 @@ func (m Model) wheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 // wheelBurst records a wheel event over the list and reports whether it is
 // the tail of a notch whose first event already scrolled.
+// Velocity scrolling for the preview. Bubbletea draws a frame per event, so a
+// free-spinning wheel queues events faster than frames can drain them and the
+// scroll trails the wheel, still moving after it stops. Covering more lines
+// per event when events arrive close together keeps the distance proportional
+// to how fast the wheel turned, and stops when it does.
+const (
+	wheelFastGap = 16 * time.Millisecond // below this gap, events are outrunning frames
+	wheelMaxStep = 8                     // lines per event at full speed
+	// A notch is a burst of events with no gap between them, so speed alone
+	// cannot tell a single notch from a spin. Only accelerate once more than
+	// one notch's worth of events has arrived back to back.
+	wheelSpinAfter = 4
+)
+
+// previewStep is how many lines one wheel event scrolls: one normally, more
+// once the wheel has been spinning long enough to outrun the draw loop.
+func (m Model) previewStep() int {
+	w := m.wheelSt
+	if w == nil {
+		return 1
+	}
+	now := time.Now()
+	if now.Sub(w.prevAt) >= wheelFastGap {
+		w.fast = 0
+	} else {
+		w.fast++
+	}
+	w.prevAt = now
+	if w.fast < wheelSpinAfter {
+		return 1
+	}
+	return min(wheelMaxStep, w.fast-wheelSpinAfter+2)
+}
+
 func (m Model) wheelBurst(dir int) bool {
 	w := m.wheelSt
 	if w == nil {

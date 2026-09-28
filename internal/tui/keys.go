@@ -19,6 +19,7 @@ type globalKeys struct {
 	Config        key.Binding
 	Zoom          key.Binding
 	TogglePreview key.Binding
+	Messages      key.Binding
 	PreviewUp     key.Binding
 	PreviewDown   key.Binding
 	PreviewPgUp   key.Binding
@@ -42,6 +43,7 @@ func newKeys(km config.Keymap) globalKeys {
 		Config:        bind("config", "", "config", "ctrl+s"),
 		Zoom:          bind("zoom", "", "zoom", "z"),
 		TogglePreview: bind("toggle_preview", "", "preview", "v"),
+		Messages:      bind("messages", "", "messages", "!"),
 		PreviewUp:     bind("preview_up", "", "scroll preview", "shift+up"),
 		PreviewDown:   bind("preview_down", "", "", "shift+down"),
 		PreviewPgUp:   bind("preview_pgup", "", "", "pgup"),

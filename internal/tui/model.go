@@ -47,6 +47,14 @@ type Model struct {
 	// preview scrolling, owned centrally so it works the same in every view.
 	previewScroll int
 	previewKey    string
+	// previewCache holds the last rendered preview and its line count.
+	// Scrolling and drawing both need them, and re-rendering a long markdown
+	// body per event is what made a fast scroll stall. It sits behind a
+	// pointer so the value-receiver View can fill it.
+	previewCache *previewCache
+	// frame holds the last composed view, reused when a message changed
+	// nothing on screen (a wheel event against the end of the preview).
+	frame *frameCache
 
 	// cross-reference picker (nil unless the modal is open).
 	picker     *ui.Picker
@@ -63,6 +71,12 @@ type Model struct {
 
 	// helpOpen shows the full-keymap overlay ('?').
 	helpOpen bool
+
+	// status is the app-level message log (fetch failures, stale data,
+	// completed actions). The newest renders in the status row; errors open
+	// statusOpen on arrival so their detail is not buried behind a key.
+	status     []ui.StatusMsg
+	statusOpen bool
 
 	// lastClick remembers the previous row click, so a second click on the
 	// same row soon after counts as a double-click.
@@ -122,6 +136,8 @@ func New(cfg config.Config, views []View) Model {
 		views:         views,
 		refresh:       refreshIntervals(cfg, views),
 		wheelSt:       &wheelState{},
+		previewCache:  &previewCache{},
+		frame:         &frameCache{},
 	}
 }
 
@@ -192,6 +208,9 @@ func groupingCmd(on bool) tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Assume the screen changed; the wheel path opts out when it provably
+	// did not, so a missed case costs a redraw rather than a stale frame.
+	m.invalidateFrame()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -216,6 +235,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.click(msg.X, msg.Y)
 
+	case ui.StatusMsg:
+		m.status = append(m.status, msg)
+		if len(m.status) > statusLogMax {
+			m.status = m.status[len(m.status)-statusLogMax:]
+		}
+		// An error is worth interrupting for: its detail says how to fix it,
+		// and a one-line summary cannot carry a wrapped API message.
+		if msg.Severity == ui.SeverityError && msg.Detail != "" {
+			m.statusOpen = true
+		}
+		return m, nil
 	case updateAvailableMsg:
 		m.newer = string(msg)
 		return m, nil
@@ -260,6 +290,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// While the help overlay is open, any key closes it.
+		if m.statusOpen {
+			m.statusOpen = false
+			return m, nil
+		}
 		if m.helpOpen {
 			m.helpOpen = false
 			return m, nil
@@ -372,6 +406,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.zoomed = !m.zoomed
 			m.layout() // preview width changed; views re-wrap their content
 			return m, nil
+		case key.Matches(msg, m.keys.Messages):
+			m.statusOpen = !m.statusOpen
+			return m, nil
 		case key.Matches(msg, m.keys.TogglePreview):
 			// A deliberate toggle overrides any transient reveal state.
 			m.previewHidden, m.previewTransient = !m.previewHidden, false
@@ -458,7 +495,7 @@ func (m Model) updateCurrent(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if j, ok := m.views[m.current].(previewJumper); ok {
 		if line, jump := j.TakePreviewJump(); jump {
 			// Put the target line near the top of the viewport.
-			lines := strings.Count(m.views[m.current].PreviewView(), "\n") + 1
+			_, lines := m.renderedPreview(m.views[m.current])
 			maxOff := max(0, lines-m.contentHeight())
 			m.previewScroll = clamp(line-1, 0, maxOff)
 		}
@@ -489,6 +526,9 @@ func (m *Model) concealTransient() {
 // syncPreviewKey resets the preview scroll to the top when the selected item
 // changes (or always, when force is set, e.g. on a view switch).
 func (m *Model) syncPreviewKey(force bool) {
+	// Every path that can move the selection calls this, so the cache drop
+	// belongs here rather than at each call site.
+	m.previewInvalidate()
 	if len(m.views) == 0 {
 		return
 	}
@@ -499,15 +539,104 @@ func (m *Model) syncPreviewKey(force bool) {
 	}
 }
 
+// frameCache holds the last composed frame so a no-op message can reuse it
+// instead of re-rendering the whole screen.
+type frameCache struct {
+	content string
+	valid   bool
+}
+
+// frameDirty reports whether the next View must compose a new frame.
+func (m Model) frameDirty() bool { return m.frame == nil || !m.frame.valid }
+
+// keepFrame re-validates the composed frame after Update invalidated it,
+// for a message that provably changed nothing on screen.
+func (m *Model) keepFrame() {
+	if m.frame != nil && m.frame.content != "" {
+		m.frame.valid = true
+	}
+}
+
+// invalidateFrame marks the composed frame stale. Everything except a no-op
+// scroll goes through here, so reuse is opt-in and a missed call costs a
+// redraw rather than a stale screen.
+func (m *Model) invalidateFrame() {
+	if m.frame != nil {
+		m.frame.valid = false
+	}
+}
+
+// previewCache memoizes one rendered preview and its line count, so a burst
+// of scroll events measures and re-renders nothing.
+type previewCache struct {
+	key   string
+	text  string
+	split []string // text pre-split, so a scroll slices instead of re-splitting
+}
+
+// previewInvalidate drops the cached preview, so the next render re-asks the
+// view. Anything that can change the preview calls this; only the scroll and
+// draw paths rely on the cache surviving.
+func (m *Model) previewInvalidate() {
+	if m.previewCache != nil {
+		m.previewCache.key = ""
+	}
+}
+
+// previewCacheKey identifies the current preview render: which view, which
+// item, and the size it was laid out at.
+func (m Model) previewCacheKey() string {
+	_, prevW, contentH := m.dims()
+	return fmt.Sprintf("%d:%s:%d:%d", m.current, m.previewKey, prevW, contentH)
+}
+
+// renderedPreview returns the preview text and its line count, rendering only
+// when something that affects it has changed.
+func (m Model) renderedPreview(cur View) (string, int) {
+	split := m.previewSplit(cur)
+	return m.previewCache.text, len(split)
+}
+
+// previewSplit returns the rendered preview as lines, rendering and splitting
+// only when something that affects the preview has changed.
+func (m Model) previewSplit(cur View) []string {
+	if m.previewCache == nil {
+		return strings.Split(cur.PreviewView(), "\n")
+	}
+	if key := m.previewCacheKey(); key != m.previewCache.key {
+		text := cur.PreviewView()
+		m.previewCache.key = key
+		m.previewCache.text = text
+		m.previewCache.split = strings.Split(text, "\n")
+	}
+	return m.previewCache.split
+}
+
 // scrollPreview moves the preview offset by delta lines, clamped to content.
-func (m *Model) scrollPreview(delta int) {
-	lines := strings.Count(m.views[m.current].PreviewView(), "\n") + 1
+// It reports whether the offset actually moved: scrolling past either end
+// changes nothing, and redrawing for that is what made a wheel spun at the
+// boundary feel like it had a queue to work through.
+func (m *Model) scrollPreview(delta int) bool {
+	_, lines := m.renderedPreview(m.views[m.current])
 	maxOff := max(0, lines-m.contentHeight())
-	m.previewScroll = clamp(m.previewScroll+delta, 0, maxOff)
+	next := clamp(m.previewScroll+delta, 0, maxOff)
+	if next == m.previewScroll {
+		return false
+	}
+	m.previewScroll = next
+	return true
 }
 
 func (m Model) contentHeight() int {
-	return max(1, m.height-tabBarHeight-footerHeight)
+	return max(1, m.height-tabBarHeight-footerHeight-m.statusHeight())
+}
+
+// statusHeight is the row the status line occupies, if it has anything to say.
+func (m Model) statusHeight() int {
+	if m.statusLine() == "" {
+		return 0
+	}
+	return 1
 }
 
 // applyKeybind persists one keybind edit and re-resolves whatever can apply
@@ -672,7 +801,7 @@ func (m Model) pickerItems(refs []ui.Ref) ([]ui.PickerItem, []ui.Ref) {
 // border + padding (3) and its scrollbar gutter (2). When zoomed the preview
 // takes the whole width and the list drops out.
 func (m Model) dims() (listW, previewContentW, contentH int) {
-	contentH = max(1, m.height-tabBarHeight-footerHeight)
+	contentH = max(1, m.height-tabBarHeight-footerHeight-m.statusHeight())
 	previewPane := m.width * previewRatio / 100
 	if m.zoomed {
 		previewPane = m.width
@@ -686,6 +815,23 @@ func (m Model) dims() (listW, previewContentW, contentH int) {
 
 // scrollGutter is the width reserved for a scrollbar (the bar + a gap).
 const scrollGutter = 2
+
+// statusLogMax caps the message log; it is a tail, not an archive.
+const statusLogMax = 50
+
+// statusLine renders the newest message, or nothing when the log is empty or
+// the newest has been read (any message is cleared by opening the log).
+func (m Model) statusLine() string {
+	if len(m.status) == 0 || m.statusOpen {
+		return ""
+	}
+	latest := m.status[len(m.status)-1]
+	hint := ""
+	if bindings := m.keys.Messages.Keys(); len(bindings) > 0 {
+		hint = bindings[0]
+	}
+	return latest.Line(m.width, hint)
+}
 
 // layout recomputes per-view sizes after a resize.
 func (m *Model) layout() {
@@ -710,6 +856,10 @@ func (m Model) View() tea.View {
 		v.Content = "Loading agenda…"
 		return v
 	}
+	if m.frame != nil && m.frame.valid {
+		v.Content = m.frame.content
+		return v
+	}
 
 	_, previewContentW, contentH := m.dims()
 	cur := m.views[m.current]
@@ -731,12 +881,12 @@ func (m Model) View() tea.View {
 		)
 	}
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		m.renderTabs(),
-		body,
-		m.renderFooter(),
-	)
+	rows := []string{m.renderTabs(), body}
+	if line := m.statusLine(); line != "" {
+		rows = append(rows, line)
+	}
+	rows = append(rows, m.renderFooter())
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 
 	// Composite the picker modal centered over the content, if open.
 	if m.picker != nil {
@@ -754,6 +904,11 @@ func (m Model) View() tea.View {
 		if box := o.Overlay(); box != "" {
 			content = m.overlayCentered(content, box)
 		}
+	}
+
+	// Composite the message log, if open.
+	if m.statusOpen {
+		content = m.overlayCentered(content, ui.DetailView(m.status, min(70, m.width-10)))
 	}
 
 	// Composite the help overlay centered over the content, if open.
@@ -781,6 +936,9 @@ func (m Model) View() tea.View {
 		).Render()
 	}
 
+	if m.frame != nil {
+		m.frame.content, m.frame.valid = content, true
+	}
 	v.Content = content
 	return v
 }
@@ -822,13 +980,12 @@ func (m Model) renderToast() string {
 // scroll offset, with a scrollbar gutter on the right (a bar only when the full
 // content overflows the viewport).
 func (m Model) previewPane(cur View, contentW, height int) string {
-	full := cur.PreviewView()
-	total := strings.Count(full, "\n") + 1
-	lines := strings.Split(clipFrom(full, m.previewScroll, height), "\n")
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	lines = lines[:height]
+	all := m.previewSplit(cur)
+	total := len(all)
+	// Copy: the clip aliases the cached split, and the padding below writes
+	// to it, which would corrupt the cache for the next frame.
+	lines := make([]string, height)
+	copy(lines, clipLines(all, m.previewScroll, height))
 	bar := ui.Scrollbar(height, total, height, m.previewScroll)
 	for i := range lines {
 		pad := max(0, contentW-lipgloss.Width(lines[i]))
@@ -843,13 +1000,21 @@ func clipFrom(s string, offset, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	lines := strings.Split(s, "\n")
+	return strings.Join(clipLines(strings.Split(s, "\n"), offset, n), "\n")
+}
+
+// clipLines returns at most n lines starting at offset, without copying the
+// rest: the preview is long and this runs every frame.
+func clipLines(lines []string, offset, n int) []string {
+	if n <= 0 {
+		return nil
+	}
 	offset = clamp(offset, 0, len(lines))
 	lines = lines[offset:]
 	if len(lines) > n {
 		lines = lines[:n]
 	}
-	return strings.Join(lines, "\n")
+	return lines
 }
 
 func clamp(v, lo, hi int) int {

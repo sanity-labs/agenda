@@ -124,6 +124,7 @@ the full keymap in-app.
 | Global | `l` | follow references — opens a picker of related items |
 | Global | `ctrl+s` | config overlay (theme, refresh, notifications, views…) |
 | Global | `ctrl+r` | refresh |
+| Global | `!` | message log: fetch failures, stale data, actions |
 | Global | `?` | help: every binding for the focused view |
 | Global | `q` | quit |
 | PRs | `enter` · `y` · `s`/`S` | open · copy URL · cycle sort / reverse it |
@@ -157,6 +158,18 @@ pane it's over: the list one row per notch, the preview as many lines as your
 terminal sends for a notch (three in Ghostty), and trackpad swipes scroll with
 their speed. Mouse capture means selecting text needs your terminal's bypass
 modifier (usually `shift`, or `option` in iTerm2).
+
+### Messages
+
+A status row above the footer reports things that affect what you are looking
+at: a fetch that partly failed, cached data shown because a refresh failed, a
+completed action. `!` opens the log with the full text and recent history, and
+an error opens it on arrival, since the detail usually says how to fix it.
+
+One case worth naming: if `GITHUB_TOKEN` is set in your environment, `gh`
+prefers it over its own login, and an org that forbids classic tokens then
+returns your PRs as nulls. agenda shows the PRs it could read and says how
+many it could not, rather than dropping them silently.
 
 ## Configuration highlights
 
