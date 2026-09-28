@@ -212,6 +212,11 @@ out of the box agenda looks and acts as it did before these options existed.
   is newly assigned to you, get an in-app toast (`popup: terminal`) or an OS
   notification (`popup: desktop`), optionally with a sound. Bodies summarize
   the new items (`repo#N: title (@author)`).
+- **Lazy paging**: the PRs view fetches one page (`github.page_size`, 20 by
+  default) and loads the next when you scroll to the end, so a large
+  review-requested search paints in seconds instead of timing out. The list
+  header says `20 of 79` while more remain. `github.lazy_paging: false`
+  fetches everything up front.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

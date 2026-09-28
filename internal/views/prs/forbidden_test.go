@@ -25,7 +25,8 @@ const partialForbidden = `{
 }`
 
 func TestDecodeSearchKeepsRowsAndReason(t *testing.T) {
-	prs, err, ok := decodeSearch([]byte(partialForbidden))
+	page, err, ok := decodeSearch([]byte(partialForbidden))
+	prs := page.prs
 	if !ok {
 		t.Fatal("decodeSearch did not recognise the envelope")
 	}
@@ -44,7 +45,8 @@ func TestDecodeSearchKeepsRowsAndReason(t *testing.T) {
 }
 
 func TestDecodeSearchCleanResponse(t *testing.T) {
-	prs, err, ok := decodeSearch([]byte(`{"data":{"search":{"nodes":[{"number":1},{"number":2}]}}}`))
+	page, err, ok := decodeSearch([]byte(`{"data":{"search":{"nodes":[{"number":1},{"number":2}]}}}`))
+	prs := page.prs
 	if !ok || err != nil {
 		t.Fatalf("clean response: ok=%v err=%v, want true/nil", ok, err)
 	}
@@ -62,7 +64,8 @@ func TestDecodeSearchRejectsNonEnvelope(t *testing.T) {
 // Every row forbidden is a total failure, not a partial one.
 func TestDecodeSearchAllForbidden(t *testing.T) {
 	body := `{"data":{"search":{"nodes":[null,null]}},"errors":[{"message":"nope"},{"message":"nope"}]}`
-	prs, err, ok := decodeSearch([]byte(body))
+	page, err, ok := decodeSearch([]byte(body))
+	prs := page.prs
 	if !ok {
 		t.Fatal("not recognised")
 	}

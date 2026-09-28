@@ -5,10 +5,13 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -45,6 +48,10 @@ type Config struct {
 	// "global", "prs", "sessions", "linear"; actions and defaults are listed
 	// in config.example.yml. A binding may be a single key or a list.
 	Keys Keymap `yaml:"keys"`
+
+	// Unknown lists config keys that parsed but match nothing, so the app can
+	// report them rather than silently ignoring a typo. Not a config key.
+	Unknown []string `yaml:"-"`
 
 	GitHub   GitHubConfig   `yaml:"github"`
 	Linear   LinearConfig   `yaml:"linear"`
@@ -109,10 +116,33 @@ type GitHubConfig struct {
 	// DiffPane renders diffs in the preview pane on 'd'. Off by default:
 	// 'd' then pages the diff through less, the original behavior.
 	DiffPane bool `yaml:"diff_pane"`
+	// LazyPaging fetches PRs a page at a time, loading the next page when the
+	// cursor reaches the end of the list. On by default: one page of 100 rows
+	// of these fields measured 8-10s against a large review-requested search
+	// and timed out often enough to matter, where a page of 20 is 3-4s.
+	LazyPaging *bool `yaml:"lazy_paging"`
+	// PageSize is how many PRs one request asks for (default 20, max 100).
+	// Larger pages mean fewer requests and a slower first paint.
+	PageSize int `yaml:"page_size"`
 	// MarkReviewed dims review-requested rows the viewer has already
 	// reviewed and tags them "reviewed", so the eye can skip them. Off by
 	// default.
 	MarkReviewed bool `yaml:"mark_reviewed"`
+}
+
+// LazyPagingEnabled reports whether the PR search pages lazily.
+func (g GitHubConfig) LazyPagingEnabled() bool { return g.LazyPaging == nil || *g.LazyPaging }
+
+// ResolvedPageSize is the page size to request, clamped to what the GraphQL
+// search accepts.
+func (g GitHubConfig) ResolvedPageSize() int {
+	if g.PageSize <= 0 {
+		return 20
+	}
+	if g.PageSize > 100 {
+		return 100 // the search API's own ceiling
+	}
+	return g.PageSize
 }
 
 type LinearConfig struct {
@@ -189,6 +219,24 @@ func Default() Config {
 	}
 }
 
+// unknownKeys pulls the offending key names out of a yaml KnownFields error,
+// whose message is a multi-line list of "line N: field X not found in type Y".
+func unknownKeys(err error) []string {
+	var out []string
+	for _, line := range strings.Split(err.Error(), "\n") {
+		line = strings.TrimSpace(line)
+		_, rest, ok := strings.Cut(line, "field ")
+		if !ok {
+			continue
+		}
+		name, _, ok := strings.Cut(rest, " not found")
+		if ok {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // Dir is the directory agenda reads its config from:
 // $XDG_CONFIG_HOME/agenda, falling back to ~/.config/agenda.
 func Dir() (string, error) {
@@ -231,8 +279,20 @@ func Load() (Config, error) {
 	}
 
 	// Unmarshal onto the defaults so absent keys keep their default value.
+	// KnownFields makes a key that does nothing an error rather than silence:
+	// a typo or a renamed option is otherwise indistinguishable from the
+	// feature not working.
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return cfg, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	// Keys that do nothing are worth reporting: a typo or a renamed option is
+	// otherwise indistinguishable from the feature not working. A second
+	// strict pass finds them without letting one stop agenda from starting.
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	var probe Config
+	if err := dec.Decode(&probe); err != nil && !errors.Is(err, io.EOF) {
+		cfg.Unknown = unknownKeys(err)
 	}
 	if cfg.Linear.Filter.Limit <= 0 {
 		cfg.Linear.Filter.Limit = 100

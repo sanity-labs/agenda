@@ -184,6 +184,17 @@ func (m Model) Init() tea.Cmd {
 	for i, v := range m.views {
 		cmds = append(cmds, v.Init(), m.refreshTick(i))
 	}
+	// Config keys that match nothing are reported rather than ignored: a typo
+	// otherwise looks exactly like the feature not working.
+	if len(m.cfg.Unknown) > 0 {
+		keys := strings.Join(m.cfg.Unknown, ", ")
+		cmds = append(cmds, func() tea.Msg {
+			return ui.Status(ui.SeverityWarn, "config",
+				fmt.Sprintf("%d unknown config key(s): %s", len(m.cfg.Unknown), keys),
+				"These keys parsed but match no option, so they do nothing. Check them against config.example.yml.")
+		})
+	}
+
 	// Views start flat; when grouping is configured on, a broadcast flips
 	// them before the first data lands.
 	if m.cfg.Grouping {

@@ -238,6 +238,12 @@ func (l *List[T]) Len() int { return len(l.filtered) }
 // Total is the number of items before filtering.
 func (l *List[T]) Total() int { return len(l.items) }
 
+// AtEnd reports whether the cursor is on the last visible row, which is when
+// a paging view fetches the next page.
+func (l *List[T]) AtEnd() bool {
+	return len(l.filtered) > 0 && l.cursor >= len(l.filtered)-1
+}
+
 // Items exposes the full item slice (before filtering), so callers can
 // inspect list composition; tests of grouping rely on it.
 func (l *List[T]) Items() []T { return l.items }
