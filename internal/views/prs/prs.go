@@ -647,6 +647,48 @@ func ensurePR(q string) string {
 	return strings.TrimSpace(q + " is:pr")
 }
 
+// graphqlErr is a GraphQL error entry: the parts worth showing a user.
+type graphqlErr struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// decodeSearch reads a gh graphql response envelope. GitHub answers a partly
+// forbidden search with HTTP 200, the rows the token may read, and nulls for
+// the rest, alongside an errors array explaining why; returning the rows and
+// the reason together beats silently dropping either. ok is false when the
+// bytes are not a GraphQL envelope at all.
+func decodeSearch(out []byte) (prs []pr, err error, ok bool) {
+	var env struct {
+		Data struct {
+			Search struct {
+				Nodes []pr `json:"nodes"`
+			} `json:"search"`
+		} `json:"data"`
+		Errors []graphqlErr `json:"errors"`
+	}
+	if json.Unmarshal(out, &env) != nil {
+		return nil, nil, false
+	}
+	return dropEmpty(env.Data.Search.Nodes), hiddenErr(env.Errors, len(env.Data.Search.Nodes)), true
+}
+
+// hiddenErr summarises why some rows are missing. Identical messages collapse:
+// one forbidden org yields one error per hidden row.
+func hiddenErr(errs []graphqlErr, total int) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	msg := errs[0].Message
+	if strings.Contains(msg, "personal access token (classic)") {
+		msg += "\nUnset GITHUB_TOKEN so gh uses its own login, or switch to a fine-grained token."
+	}
+	if len(errs) < total {
+		return fmt.Errorf("%d of %d hidden: %s", len(errs), total, msg)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
 // dropEmpty removes non-PR nodes, which type:ISSUE decodes as empty objects.
 func dropEmpty(prs []pr) []pr {
 	kept := prs[:0]
@@ -670,22 +712,29 @@ func searchPRs(q string) ([]pr, error) {
 		}
 		// GitHub's gateway gives up at ~10s; anything past 30s is a hung gh.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// No --jq: the errors array has to survive. GitHub answers a partly
+		// forbidden search with 200, the readable rows, and nulls for the
+		// rest, so dropping the envelope loses the reason they vanished.
 		out, err := exec.CommandContext(ctx, "gh", "api", "graphql",
 			"-f", "query="+graphqlQuery,
 			"-f", "q="+q,
-			"--jq", ".data.search.nodes",
 		).Output()
 		cancel()
 		if err != nil {
+			// gh exits non-zero when GraphQL reports errors, but the body is
+			// still on stdout: keep whatever rows came back.
+			if prs, gqlErr, ok := decodeSearch(out); ok {
+				return prs, gqlErr
+			}
 			lastErr = cmdErr(err)
 			continue
 		}
-		var prs []pr
-		if err := json.Unmarshal(out, &prs); err != nil {
-			lastErr = fmt.Errorf("parsing gh output: %w", err)
+		prs, gqlErr, ok := decodeSearch(out)
+		if !ok {
+			lastErr = fmt.Errorf("parsing gh output: unexpected response")
 			continue
 		}
-		return dropEmpty(prs), nil
+		return prs, gqlErr
 	}
 	if lastErr != nil && strings.Contains(lastErr.Error(), "invalid character '<'") {
 		return nil, fmt.Errorf("GitHub returned an error page (transient 5xx), retry with ctrl+r")
@@ -722,9 +771,21 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case mineMsg:
 		v.loading = false
-		if msg.err != nil {
+		// A partly forbidden search returns rows and an error together, so
+		// show the rows and raise the reason the rest are missing. With no
+		// rows at all but a cache on screen, the data is stale rather than
+		// gone: say so instead of blanking the view.
+		if msg.err != nil && len(msg.prs) == 0 {
+			if len(v.raw) > 0 {
+				return statusCmd(ui.SeverityWarn, fmt.Errorf(
+					"showing cached PRs, refresh failed\n%s", msg.err))
+			}
 			v.err = msg.err
 			return nil
+		}
+		var partial tea.Cmd
+		if msg.err != nil {
+			partial = statusCmd(ui.SeverityWarn, msg.err)
 		}
 		v.err = nil
 		v.flash = ""
@@ -732,16 +793,23 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.applySort()
 		v.publish(append(msg.prs, v.reviewRaw...))
 		_ = cache.Save(cacheName, cachedPRs{Mine: msg.prs, Review: v.reviewRaw})
-		return nil
+		return partial
 	case reviewListMsg:
 		v.reviewLoading = false
-		if msg.err != nil {
+		if msg.err != nil && len(msg.prs) == 0 {
 			v.reviewErr = msg.err
 			v.applySort() // the section separator shows the failure
 			return nil
 		}
+		var partial tea.Cmd
+		if msg.err != nil {
+			partial = statusCmd(ui.SeverityWarn, msg.err)
+		}
 		v.reviewErr = nil
 		cmd := v.notifyNewReviews(v.reviewRaw, msg.prs)
+		if partial != nil {
+			cmd = tea.Batch(cmd, partial)
+		}
 		v.reviewRaw = msg.prs
 		v.seeded = true
 		v.applySort()
@@ -1665,6 +1733,13 @@ func contrastFg(hex string) color.Color {
 }
 
 // cmdErr unwraps *exec.ExitError to surface stderr in the message.
+// statusCmd raises a fetch problem as an app-level message: the first line is
+// the summary, the rest is detail for the log overlay.
+func statusCmd(sev ui.Severity, err error) tea.Cmd {
+	summary, detail, _ := strings.Cut(err.Error(), "\n")
+	return func() tea.Msg { return ui.Status(sev, "PRs", summary, detail) }
+}
+
 func cmdErr(err error) error {
 	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
 		return fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
