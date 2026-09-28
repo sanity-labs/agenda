@@ -13,7 +13,7 @@ import (
 func TestStatusDoesNotRepeatTheHeader(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.GitHubConfig{}, nil, nil, nil)
-	v.Update(mineMsg{prs: []pr{{Number: 1, Title: "one"}}}) // clears loading
+	v.Update(mineMsg{page: searchPage{prs: []pr{{Number: 1, Title: "one"}}}}) // clears loading
 	v.SetSize(80, 40, 20)
 
 	header := v.ListView()

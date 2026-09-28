@@ -14,7 +14,7 @@ func TestMineAndReviewDeliverIndependently(t *testing.T) {
 	v.list.SetRowHeight(2)
 
 	// Own PRs land first: list usable, review section still pending.
-	v.Update(mineMsg{prs: []pr{mkPR("u1", "mine", time.Hour)}})
+	v.Update(mineMsg{page: searchPage{prs: []pr{mkPR("u1", "mine", time.Hour)}}})
 	if v.loading || v.err != nil {
 		t.Fatalf("mine delivery: loading=%v err=%v", v.loading, v.err)
 	}
@@ -42,7 +42,7 @@ func TestMineAndReviewDeliverIndependently(t *testing.T) {
 	}
 
 	// A later success replaces the error and fills the section.
-	v.Update(reviewListMsg{prs: []pr{mkPR("u2", "theirs", time.Hour)}})
+	v.Update(reviewListMsg{page: searchPage{prs: []pr{mkPR("u2", "theirs", time.Hour)}}})
 	if v.reviewErr != nil {
 		t.Error("reviewErr should clear on success")
 	}

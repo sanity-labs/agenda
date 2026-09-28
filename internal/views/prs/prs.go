@@ -426,13 +426,17 @@ func sortPRs(in []pr, mode sortMode, rev bool) []pr {
 // timeout, streams into its section later and fails on its own without
 // taking the tab down.
 type mineMsg struct {
-	prs []pr
-	err error
+	page searchPage
+	err  error
+	// more marks a page fetched after the first, appended rather than
+	// replacing what is already on screen.
+	more bool
 }
 
 type reviewListMsg struct {
-	prs []pr
-	err error
+	page searchPage
+	err  error
+	more bool
 }
 
 // --- view -------------------------------------------------------------------
@@ -473,6 +477,10 @@ type View struct {
 	pane     paneMode
 	diffs    map[string]diffState
 	comments map[string]*commentsState
+
+	// Paging: where each section's next page starts, and whether one is in
+	// flight. An empty cursor with hasMore false means fully loaded.
+	minePage, reviewPage pageState
 
 	// settleGen drops stale selection-settle ticks, so only the final
 	// position of a navigation burst triggers pane fetches.
@@ -624,8 +632,12 @@ func (v *View) Loading() bool { return v.loading || v.reviewLoading }
 // graphqlQuery is one PR search. The own-PRs and review-requested searches
 // run as two separate requests; combining them into one aliased query makes
 // GitHub's gateway time out (502) on real accounts.
-const graphqlQuery = `query($q: String!) {
-  search(query: $q, type: ISSUE, first: 100) { nodes { ...prFields } }
+const graphqlQuery = `query($q: String!, $n: Int!, $after: String) {
+  search(query: $q, type: ISSUE, first: $n, after: $after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { ...prFields }
+  }
 }
 fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName
@@ -658,19 +670,48 @@ type graphqlErr struct {
 // the rest, alongside an errors array explaining why; returning the rows and
 // the reason together beats silently dropping either. ok is false when the
 // bytes are not a GraphQL envelope at all.
-func decodeSearch(out []byte) (prs []pr, err error, ok bool) {
+// pageState is how far one section has been paged.
+type pageState struct {
+	cursor  string
+	hasMore bool
+	loading bool
+	total   int
+}
+
+// searchPage is one decoded page: its rows, the total the search matched, and
+// where the next page starts.
+type searchPage struct {
+	prs     []pr
+	total   int
+	cursor  string
+	hasMore bool
+}
+
+func decodeSearch(out []byte) (page searchPage, err error, ok bool) {
 	var env struct {
 		Data struct {
 			Search struct {
+				IssueCount int `json:"issueCount"`
+				PageInfo   struct {
+					HasNextPage bool   `json:"hasNextPage"`
+					EndCursor   string `json:"endCursor"`
+				} `json:"pageInfo"`
 				Nodes []pr `json:"nodes"`
 			} `json:"search"`
 		} `json:"data"`
 		Errors []graphqlErr `json:"errors"`
 	}
 	if json.Unmarshal(out, &env) != nil {
-		return nil, nil, false
+		return searchPage{}, nil, false
 	}
-	return dropEmpty(env.Data.Search.Nodes), hiddenErr(env.Errors, len(env.Data.Search.Nodes)), true
+	sr := env.Data.Search
+	p := searchPage{
+		prs:     dropEmpty(sr.Nodes),
+		total:   sr.IssueCount,
+		cursor:  sr.PageInfo.EndCursor,
+		hasMore: sr.PageInfo.HasNextPage,
+	}
+	return p, hiddenErr(env.Errors, len(sr.Nodes)), true
 }
 
 // hiddenErr summarises why some rows are missing. Identical messages collapse:
@@ -704,7 +745,7 @@ func dropEmpty(prs []pr) []pr {
 // gateway intermittently answers these searches with an HTML 5xx page (gh
 // then reports `invalid character '<'`), so transient failures retry with a
 // short backoff before surfacing.
-func searchPRs(q string) ([]pr, error) {
+func searchPRs(q string, size int, after string) (searchPage, error, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -715,38 +756,47 @@ func searchPRs(q string) ([]pr, error) {
 		// No --jq: the errors array has to survive. GitHub answers a partly
 		// forbidden search with 200, the readable rows, and nulls for the
 		// rest, so dropping the envelope loses the reason they vanished.
-		out, err := exec.CommandContext(ctx, "gh", "api", "graphql",
-			"-f", "query="+graphqlQuery,
-			"-f", "q="+q,
-		).Output()
+		args := []string{"api", "graphql",
+			"-f", "query=" + graphqlQuery,
+			"-f", "q=" + q,
+			"-F", "n=" + strconv.Itoa(size),
+		}
+		if after != "" {
+			args = append(args, "-f", "after="+after)
+		}
+		out, err := exec.CommandContext(ctx, "gh", args...).Output()
 		cancel()
 		if err != nil {
 			// gh exits non-zero when GraphQL reports errors, but the body is
 			// still on stdout: keep whatever rows came back.
-			if prs, gqlErr, ok := decodeSearch(out); ok {
-				return prs, gqlErr
+			if page, gqlErr, ok := decodeSearch(out); ok {
+				return page, nil, gqlErr
 			}
 			lastErr = cmdErr(err)
 			continue
 		}
-		prs, gqlErr, ok := decodeSearch(out)
+		page, gqlErr, ok := decodeSearch(out)
 		if !ok {
 			lastErr = fmt.Errorf("parsing gh output: unexpected response")
 			continue
 		}
-		return prs, gqlErr
+		return page, nil, gqlErr
 	}
 	if lastErr != nil && strings.Contains(lastErr.Error(), "invalid character '<'") {
-		return nil, fmt.Errorf("GitHub returned an error page (transient 5xx), retry with ctrl+r")
+		return searchPage{}, fmt.Errorf("GitHub returned an error page (transient 5xx), retry with ctrl+r"), nil
 	}
-	return nil, fmt.Errorf("gh api graphql: %w", lastErr)
+	return searchPage{}, fmt.Errorf("gh api graphql: %w", lastErr), nil
 }
 
 func (v *View) fetch() tea.Cmd {
 	q := ensurePR(v.cfg.Filter)
+	size := v.pageSize()
 	cmds := []tea.Cmd{func() tea.Msg {
-		prs, err := searchPRs(q)
-		return mineMsg{prs: prs, err: err}
+		page, err, hidden := searchPRs(q, size, "")
+		if err == nil {
+			err = hidden
+		}
+		return mineMsg{page: page, err: err}
 	}}
 	// The review search only runs when something consumes it: the visible
 	// section, or review-request notifications. Otherwise the view does
@@ -760,22 +810,71 @@ func (v *View) fetch() tea.Cmd {
 // fetchReview runs just the review-requested search.
 func (v *View) fetchReview() tea.Cmd {
 	rq := ensurePR(v.cfg.ReviewFilter)
+	size := v.pageSize()
 	v.reviewLoading = true
 	return func() tea.Msg {
-		prs, err := searchPRs(rq)
-		return reviewListMsg{prs: prs, err: err}
+		page, err, hidden := searchPRs(rq, size, "")
+		if err == nil {
+			err = hidden
+		}
+		return reviewListMsg{page: page, err: err}
 	}
+}
+
+// pageSize is how many PRs one request asks for: the whole search at once
+// when lazy paging is off, otherwise the configured page.
+func (v *View) pageSize() int {
+	if !v.cfg.LazyPagingEnabled() {
+		return 100 // the search API's ceiling, the pre-paging behaviour
+	}
+	return v.cfg.ResolvedPageSize()
+}
+
+// fetchMore loads the next page of whichever section still has one. It is
+// driven by the cursor reaching the end of the list, so it must be cheap to
+// call repeatedly and do nothing when there is nothing left.
+func (v *View) fetchMore() tea.Cmd {
+	if !v.cfg.LazyPagingEnabled() {
+		return nil
+	}
+	size := v.pageSize()
+	// The review section sits below mine, so the end of the list is its end
+	// when it is showing.
+	if v.showReview && v.reviewPage.hasMore && !v.reviewPage.loading {
+		v.reviewPage.loading = true
+		rq, cursor := ensurePR(v.cfg.ReviewFilter), v.reviewPage.cursor
+		return func() tea.Msg {
+			page, err, hidden := searchPRs(rq, size, cursor)
+			if err == nil {
+				err = hidden
+			}
+			return reviewListMsg{page: page, err: err, more: true}
+		}
+	}
+	if v.minePage.hasMore && !v.minePage.loading {
+		v.minePage.loading = true
+		q, cursor := ensurePR(v.cfg.Filter), v.minePage.cursor
+		return func() tea.Msg {
+			page, err, hidden := searchPRs(q, size, cursor)
+			if err == nil {
+				err = hidden
+			}
+			return mineMsg{page: page, err: err, more: true}
+		}
+	}
+	return nil
 }
 
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case mineMsg:
 		v.loading = false
+		v.minePage.loading = false
 		// A partly forbidden search returns rows and an error together, so
 		// show the rows and raise the reason the rest are missing. With no
 		// rows at all but a cache on screen, the data is stale rather than
 		// gone: say so instead of blanking the view.
-		if msg.err != nil && len(msg.prs) == 0 {
+		if msg.err != nil && len(msg.page.prs) == 0 {
 			if len(v.raw) > 0 {
 				return statusCmd(ui.SeverityWarn, fmt.Errorf(
 					"showing cached PRs, refresh failed\n%s", msg.err))
@@ -789,14 +888,21 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		v.err = nil
 		v.flash = ""
-		v.raw = msg.prs
+		if msg.more {
+			v.raw = append(v.raw, msg.page.prs...)
+		} else {
+			v.raw = msg.page.prs
+		}
+		v.minePage.cursor, v.minePage.hasMore = msg.page.cursor, msg.page.hasMore
+		v.minePage.total = msg.page.total
 		v.applySort()
-		v.publish(append(msg.prs, v.reviewRaw...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: msg.prs, Review: v.reviewRaw})
+		v.publish(append(v.raw, v.reviewRaw...))
+		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw})
 		return partial
 	case reviewListMsg:
 		v.reviewLoading = false
-		if msg.err != nil && len(msg.prs) == 0 {
+		v.reviewPage.loading = false
+		if msg.err != nil && len(msg.page.prs) == 0 {
 			v.reviewErr = msg.err
 			v.applySort() // the section separator shows the failure
 			return nil
@@ -806,15 +912,26 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			partial = statusCmd(ui.SeverityWarn, msg.err)
 		}
 		v.reviewErr = nil
-		cmd := v.notifyNewReviews(v.reviewRaw, msg.prs)
+		next := msg.page.prs
+		if msg.more {
+			next = append(v.reviewRaw, msg.page.prs...)
+		}
+		// Only a first page is a fresh set to compare against: a later page
+		// is all new by definition and would notify for every row.
+		var cmd tea.Cmd
+		if !msg.more {
+			cmd = v.notifyNewReviews(v.reviewRaw, next)
+		}
 		if partial != nil {
 			cmd = tea.Batch(cmd, partial)
 		}
-		v.reviewRaw = msg.prs
+		v.reviewRaw = next
+		v.reviewPage.cursor, v.reviewPage.hasMore = msg.page.cursor, msg.page.hasMore
+		v.reviewPage.total = msg.page.total
 		v.seeded = true
 		v.applySort()
-		v.publish(append(v.raw, msg.prs...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: msg.prs})
+		v.publish(append(v.raw, next...))
+		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: next})
 		return cmd
 	case diffMsg:
 		v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
@@ -879,11 +996,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			// for the new selection only once it settles, so holding j/k
 			// doesn't spawn a gh call per row scrolled past.
 			v.annIdx = 0
+			// Reaching the end is the signal to load the next page, so the
+			// first paint stays one fast request.
+			var more tea.Cmd
+			if v.list.AtEnd() {
+				more = v.fetchMore()
+			}
 			if v.list.Selected().URL != before {
 				// Moving on ends a transient preview reveal.
-				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview)
+				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more)
 			}
-			return tea.Batch(cmd, v.scheduleSettle())
+			return tea.Batch(cmd, v.scheduleSettle(), more)
 		}
 		if v.list.Filtering() {
 			return nil
@@ -1349,7 +1472,7 @@ func (v *View) applySort() {
 
 	var items []pr
 	if len(mine) > 0 {
-		items = append(items, pr{Separator: sectionLabel("MY PULL REQUESTS", len(mine), 0)})
+		items = append(items, pr{Separator: sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total)})
 		items = append(items, v.groupSection(mine)...)
 	}
 	items = append(items, pr{Separator: v.reviewLabel(rev)})
@@ -1370,13 +1493,19 @@ func (v *View) reviewLabel(rev []pr) string {
 			reviewed++
 		}
 	}
-	return sectionLabel("REVIEW REQUESTED", len(rev), reviewed)
+	return sectionLabel("REVIEW REQUESTED", len(rev), reviewed, v.reviewPage.total)
 }
 
 // sectionLabel formats a band label: an upper-case name (distinct from the
 // Title Case swimlane headers nested under it) and a count.
-func sectionLabel(name string, n, reviewed int) string {
+// sectionLabel names a section and counts it. total is what the search
+// matched: when more rows are still unpaged it reads "20 of 79", so a
+// partially loaded list never looks like the whole set.
+func sectionLabel(name string, n, reviewed, total int) string {
 	label := fmt.Sprintf("%s  ·  %d", name, n)
+	if total > n {
+		label = fmt.Sprintf("%s  ·  %d of %d", name, n, total)
+	}
 	if reviewed > 0 {
 		label += fmt.Sprintf("  ·  %d reviewed", reviewed)
 	}
@@ -1452,11 +1581,17 @@ func (v *View) Activate() tea.Cmd { return v.openSelected() }
 // restart the annotation cycle, fetch the pane's data once the selection
 // settles, and end a transient preview reveal.
 func (v *View) mouseMoved(before string) tea.Cmd {
+	// Paging first: scrolling to the end with the wheel loads the next page
+	// even when the selection did not move (already on the last row).
+	var more tea.Cmd
+	if v.list.AtEnd() {
+		more = v.fetchMore()
+	}
 	if v.list.Selected().URL == before {
-		return nil
+		return more
 	}
 	v.annIdx = 0
-	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview)
+	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more)
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
@@ -1489,8 +1624,14 @@ func (v *View) statusText() string {
 		return v.flash
 	default:
 		s := fmt.Sprintf("%d PRs", len(v.raw))
+		if v.minePage.total > len(v.raw) {
+			s = fmt.Sprintf("%d of %d PRs", len(v.raw), v.minePage.total)
+		}
 		if v.showReview && len(v.reviewRaw) > 0 {
 			s += fmt.Sprintf(" +%d to review", len(v.reviewRaw))
+			if v.reviewPage.total > len(v.reviewRaw) {
+				s += fmt.Sprintf(" of %d", v.reviewPage.total)
+			}
 		}
 		return fmt.Sprintf("%s · sort: %s%s", s, sortName[v.sort], ui.RevMarker(v.rev))
 	}

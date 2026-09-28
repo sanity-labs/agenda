@@ -134,6 +134,14 @@ github:
   # diff through less, the original behavior. The comments pane ('c') and
   # inline-thread annotations need this on to show threads in the diff.
   diff_pane: false
+  # Fetch PRs a page at a time, loading the next page when you scroll to the
+  # end of the list. On by default: one request for 100 PRs measured 8-10s
+  # against a large review-requested search and timed out often enough to
+  # matter, where a page of 20 is 3-4s. Set false to fetch everything up front.
+  # lazy_paging: true
+  # How many PRs one request asks for (default 20, max 100). Bigger pages mean
+  # fewer requests and a slower first paint.
+  # page_size: 20
 
 linear:
   # enabled: true
