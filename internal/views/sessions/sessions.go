@@ -649,12 +649,12 @@ func (v *View) Bindings() []key.Binding {
 }
 
 func (v *View) Status() string {
-	// Surface the match count for the selected session so the user knows there's
-	// something to expand into.
+	// Only the match count: the list header already carries the counts and
+	// sort, and repeating them in the footer says everything twice.
 	if n := v.matchCount(v.list.Selected()); n > 0 {
-		return ui.Green.Render(fmt.Sprintf("%d matches", n)) + ui.Dim.Render(" · "+v.statusText())
+		return ui.Green.Render(fmt.Sprintf("%d matches", n))
 	}
-	return ui.Dim.Render(v.statusText())
+	return ""
 }
 
 func (v *View) InputActive() bool { return v.list.Filtering() || v.confirmDel }

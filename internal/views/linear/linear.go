@@ -1101,7 +1101,9 @@ func (v *View) Bindings() []key.Binding {
 	return []key.Binding{v.keys.Open, v.keys.Comm, v.keys.Copy, v.keys.Branch, v.keys.Sort, v.keys.Rev}
 }
 
-func (v *View) Status() string { return ui.Dim.Render(v.statusText()) }
+// Status is empty: the list header already shows the counts and sort, so the
+// footer slot would only repeat them.
+func (v *View) Status() string { return "" }
 
 func (v *View) InputActive() bool { return v.list.Filtering() }
 
