@@ -13,11 +13,25 @@ permissions:
 
 jobs:
   update_release_draft:
+    if: github.event_name == 'push'
     permissions:
       contents: write
-      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - uses: release-drafter/release-drafter@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # v7 moved the autolabeler into its own action: the main one only drafts,
+  # so the autolabeler: config in release-drafter.yml does nothing without
+  # this job.
+  autolabel:
+    if: github.event_name == 'pull_request_target'
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter/autolabeler@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

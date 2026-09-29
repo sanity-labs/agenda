@@ -100,7 +100,8 @@ publishes the draft.
 The version and the changelog both come from PR labels, applied automatically:
 
 - The conventional-commit prefix on the **PR title** sets the type label
-  (`feat:` → `feature`, `fix:` → `fix`, `perf:`, `docs:`, `ci:`, `chore:`).
+  (`feat:` → `feature`, `fix:` → `fix`, `perf:`, `docs:`, `ci:`, `chore:`),
+  applied by the `autolabel` job on every PR event.
 - `feature` bumps the minor version, `breaking` the major, anything else the
   patch.
 - Changed paths add area labels (`tui`, `prs-view`, `config`, ...) for triage.
