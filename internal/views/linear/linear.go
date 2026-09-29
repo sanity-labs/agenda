@@ -952,8 +952,12 @@ func (v *View) notifyNew(prev, next []issue) tea.Cmd {
 			body += is.Identifier + ": " + is.Title
 		}
 	}
+	url := ""
+	if len(fresh) == 1 {
+		url = fresh[0].URL
+	}
 	n := v.notifier
-	return func() tea.Msg { return n.Notify(title, body) }
+	return func() tea.Msg { return n.Notify(title, body, url) }
 }
 
 // applySort rebuilds the list: the active sort, plus swimlane headers when

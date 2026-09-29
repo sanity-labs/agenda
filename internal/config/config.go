@@ -116,9 +116,23 @@ type NotifyConfig struct {
 	Popup string `yaml:"popup"`
 	// Sound plays a sound alongside the popup (default true when on).
 	Sound *bool `yaml:"sound"`
+	// Click is what a desktop notification does when clicked: "url" opens
+	// the PR or issue (default), "none" does nothing. macOS needs
+	// terminal-notifier for this; osascript notifications are not clickable.
+	Click string `yaml:"click"`
 }
 
-func (n NotifyConfig) Enabled() bool      { return n.Popup == "terminal" || n.Popup == "desktop" }
+func (n NotifyConfig) Enabled() bool { return n.Popup == "terminal" || n.Popup == "desktop" }
+
+// ClickAction is the notification click behaviour, defaulting to opening the
+// item.
+func (n NotifyConfig) ClickAction() string {
+	if n.Click == "none" {
+		return "none"
+	}
+	return "url"
+}
+
 func (n NotifyConfig) SoundEnabled() bool { return n.Enabled() && (n.Sound == nil || *n.Sound) }
 
 type GitHubConfig struct {

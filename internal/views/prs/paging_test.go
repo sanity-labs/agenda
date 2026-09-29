@@ -117,4 +117,6 @@ func TestLaterReviewPageDoesNotNotify(t *testing.T) {
 
 type stubNotifier struct{}
 
-func (stubNotifier) Notify(title, body string) tea.Msg { return ui.ToastMsg{Title: title, Body: body} }
+func (stubNotifier) Notify(title, body, _ string) tea.Msg {
+	return ui.ToastMsg{Title: title, Body: body}
+}

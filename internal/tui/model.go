@@ -718,13 +718,13 @@ func (m *Model) runAction(path string) tea.Cmd {
 		m.keysEd = newKeybindEditor()
 		return nil
 	case "action:test_notification":
-		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.Sound == nil || *m.cfg.Notify.Sound)
+		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.Sound == nil || *m.cfg.Notify.Sound, m.cfg.Notify.ClickAction())
 		if n == nil {
 			m.settings.errMsg = "set popup to terminal or desktop first"
 			return nil
 		}
 		return func() tea.Msg {
-			return n.Notify("agenda test", "This is what a notification looks like.")
+			return n.Notify("agenda test", "This is what a notification looks like.", "https://github.com/sanity-labs/agenda")
 		}
 	}
 	return nil

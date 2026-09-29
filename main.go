@@ -57,7 +57,7 @@ func main() {
 	st := store.New()
 
 	// nil when notifications are off; views treat that as disabled.
-	notifier := notify.New(cfg.Notify.Popup, cfg.Notify.SoundEnabled())
+	notifier := notify.New(cfg.Notify.Popup, cfg.Notify.SoundEnabled(), cfg.Notify.ClickAction())
 
 	// Build the configured views in tab order (disabled views drop out).
 	enabled := cfg.EnabledViews()

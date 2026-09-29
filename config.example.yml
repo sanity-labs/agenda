@@ -65,6 +65,11 @@ refresh:
 # ctrl+s -> "send test notification".
 notifications:
   popup: off
+  # What clicking a desktop notification does: "url" opens the PR or issue
+  # (default), "none" nothing. macOS needs terminal-notifier for this, and
+  # for a proper app icon; without it notifications still post through
+  # osascript, just plainer and not clickable.
+  # click: url
   # sound: true
 
 # Keybind overrides: scope -> action -> key(s). A binding may be a single key

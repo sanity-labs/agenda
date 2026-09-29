@@ -1724,8 +1724,14 @@ func (v *View) notifyNewReviews(prev, next []pr) tea.Cmd {
 		lines = append(lines, fmt.Sprintf("%s#%d: %s (@%s)", p.repo(), p.Number, p.Title, p.Author.Login))
 	}
 	body := strings.Join(lines, "\n")
+	// One new PR opens that PR; several open the review queue, since there
+	// is no single right destination.
+	url := "https://github.com/pulls/review-requested"
+	if len(fresh) == 1 {
+		url = fresh[0].URL
+	}
 	n := v.notifier
-	return func() tea.Msg { return n.Notify(title, body) }
+	return func() tea.Msg { return n.Notify(title, body, url) }
 }
 
 // ScrollList moves the list selection by n rows (mouse wheel).
