@@ -244,7 +244,8 @@ out of the box agenda looks and acts as it did before these options existed.
   on screen, moving onto a row reads it; with it hidden (`hide_preview`),
   the row is read when you ask for the detail with `v`. Independent of
   whether notifications are on; `unread: false` turns it off, and
-  `unread_sync: true` also marks the matching GitHub notification read.
+  `unread_sync: true` keeps marks and GitHub notifications in step both
+  ways (review-requested PRs only, one extra request per refresh).
 - **Floating detail**: with the preview pane off, `v` opens the detail as a
   centered window over the list rather than splitting the pane, and moving
   to another row closes it. `z` still zooms the pane when one is in view.

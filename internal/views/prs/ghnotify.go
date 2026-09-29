@@ -13,6 +13,7 @@ import (
 // match it against a PR row.
 type ghThread struct {
 	ID      string `json:"id"`
+	Unread  bool   `json:"unread"`
 	Subject struct {
 		// URL is the API form, /repos/OWNER/REPO/pulls/N, not the HTML URL
 		// the rows carry, so matching goes through repo and number.
@@ -40,6 +41,35 @@ func (t ghThread) key() string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s#%s", owner, repo, num)
+}
+
+// threadsReadMsg carries the set of PR keys ("OWNER/REPO#N") whose GitHub
+// notification is already read, so marks cleared elsewhere clear here too.
+type threadsReadMsg struct{ read map[string]bool }
+
+// fetchReadThreads lists notifications including the read ones and reports
+// which are read. Silent on failure: a sync that cannot run leaves the
+// local marks exactly as they were.
+func fetchReadThreads() tea.Cmd {
+	return func() tea.Msg {
+		// all=true is the point: the default list omits read threads, which
+		// are precisely the ones that clear a local mark.
+		out, err := exec.Command("gh", "api", "/notifications?all=true", "--paginate").Output()
+		if err != nil {
+			return nil
+		}
+		var threads []ghThread
+		if json.Unmarshal(out, &threads) != nil {
+			return nil
+		}
+		read := map[string]bool{}
+		for _, t := range threads {
+			if k := t.key(); k != "" && !t.Unread {
+				read[k] = true
+			}
+		}
+		return threadsReadMsg{read: read}
+	}
 }
 
 // markThreadRead marks the GitHub notification for one PR read, so agenda

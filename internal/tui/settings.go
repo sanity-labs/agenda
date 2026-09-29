@@ -156,7 +156,7 @@ func settingsTable() []setting {
 		boolSetting("mark new items", "unread", "",
 			func(c config.Config) bool { return c.UnreadEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.Unread, v) }),
-		boolSetting("sync reads to GitHub", "unread_sync", "",
+		boolSetting("sync reads with GitHub", "unread_sync", "",
 			func(c config.Config) bool { return c.UnreadSync },
 			func(c *config.Config, v bool) { c.UnreadSync = v }),
 		boolSetting("group by sort", "grouping", "",

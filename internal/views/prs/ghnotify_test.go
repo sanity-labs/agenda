@@ -72,3 +72,65 @@ func TestSyncSkipsRowsWithNoRepo(t *testing.T) {
 		t.Errorf("queued a write-back for a row with no repo: %d", len(v.syncPending))
 	}
 }
+
+// Reading a notification on github.com (or in any other client) clears the
+// mark here too: that is the half that makes the sync bidirectional.
+func TestUpstreamReadClearsLocalMark(t *testing.T) {
+	v := unreadView(t)
+	v.unreadSync = true
+
+	row := pr{Number: 2, URL: "u2"}
+	row.Repository.NameWithOwner = "o/r"
+	other := pr{Number: 3, URL: "u3"}
+	other.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{row, other}}})
+	v.unread = map[string]bool{"u2": true, "u3": true}
+	v.applySort()
+
+	v.Update(threadsReadMsg{read: map[string]bool{"o/r#2": true}})
+	if v.unread["u2"] {
+		t.Error("a thread read upstream left its mark here")
+	}
+	if !v.unread["u3"] {
+		t.Error("a thread still unread upstream lost its mark")
+	}
+}
+
+// With the setting off, upstream state is none of agenda's business.
+func TestUpstreamReadIgnoredWhenSyncOff(t *testing.T) {
+	v := unreadView(t)
+	v.unreadSync = false
+
+	row := pr{Number: 2, URL: "u2"}
+	row.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{row}}})
+	v.unread = map[string]bool{"u2": true}
+	v.applySort()
+
+	v.Update(threadsReadMsg{read: map[string]bool{"o/r#2": true}})
+	if !v.unread["u2"] {
+		t.Error("upstream state cleared a mark with unread_sync off")
+	}
+}
+
+// Only read threads clear a mark; the listing includes unread ones too.
+func TestOnlyReadThreadsAreCollected(t *testing.T) {
+	var read, unread ghThread
+	read.Subject.URL = "https://api.github.com/repos/o/r/pulls/1"
+	read.Unread = false
+	unread.Subject.URL = "https://api.github.com/repos/o/r/pulls/2"
+	unread.Unread = true
+
+	got := map[string]bool{}
+	for _, t := range []ghThread{read, unread} {
+		if k := t.key(); k != "" && !t.Unread {
+			got[k] = true
+		}
+	}
+	if !got["o/r#1"] {
+		t.Error("a read thread was not collected")
+	}
+	if got["o/r#2"] {
+		t.Error("an unread thread was collected as read")
+	}
+}

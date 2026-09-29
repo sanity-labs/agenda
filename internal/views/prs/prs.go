@@ -930,6 +930,9 @@ func (v *View) fetch() tea.Cmd {
 	if v.showReview || v.notifier != nil {
 		cmds = append(cmds, v.fetchReview())
 	}
+	if v.unreadSync {
+		cmds = append(cmds, fetchReadThreads())
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -1107,6 +1110,28 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.UnreadSyncMsg:
 		v.unreadSync = bool(msg)
+		return nil
+	case threadsReadMsg:
+		// A notification read elsewhere (github.com, another client) clears
+		// the mark here, so the two agree in both directions.
+		if !v.unreadSync || len(v.unread) == 0 {
+			return nil
+		}
+		cleared := false
+		for url := range v.unread {
+			p, ok := v.prByURL(url)
+			if !ok || p.repo() == "" || p.Number == 0 {
+				continue
+			}
+			if msg.read[fmt.Sprintf("%s#%d", p.repo(), p.Number)] {
+				delete(v.unread, url)
+				cleared = true
+			}
+		}
+		if cleared {
+			v.applySort()
+			v.saveCache()
+		}
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)

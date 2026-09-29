@@ -23,9 +23,12 @@ update_check: true
 # select the row. Catches what a missed notification would have told you.
 unread: true
 
-# Also mark the matching GitHub notification read when you read a row here,
-# so agenda and github.com/notifications agree. Off by default: reading a
-# row is a cursor move, and that should not quietly clear your real inbox.
+# Keep unread marks and GitHub notifications in step, both ways: reading a
+# row here marks its notification read, and a notification read on
+# github.com (or any other client) clears the mark here. Review-requested
+# PRs only: your own PRs have no notification behind them. Costs one extra
+# (paged) notifications request per refresh. Off by default: reading a row
+# is a cursor move, and that should not quietly clear your real inbox.
 unread_sync: false
 
 grouping: false

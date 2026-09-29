@@ -44,10 +44,12 @@ type Config struct {
 	// clears its mark. On by default.
 	Unread *bool `yaml:"unread"`
 
-	// UnreadSync also marks the matching GitHub notification read upstream
-	// when a row is read here, so agenda and github.com/notifications
-	// agree. Off by default: reading here is a cursor move, and that should
-	// not quietly clear your real inbox.
+	// UnreadSync keeps unread marks and GitHub notifications in step, both
+	// ways: reading a row here marks its notification read, and a
+	// notification read anywhere else clears the mark here. Review-requested
+	// PRs only, since your own PRs have no notification behind them. Off by
+	// default: reading here is a cursor move, and that should not quietly
+	// clear your real inbox.
 	UnreadSync bool `yaml:"unread_sync"`
 
 	// Grouping renders lists as swimlanes derived from the active sort
