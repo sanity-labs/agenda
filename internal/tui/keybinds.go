@@ -61,6 +61,7 @@ func keyRegistry() []keyEntry {
 		{"prs", "sort", "sort", []string{"s"}},
 		{"prs", "reverse", "reverse sort", []string{"S"}},
 		{"prs", "toggle_review", "review-requested section", []string{"w"}},
+		{"prs", "expand", "expand summary", []string{"e"}},
 		{"sessions", "resume", "resume", []string{"enter"}},
 		{"sessions", "sort", "sort", []string{"s"}},
 		{"sessions", "reverse", "reverse sort", []string{"S"}},

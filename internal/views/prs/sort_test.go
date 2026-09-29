@@ -16,13 +16,7 @@ func mk(repo string, num int, ci, review string, churn, ageMinutes int) pr {
 	p.UpdatedAt = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).
 		Add(-time.Duration(ageMinutes) * time.Minute)
 	if ci != "" {
-		p.Commits.Nodes = append(p.Commits.Nodes, struct {
-			Commit struct {
-				StatusCheckRollup struct {
-					State string `json:"state"`
-				} `json:"statusCheckRollup"`
-			} `json:"commit"`
-		}{})
+		p.Commits.Nodes = append(p.Commits.Nodes, commitNode{})
 		p.Commits.Nodes[0].Commit.StatusCheckRollup.State = ci
 	}
 	return p

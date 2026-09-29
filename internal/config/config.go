@@ -121,6 +121,10 @@ type GitHubConfig struct {
 	// of these fields measured 8-10s against a large review-requested search
 	// and timed out often enough to matter, where a page of 20 is 3-4s.
 	LazyPaging *bool `yaml:"lazy_paging"`
+	// SummaryLines truncates the PR description in the preview to this many
+	// lines, with 'e' expanding it (default 10). Set 0 to never truncate,
+	// which is what the view did before.
+	SummaryLines int `yaml:"summary_lines"`
 	// PageSize is how many PRs one request asks for (default 20, max 100).
 	// Larger pages mean fewer requests and a slower first paint.
 	PageSize int `yaml:"page_size"`
@@ -212,6 +216,7 @@ func Default() Config {
 		GitHub: GitHubConfig{
 			Filter:       "author:@me is:open archived:false",
 			ReviewFilter: "review-requested:@me is:open archived:false",
+			SummaryLines: 10,
 		},
 		Linear: LinearConfig{
 			Filter: LinearFilter{Limit: 100},

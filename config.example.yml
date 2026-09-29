@@ -142,6 +142,9 @@ github:
   # How many PRs one request asks for (default 20, max 100). Bigger pages mean
   # fewer requests and a slower first paint.
   # page_size: 20
+  # Truncate the PR description in the preview to this many lines, with 'e'
+  # expanding it. 0 never truncates.
+  # summary_lines: 10
 
 linear:
   # enabled: true
