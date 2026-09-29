@@ -1751,14 +1751,6 @@ func (v *View) PreviewView() string {
 
 	b.WriteString(ui.Dim.Render(strings.Repeat("─", min(v.prevW, 60))))
 	b.WriteString("\n")
-	// The body pane gets the summary framing: checks above, comments below.
-	// The diff and comment panes are already the detail, so they stay bare.
-	if v.pane == paneBody {
-		if blk := v.checksBlock(p); blk != "" {
-			b.WriteString(blk)
-			b.WriteString("\n")
-		}
-	}
 	// Jump anchors are body-relative; remember how many header lines sit
 	// above the body so jumps land on the right rendered line.
 	v.paneHeader = strings.Count(b.String(), "\n")
@@ -1768,11 +1760,30 @@ func (v *View) PreviewView() string {
 	case paneComments:
 		b.WriteString(v.renderedComments(p))
 	default:
+		// Description, then checks, then comments: the summary reads top to
+		// bottom in the order you want it, with the detail panes (diff,
+		// comments) staying bare because they are already the detail.
+		b.WriteString(blockHeader("Description"))
+		b.WriteString("\n")
 		b.WriteString(v.renderedBody(p))
+		if blk := v.checksBlock(p); blk != "" {
+			b.WriteString("\n\n")
+			b.WriteString(blockHeader("Checks"))
+			b.WriteString("\n")
+			b.WriteString(blk)
+		}
 		b.WriteString("\n\n")
 		b.WriteString(v.commentsBlock(p))
 	}
 	return b.String()
+}
+
+// blockHeader labels a preview section. One style for all of them, so the
+// pane reads as a list of sections rather than three unrelated widgets.
+func blockHeader(name string) string {
+	// Glyph gated like the other decorative icons, so a plain-font setup
+	// gets the label without a tofu box.
+	return ui.Dim.Render(ui.Glyph(ui.IconSection, "") + name)
 }
 
 // checksBlock is the bordered CI summary: what is blocking the merge, and how
@@ -1831,7 +1842,7 @@ func (v *View) checksBlock(p pr) string {
 // commentsBlock closes the summary with whether there is a conversation to
 // read, and which key opens it.
 func (v *View) commentsBlock(p pr) string {
-	head := ui.Dim.Render(ui.IconComment + " Comments")
+	head := blockHeader("Comments")
 	if p.Comments.TotalCount == 0 {
 		return head + "\n" + ui.Faint.Render("  none yet")
 	}
