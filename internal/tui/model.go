@@ -200,6 +200,9 @@ func (m Model) Init() tea.Cmd {
 	if m.cfg.Grouping {
 		cmds = append(cmds, groupingCmd(true))
 	}
+	if m.cfg.TogglesPersist() {
+		cmds = append(cmds, func() tea.Msg { return ui.TogglesPersistMsg(true) })
+	}
 	// The views start out fetching, so kick the spinner loop; it stops itself
 	// once nothing is loading.
 	cmds = append(cmds, spinnerTick())
@@ -705,6 +708,9 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 		m.theme = defaultTheme()
 	case path == "grouping":
 		return groupingCmd(m.cfg.Grouping)
+	case path == "toggles":
+		persist := m.cfg.TogglesPersist()
+		return func() tea.Msg { return ui.TogglesPersistMsg(persist) }
 	case path == "hide_preview":
 		m.previewHidden, m.previewTransient = m.cfg.HidePreview, false
 		m.layout()

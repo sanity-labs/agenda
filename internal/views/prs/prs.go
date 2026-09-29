@@ -511,7 +511,11 @@ type View struct {
 	// expanded is the PR whose summary the user expanded with 'e'; cleared
 	// when the selection moves, so expansion does not leak between rows.
 	expanded string
-	body     string
+	// togglesPersist keeps per-item toggles (the pane, the expansion) when
+	// the selection moves. Off by default: a diff opened on one PR should
+	// not put every other PR in diff view.
+	togglesPersist bool
+	body           string
 
 	// pane picks what the right pane shows for the selection: description,
 	// diff ('d'), or comments ('c'). diffs and comments cache fetched data
@@ -1021,13 +1025,18 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			}
 		}
 		v.applySort()
-		// Review submitted: done looking, so a transient reveal folds away.
+		// Review submitted: you are done with this one, so the diff or
+		// comments pane you opened to review it folds away with the reveal.
+		v.resetToggles()
 		return tea.Batch(ui.ConcealPreview, v.fetch())
 	case commentsMsg:
 		if st, ok := v.comments[msg.url]; ok {
 			st.data, st.err, st.done = msg.data, msg.err, true
 			v.commentsRev++
 		}
+		return nil
+	case ui.TogglesPersistMsg:
+		v.togglesPersist = bool(msg)
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -1069,6 +1078,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			}
 			if v.list.Selected().URL != before {
 				// Moving on ends a transient preview reveal.
+				v.resetToggles()
 				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more)
 			}
 			return tea.Batch(cmd, v.scheduleSettle(), more)
@@ -1148,6 +1158,19 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// resetToggles returns the per-item view toggles to what the config asks
+// for. A toggle belongs to the item it was pressed on: leaving one behind
+// means every later PR opens in a pane you chose for a different one.
+func (v *View) resetToggles() {
+	if v.togglesPersist {
+		return
+	}
+	v.pane = paneBody
+	v.expanded = ""
+	v.bodyKey = ""
+	v.annIdx = 0
 }
 
 // setPane toggles the right pane between the description and the given mode,
@@ -1666,6 +1689,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 		return more
 	}
 	v.annIdx = 0
+	v.resetToggles()
 	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more)
 }
 

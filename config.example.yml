@@ -21,6 +21,11 @@ update_check: true
 # buckets (e.g. sessions by msgs) stay flat. Off by default: flat lists.
 grouping: false
 
+# How long a per-item view toggle lasts. "ephemeral" (default) resets it when
+# you move to another item, so a diff opened on one PR does not put every
+# other PR in diff view; "persist" keeps it until you toggle back.
+toggles: ephemeral
+
 # Start with the preview (detail) pane hidden so the list takes the full
 # width — friendlier to narrow terminals. The toggle_preview key (default
 # "v") shows/hides it at runtime either way. Off by default.

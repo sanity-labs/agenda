@@ -222,6 +222,11 @@ out of the box agenda looks and acts as it did before these options existed.
   default, `e` expands, 0 never trims), framed by a checks box that says what
   is blocking the merge and how many checks passed, and a comments line
   saying how many there are and which key opens them.
+- **Toggle behavior**: `toggles: ephemeral` (the default) treats a per-item
+  toggle as belonging to the item you pressed it on, so the diff pane,
+  an expanded description or shown comments reset when you move on, and the
+  pane you opened to review a PR folds away once you have reviewed it.
+  `toggles: persist` keeps them until you toggle back.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.
