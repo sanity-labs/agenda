@@ -76,17 +76,56 @@ type pr struct {
 		Nodes []label `json:"nodes"`
 	} `json:"labels"`
 	Commits struct {
-		Nodes []struct {
-			Commit struct {
-				StatusCheckRollup struct {
-					State string `json:"state"`
-				} `json:"statusCheckRollup"`
-			} `json:"commit"`
-		} `json:"nodes"`
+		Nodes []commitNode `json:"nodes"`
 	} `json:"commits"`
 }
 
+// commitNode is the last commit of a PR, carrying its check rollup.
+type commitNode struct {
+	Commit struct {
+		StatusCheckRollup struct {
+			State string `json:"state"`
+			// Aggregate counts rather than the check nodes: the same
+			// "8 successful" gh-dash shows, for no extra query cost.
+			Contexts struct {
+				TotalCount                 int            `json:"totalCount"`
+				CheckRunCount              int            `json:"checkRunCount"`
+				CheckRunCountsByState      []contextCount `json:"checkRunCountsByState"`
+				StatusContextCount         int            `json:"statusContextCount"`
+				StatusContextCountsByState []contextCount `json:"statusContextCountsByState"`
+			} `json:"contexts"`
+		} `json:"statusCheckRollup"`
+	} `json:"commit"`
+}
+
+// contextCount is one bucket of the check rollup: how many checks are in a
+// given state.
+type contextCount struct {
+	State string `json:"state"`
+	Count int    `json:"count"`
+}
+
 func (p pr) repo() string { return p.Repository.NameWithOwner }
+
+// checkCounts sums the rollup buckets into what the preview reports:
+// how many checks passed, failed, and are still running.
+func (p pr) checkCounts() (passed, failed, running, total int) {
+	if len(p.Commits.Nodes) == 0 {
+		return 0, 0, 0, 0
+	}
+	cx := p.Commits.Nodes[0].Commit.StatusCheckRollup.Contexts
+	for _, b := range append(append([]contextCount{}, cx.CheckRunCountsByState...), cx.StatusContextCountsByState...) {
+		switch b.State {
+		case "SUCCESS", "COMPLETED", "NEUTRAL", "SKIPPED":
+			passed += b.Count
+		case "FAILURE", "ERROR", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "CANCELLED":
+			failed += b.Count
+		case "PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "EXPECTED", "STALE":
+			running += b.Count
+		}
+	}
+	return passed, failed, running, cx.TotalCount
+}
 
 // reviewedByMe reports whether the viewer's latest review still counts as
 // "handled": approved, changes requested, or commented. DISMISSED and PENDING
@@ -469,7 +508,14 @@ type View struct {
 	// memoized glamour render of the selected PR's body, keyed by number+width
 	// so it isn't re-rendered every frame.
 	bodyKey string
-	body    string
+	// expanded is the PR whose summary the user expanded with 'e'; cleared
+	// when the selection moves, so expansion does not leak between rows.
+	expanded string
+	// togglesPersist keeps per-item toggles (the pane, the expansion) when
+	// the selection moves. Off by default: a diff opened on one PR should
+	// not put every other PR in diff view.
+	togglesPersist bool
+	body           string
 
 	// pane picks what the right pane shows for the selection: description,
 	// diff ('d'), or comments ('c'). diffs and comments cache fetched data
@@ -569,6 +615,19 @@ type viewKeys struct {
 	Reply      key.Binding
 	Resolve    key.Binding
 	TopComment key.Binding
+	Expand     key.Binding
+}
+
+// binding looks a binding up by its action name, for prompts that name the
+// key rather than hard-coding it (the keys are remappable).
+func (k viewKeys) binding(action string) key.Binding {
+	switch action {
+	case "expand":
+		return k.Expand
+	case "comments":
+		return k.Comments
+	}
+	return key.Binding{}
 }
 
 func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store.Store) *View {
@@ -596,6 +655,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			Reply:      bind("reply", "", "R"),
 			Resolve:    bind("resolve", "", "X"),
 			TopComment: bind("comment", "", "C"),
+			Expand:     bind("expand", "expand", "e"),
 		},
 	}
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
@@ -647,7 +707,16 @@ fragment prFields on PullRequest {
   repository { nameWithOwner }
   comments { totalCount }
   labels(first: 6) { nodes { name color } }
-  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  commits(last: 1) { nodes { commit { statusCheckRollup {
+    state
+    contexts(last: 1) {
+      totalCount
+      checkRunCount
+      checkRunCountsByState { state count }
+      statusContextCount
+      statusContextCountsByState { state count }
+    }
+  } } } }
 }`
 
 // ensurePR appends "is:pr" to a search query when absent (the search API
@@ -956,13 +1025,18 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			}
 		}
 		v.applySort()
-		// Review submitted: done looking, so a transient reveal folds away.
+		// Review submitted: you are done with this one, so the diff or
+		// comments pane you opened to review it folds away with the reveal.
+		v.resetToggles()
 		return tea.Batch(ui.ConcealPreview, v.fetch())
 	case commentsMsg:
 		if st, ok := v.comments[msg.url]; ok {
 			st.data, st.err, st.done = msg.data, msg.err, true
 			v.commentsRev++
 		}
+		return nil
+	case ui.TogglesPersistMsg:
+		v.togglesPersist = bool(msg)
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -1004,6 +1078,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			}
 			if v.list.Selected().URL != before {
 				// Moving on ends a transient preview reveal.
+				v.resetToggles()
 				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more)
 			}
 			return tea.Batch(cmd, v.scheduleSettle(), more)
@@ -1023,6 +1098,16 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				return v.diffInPager()
 			}
 			return v.setPane(paneDiff)
+		case key.Matches(msg, v.keys.Expand):
+			if sel := v.list.Selected(); sel.URL != "" {
+				if v.expanded == sel.URL {
+					v.expanded = ""
+				} else {
+					v.expanded = sel.URL
+				}
+				v.bodyKey = "" // the body is cached per expansion state
+			}
+			return nil
 		case key.Matches(msg, v.keys.Comments):
 			return v.setPane(paneComments)
 		case key.Matches(msg, v.keys.NextThread):
@@ -1073,6 +1158,19 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// resetToggles returns the per-item view toggles to what the config asks
+// for. A toggle belongs to the item it was pressed on: leaving one behind
+// means every later PR opens in a pane you chose for a different one.
+func (v *View) resetToggles() {
+	if v.togglesPersist {
+		return
+	}
+	v.pane = paneBody
+	v.expanded = ""
+	v.bodyKey = ""
+	v.annIdx = 0
 }
 
 // setPane toggles the right pane between the description and the given mode,
@@ -1591,6 +1689,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 		return more
 	}
 	v.annIdx = 0
+	v.resetToggles()
 	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more)
 }
 
@@ -1685,9 +1784,94 @@ func (v *View) PreviewView() string {
 	case paneComments:
 		b.WriteString(v.renderedComments(p))
 	default:
+		// Description, then checks, then comments: the summary reads top to
+		// bottom in the order you want it, with the detail panes (diff,
+		// comments) staying bare because they are already the detail.
+		b.WriteString(blockHeader("Description"))
+		b.WriteString("\n")
 		b.WriteString(v.renderedBody(p))
+		if blk := v.checksBlock(p); blk != "" {
+			b.WriteString("\n\n")
+			b.WriteString(blockHeader("Checks"))
+			b.WriteString("\n")
+			b.WriteString(blk)
+		}
+		b.WriteString("\n\n")
+		b.WriteString(v.commentsBlock(p))
 	}
 	return b.String()
+}
+
+// blockHeader labels a preview section. One style for all of them, so the
+// pane reads as a list of sections rather than three unrelated widgets.
+func blockHeader(name string) string {
+	// Glyph gated like the other decorative icons, so a plain-font setup
+	// gets the label without a tofu box.
+	return ui.Dim.Render(ui.Glyph(ui.IconSection, "") + name)
+}
+
+// checksBlock is the bordered CI summary: what is blocking the merge, and how
+// the checks are doing. Bordered in the colour of the worst state, so a
+// glance at the frame says whether anything needs attention.
+func (v *View) checksBlock(p pr) string {
+	var rows []string
+	switch p.ReviewDecision {
+	case "APPROVED":
+		rows = append(rows, ui.Green.Render(ui.IconApproved+" Approved"))
+	case "CHANGES_REQUESTED":
+		rows = append(rows, ui.Red.Render(ui.IconChanges+" Changes requested"))
+	case "REVIEW_REQUIRED":
+		rows = append(rows, ui.Yellow.Render(ui.IconReviewReq+" Review required")+
+			"\n"+ui.Dim.Render("  waiting on a reviewer"))
+	}
+
+	pass, fail, run, total := p.checkCounts()
+	switch {
+	case total == 0 && p.ciState() == "":
+		// No checks at all: say nothing rather than an empty row.
+	case fail > 0:
+		rows = append(rows, ui.Red.Render(fmt.Sprintf("%s %d of %d checks failed", ui.IconCIFail, fail, total))+
+			"\n"+ui.Dim.Render(fmt.Sprintf("  %d passed, %d running", pass, run)))
+	case run > 0:
+		rows = append(rows, ui.Yellow.Render(fmt.Sprintf("%s %d checks running", ui.IconCIPending, run))+
+			"\n"+ui.Dim.Render(fmt.Sprintf("  %d of %d passed so far", pass, total)))
+	case pass > 0:
+		rows = append(rows, ui.Green.Render(ui.IconCIOK+" All checks have passed")+
+			"\n"+ui.Dim.Render(fmt.Sprintf("  %d successful", pass)))
+	}
+
+	if p.Mergeable == "CONFLICTING" {
+		rows = append(rows, ui.Red.Render("⚠ Merging is blocked")+
+			"\n"+ui.Dim.Render("  branch has conflicts"))
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+
+	border := ui.Pal().Green
+	switch {
+	case fail > 0 || p.Mergeable == "CONFLICTING" || p.ReviewDecision == "CHANGES_REQUESTED":
+		border = ui.Pal().Red
+	case run > 0 || p.ReviewDecision == "REVIEW_REQUIRED":
+		border = ui.Pal().Yellow
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(border)).
+		Padding(0, 1).
+		Width(max(20, min(v.prevW, 60)) - 4).
+		Render(strings.Join(rows, "\n\n"))
+}
+
+// commentsBlock closes the summary with whether there is a conversation to
+// read, and which key opens it.
+func (v *View) commentsBlock(p pr) string {
+	head := blockHeader("Comments")
+	if p.Comments.TotalCount == 0 {
+		return head + "\n" + ui.Faint.Render("  none yet")
+	}
+	return head + "\n" + ui.Faint.Render(fmt.Sprintf("  %d · %s to toggle",
+		p.Comments.TotalCount, v.keyHint("comments")))
 }
 
 // renderedDiff renders the diff pane body for p (the colorized diff with
@@ -1747,13 +1931,44 @@ func (v *View) renderedBody(p pr) string {
 	if body == "" {
 		return ui.Faint.Render("(no description)")
 	}
-	key := fmt.Sprintf("%d:%d:%d", p.Number, v.prevW, ui.PaletteGen())
+	expanded := v.expanded == p.URL
+	key := fmt.Sprintf("%d:%d:%d:%t", p.Number, v.prevW, ui.PaletteGen(), expanded)
 	if v.bodyKey == key {
 		return v.body
 	}
 	out := ui.Markdown(body, v.prevW)
+	switch limit := v.cfg.SummaryLines; {
+	case limit <= 0:
+		// Truncation off: the whole description, no hint.
+	case expanded:
+		out += "\n" + ui.Faint.Render(fmt.Sprintf("… %s to toggle", v.keyHint("expand")))
+	default:
+		out = truncateSummary(out, limit, v.keyHint("expand"))
+	}
 	v.bodyKey, v.body = key, out
 	return out
+}
+
+// truncateSummary clips a rendered description to limit lines and says how to
+// see the rest. A description that already fits is left alone, so the hint
+// only appears when something is actually hidden.
+func truncateSummary(rendered string, limit int, hintKey string) string {
+	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	if len(lines) <= limit {
+		return rendered
+	}
+	kept := strings.Join(lines[:limit], "\n")
+	hint := fmt.Sprintf("… %d more lines · %s to toggle", len(lines)-limit, hintKey)
+	return kept + "\n\n" + ui.Faint.Render(hint)
+}
+
+// keyHint is the first key bound to an action, for a prompt telling the user
+// which key does the thing.
+func (v *View) keyHint(action string) string {
+	if keys := v.keys.binding(action).Keys(); len(keys) > 0 {
+		return keys[0]
+	}
+	return "?"
 }
 
 func (v *View) Bindings() []key.Binding {

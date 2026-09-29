@@ -139,6 +139,17 @@ func settingsTable() []setting {
 		boolSetting("check for updates", "update_check", "restart",
 			func(c config.Config) bool { return c.UpdateCheckEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.UpdateCheck, v) }),
+		{
+			label: "toggle behavior", path: "toggles", kind: kindEnum,
+			options: func() []string { return []string{"ephemeral", "persist"} },
+			get: func(c config.Config) string {
+				if c.TogglesPersist() {
+					return "persist"
+				}
+				return "ephemeral"
+			},
+			set: func(c *config.Config, v string) { c.Toggles = v },
+		},
 		boolSetting("hide preview pane", "hide_preview", "",
 			func(c config.Config) bool { return c.HidePreview },
 			func(c *config.Config, v bool) { c.HidePreview = v }),

@@ -33,6 +33,12 @@ type Config struct {
 	// disk, it only reports. Set false to skip the network call entirely.
 	UpdateCheck *bool `yaml:"update_check"`
 
+	// Toggles decides how long a per-item view toggle lasts: "ephemeral"
+	// (default) resets it when the selection moves, so opening a diff on one
+	// PR does not put every other PR in diff view; "persist" keeps it until
+	// you toggle back, which is what the views did before.
+	Toggles string `yaml:"toggles"`
+
 	// Grouping renders lists as swimlanes derived from the active sort
 	// (status lanes for Linear's status sort, time buckets for date sorts,
 	// and so on). Off by default: flat lists, the original behavior. Sorts
@@ -75,6 +81,11 @@ type ThemeConfig struct {
 
 // UpdateCheckEnabled reports whether the startup release check runs.
 func (c Config) UpdateCheckEnabled() bool { return c.UpdateCheck == nil || *c.UpdateCheck }
+
+// TogglesPersist reports whether a per-item toggle survives moving to
+// another item. Only "persist" does; anything else, including the default,
+// resets to the configured view.
+func (c Config) TogglesPersist() bool { return c.Toggles == "persist" }
 
 // GlyphsEnabled reports whether decorative Nerd Font icons render.
 func (c Config) GlyphsEnabled() bool { return c.Theme.Glyphs == nil || *c.Theme.Glyphs }
@@ -121,6 +132,10 @@ type GitHubConfig struct {
 	// of these fields measured 8-10s against a large review-requested search
 	// and timed out often enough to matter, where a page of 20 is 3-4s.
 	LazyPaging *bool `yaml:"lazy_paging"`
+	// SummaryLines truncates the PR description in the preview to this many
+	// lines, with 'e' expanding it (default 10). Set 0 to never truncate,
+	// which is what the view did before.
+	SummaryLines int `yaml:"summary_lines"`
 	// PageSize is how many PRs one request asks for (default 20, max 100).
 	// Larger pages mean fewer requests and a slower first paint.
 	PageSize int `yaml:"page_size"`
@@ -212,6 +227,7 @@ func Default() Config {
 		GitHub: GitHubConfig{
 			Filter:       "author:@me is:open archived:false",
 			ReviewFilter: "review-requested:@me is:open archived:false",
+			SummaryLines: 10,
 		},
 		Linear: LinearConfig{
 			Filter: LinearFilter{Limit: 100},

@@ -142,6 +142,16 @@ func (a attachment) toPR() store.PR {
 	return p
 }
 
+// resetToggles returns the per-issue toggles to the configured default. A
+// toggle belongs to the issue it was pressed on.
+func (v *View) resetToggles() {
+	if v.togglesPersist {
+		return
+	}
+	v.showComments = v.cfgShowComments
+	v.commentsJumped = false
+}
+
 // Selectable implements ui.NonSelectable: group headers never hold the cursor.
 func (i issue) Selectable() bool { return i.Separator == "" }
 
@@ -407,6 +417,10 @@ type View struct {
 	// jump, hide: commentsJumped tracks where in that cycle we are and
 	// jumpPending asks the root model to scroll to commentsLine (recorded
 	// while rendering the preview).
+	// cfgShowComments is the configured default the toggle resets to.
+	cfgShowComments bool
+	// togglesPersist keeps the comments toggle when the selection moves.
+	togglesPersist bool
 	showComments   bool
 	comments       map[string]*commentsState
 	commentsRev    int
@@ -468,7 +482,7 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 	v.defaultSource = v.source
 	v.lastLoaded = v.source
 	v.navShown = cfg.Nav
-	v.showComments = cfg.ShowComments
+	v.showComments, v.cfgShowComments = cfg.ShowComments, cfg.ShowComments
 	v.rebuildNav()
 	v.list.SetRowHeight(2) // two-line rows: state/identifier + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
@@ -769,6 +783,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.err = msg.err
 		return nil
+	case ui.TogglesPersistMsg:
+		v.togglesPersist = bool(msg)
+		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applySort()
@@ -802,7 +819,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			// restart the 'c' jump cycle.
 			v.commentsJumped = false
 			if v.list.Selected().Identifier != before {
-				// Moving on ends a transient preview reveal.
+				// Moving on ends a transient preview reveal, and returns the
+				// comments toggle to what the config asks for: it belongs to
+				// the issue it was pressed on.
+				v.resetToggles()
 				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview)
 			}
 			return tea.Batch(cmd, v.maybeFetchComments())
@@ -960,7 +980,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 	if v.list.Selected().Identifier == before {
 		return nil
 	}
-	v.commentsJumped = false
+	v.resetToggles()
 	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview)
 }
 

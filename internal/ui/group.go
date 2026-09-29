@@ -96,3 +96,8 @@ type ConcealPreviewMsg struct{}
 
 // ConcealPreview is the tea.Cmd form of ConcealPreviewMsg.
 func ConcealPreview() tea.Msg { return ConcealPreviewMsg{} }
+
+// TogglesPersistMsg tells every view whether a per-item toggle (a diff pane,
+// an expanded description, shown comments) survives moving to another item.
+// Broadcast by the root model at startup and when the setting changes.
+type TogglesPersistMsg bool

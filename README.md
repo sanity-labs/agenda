@@ -151,6 +151,7 @@ the full keymap in-app.
 | PRs | `d` | diff: `less` pager by default, right pane with `github.diff_pane` |
 | PRs | `c` | toggle right pane to the comments/threads view |
 | PRs | `w` | toggle the "Review Requested" section |
+| PRs | `e` | expand a truncated description |
 | PRs | `r` | review popup: approve / comment / request changes / view diff |
 | PRs | `]` / `[` | jump between inline review threads |
 | PRs | `R` · `X` · `C` | reply to thread · resolve thread · new PR comment |
@@ -218,6 +219,19 @@ out of the box agenda looks and acts as it did before these options existed.
   review-requested search paints in seconds instead of timing out. The list
   header says `20 of 79` while more remain. `github.lazy_paging: false`
   fetches everything up front.
+- **PR preview**: the description is trimmed to `github.summary_lines` (10 by
+  default, `e` expands, 0 never trims), framed by a checks box that says what
+  is blocking the merge and how many checks passed, and a comments line
+  saying how many there are and which key opens them.
+- **Toggle behavior**: `toggles: ephemeral` (the default) treats a per-item
+  toggle as belonging to the item you pressed it on, so the diff pane,
+  an expanded description or shown comments reset when you move on, and the
+  pane you opened to review a PR folds away once you have reviewed it.
+  `toggles: persist` keeps them until you toggle back.
+- **Floating detail**: with the preview pane off (`hide_preview: true`),
+  `v` opens the detail as a centered window over the list rather than
+  splitting the pane; `v` again, or moving to another row, closes it. With
+  the pane on, `v` keeps its original meaning and hides or shows the pane.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.
