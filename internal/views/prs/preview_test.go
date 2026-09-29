@@ -21,7 +21,7 @@ func TestTruncateSummary(t *testing.T) {
 	if got := strings.Count(out, "kept"); got != 10 {
 		t.Errorf("kept %d lines, want 10", got)
 	}
-	if !strings.Contains(out, "20 more lines") || !strings.Contains(out, "e to expand") {
+	if !strings.Contains(out, "20 more lines") || !strings.Contains(out, "e to toggle") {
 		t.Errorf("missing the hint:\n%s", out)
 	}
 }
@@ -84,8 +84,8 @@ func TestCommentsBlock(t *testing.T) {
 	}
 	p.Comments.TotalCount = 4
 	got := v.commentsBlock(p)
-	if !strings.Contains(got, "4") || !strings.Contains(got, "to read them") {
-		t.Errorf("comments block = %q, want the count and the key", got)
+	if !strings.Contains(got, "4") || !strings.Contains(got, "to toggle") {
+		t.Errorf("comments block = %q, want the count and the toggle key", got)
 	}
 }
 
@@ -99,18 +99,38 @@ func TestExpandIsPerPR(t *testing.T) {
 	}}})
 
 	first := v.renderedBody(v.list.Selected())
-	if !strings.Contains(first, "to expand") {
+	if !strings.Contains(first, "more lines") {
 		t.Fatalf("a long body was not truncated:\n%s", first)
 	}
 	v.expanded = "u1"
 	v.bodyKey = ""
-	if strings.Contains(v.renderedBody(v.list.Selected()), "to expand") {
+	if strings.Contains(v.renderedBody(v.list.Selected()), "more lines") {
 		t.Error("expanding did not show the whole body")
 	}
 	// A different PR is still truncated.
 	v.bodyKey = ""
 	other := v.renderedBody(pr{Number: 2, URL: "u2", Body: long})
-	if !strings.Contains(other, "to expand") {
+	if !strings.Contains(other, "more lines") {
 		t.Error("expansion leaked to another PR")
+	}
+}
+
+// The hint has to survive expansion, or there is no way back. Uses
+// paragraphs rather than repeated short lines: glamour reflows those into
+// fewer lines than you wrote, so nothing gets truncated.
+func TestExpandedShowsCollapseHint(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{SummaryLines: 5}, nil, nil, nil)
+	v.SetSize(80, 60, 40)
+	p := pr{Number: 1, URL: "u1", Body: strings.Repeat("A paragraph of description text.\n\n", 40)}
+
+	collapsed := v.renderedBody(p)
+	if !strings.Contains(collapsed, "to toggle") {
+		t.Errorf("collapsed body has no hint:\n%s", collapsed)
+	}
+	v.expanded, v.bodyKey = "u1", ""
+	expanded := v.renderedBody(p)
+	if !strings.Contains(expanded, "to toggle") {
+		t.Errorf("expanded body has no way back:\n%s", expanded[len(expanded)-200:])
 	}
 }

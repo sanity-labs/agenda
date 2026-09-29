@@ -1846,7 +1846,7 @@ func (v *View) commentsBlock(p pr) string {
 	if p.Comments.TotalCount == 0 {
 		return head + "\n" + ui.Faint.Render("  none yet")
 	}
-	return head + "\n" + ui.Faint.Render(fmt.Sprintf("  %d · %s to read them",
+	return head + "\n" + ui.Faint.Render(fmt.Sprintf("  %d · %s to toggle",
 		p.Comments.TotalCount, v.keyHint("comments")))
 }
 
@@ -1913,7 +1913,12 @@ func (v *View) renderedBody(p pr) string {
 		return v.body
 	}
 	out := ui.Markdown(body, v.prevW)
-	if limit := v.cfg.SummaryLines; limit > 0 && !expanded {
+	switch limit := v.cfg.SummaryLines; {
+	case limit <= 0:
+		// Truncation off: the whole description, no hint.
+	case expanded:
+		out += "\n" + ui.Faint.Render(fmt.Sprintf("… %s to toggle", v.keyHint("expand")))
+	default:
 		out = truncateSummary(out, limit, v.keyHint("expand"))
 	}
 	v.bodyKey, v.body = key, out
@@ -1929,7 +1934,7 @@ func truncateSummary(rendered string, limit int, hintKey string) string {
 		return rendered
 	}
 	kept := strings.Join(lines[:limit], "\n")
-	hint := fmt.Sprintf("… %d more lines · %s to expand", len(lines)-limit, hintKey)
+	hint := fmt.Sprintf("… %d more lines · %s to toggle", len(lines)-limit, hintKey)
 	return kept + "\n\n" + ui.Faint.Render(hint)
 }
 
