@@ -59,9 +59,15 @@ type issue struct {
 	// Inbox rows represent a notification about the issue rather than the
 	// issue itself: who did what (InboxEvent/InboxActor) and whether it is
 	// still unread. UpdatedAt then carries the notification time.
-	InboxEvent    string    `json:"-"`
-	InboxActor    string    `json:"-"`
-	InboxUnread   bool      `json:"-"`
+	InboxEvent  string `json:"-"`
+	InboxActor  string `json:"-"`
+	InboxUnread bool   `json:"-"`
+	// Fresh marks an issue that arrived since the last fetch, cleared when
+	// you select it. Distinct from InboxUnread, which is Linear's own
+	// notification state on an inbox row. FreshGutter reserves the column
+	// even when read, so clearing a mark does not shift the row.
+	Fresh         bool      `json:"-"`
+	FreshGutter   bool      `json:"-"`
 	Identifier    string    `json:"identifier"`
 	Title         string    `json:"title"`
 	URL           string    `json:"url"`
@@ -200,6 +206,16 @@ func (i issue) Render(width int, selected bool, hl ui.Highlighter) string {
 		return i.renderInboxRow(width, selected, hl)
 	}
 	glyphs := i.priorityCell()
+	// An arrival since the last fetch leads with a bold blue dot, the one
+	// palette colour distinct from the accent in every built-in theme; the
+	// gutter stays reserved once read so rows do not shift on clearing.
+	if i.FreshGutter {
+		mark := strings.Repeat(" ", lipgloss.Width(ui.IconUnread))
+		if i.Fresh {
+			mark = ui.Blue.Bold(true).Render(ui.IconUnread)
+		}
+		glyphs = mark + " " + glyphs
+	}
 
 	// Metadata: state · identifier (· project), minus whatever the active
 	// grouping's lane header already announces.
@@ -793,6 +809,13 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
 		return nil
+	case ui.UnreadMsg:
+		v.unreadOn = bool(msg)
+		if !v.unreadOn {
+			v.fresh = nil
+		}
+		v.applySort()
+		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applySort()
@@ -964,6 +987,10 @@ func (v *View) notifyNew(prev, next []issue) tea.Cmd {
 // grouping is on and this sort declares a grouping dimension.
 func (v *View) applySort() {
 	items := sortIssues(v.raw, v.sort, v.rev)
+	for i := range items {
+		items[i].Fresh = v.fresh[items[i].Identifier]
+		items[i].FreshGutter = v.unreadOn
+	}
 	if v.grouping {
 		if label := groupLabelFn(v.sort); label != nil {
 			items = ui.InsertGroups(items, label, func(l string) issue { return issue{Separator: l} })

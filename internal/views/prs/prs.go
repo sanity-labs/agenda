@@ -286,12 +286,14 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 		return ui.SectionSeparator(p.Separator, width)
 	}
 	glyphs := p.stateIcon() + " " + p.ciIcon() + " " + p.reviewIcon()
-	// An unread row leads with an accent dot. The gutter is always there,
+	// An unread row leads with a bold blue dot: blue is the one palette
+	// colour distinct from the accent in every built-in theme, and it is
+	// not already spoken for by a status glyph. The gutter is always there,
 	// blank once read, so clearing a mark does not shift the row sideways.
 	if p.UnreadGutter {
 		mark := strings.Repeat(" ", lipgloss.Width(ui.IconUnread))
 		if p.Unread {
-			mark = ui.Accent.Render(ui.IconUnread)
+			mark = ui.Blue.Bold(true).Render(ui.IconUnread)
 		}
 		glyphs = mark + " " + glyphs
 	}
