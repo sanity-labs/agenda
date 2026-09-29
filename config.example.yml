@@ -19,6 +19,18 @@ update_check: true
 # status gets status lanes, date sorts get Today/Yesterday/7d/30d/Older
 # buckets, sessions by cwd get cwd lanes, and so on. Sorts with no sensible
 # buckets (e.g. sessions by msgs) stay flat. Off by default: flat lists.
+# Mark rows that arrived since the last fetch with a dot, cleared when you
+# select the row. Catches what a missed notification would have told you.
+unread: true
+
+# Keep unread marks and GitHub notifications in step, both ways: reading a
+# row here marks its notification read, and a notification read on
+# github.com (or any other client) clears the mark here. Review-requested
+# PRs only: your own PRs have no notification behind them. Costs one extra
+# (paged) notifications request per refresh. Off by default: reading a row
+# is a cursor move, and that should not quietly clear your real inbox.
+unread_sync: false
+
 grouping: false
 
 # How long a per-item view toggle lasts. "ephemeral" (default) resets it when
@@ -61,6 +73,11 @@ refresh:
 # ctrl+s -> "send test notification".
 notifications:
   popup: off
+  # What clicking a desktop notification does: "url" opens the PR or issue
+  # (default), "none" nothing. macOS needs terminal-notifier for this, and
+  # for a proper app icon; without it notifications still post through
+  # osascript, just plainer and not clickable.
+  # click: url
   # sound: true
 
 # Keybind overrides: scope -> action -> key(s). A binding may be a single key

@@ -210,6 +210,15 @@ func (m Model) Init() tea.Cmd {
 	if m.cfg.TogglesPersist() {
 		cmds = append(cmds, func() tea.Msg { return ui.TogglesPersistMsg(true) })
 	}
+	if m.cfg.UnreadEnabled() {
+		cmds = append(cmds, func() tea.Msg { return ui.UnreadMsg(true) })
+	}
+	if m.previewHidden {
+		cmds = append(cmds, func() tea.Msg { return ui.PreviewShownMsg(false) })
+	}
+	if m.cfg.UnreadSync {
+		cmds = append(cmds, func() tea.Msg { return ui.UnreadSyncMsg(true) })
+	}
 	// The views start out fetching, so kick the spinner loop; it stops itself
 	// once nothing is loading.
 	cmds = append(cmds, spinnerTick())
@@ -272,12 +281,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ui.RevealPreviewMsg:
 		if m.previewHidden {
-			m.setPreview(false, true)
+			return m, m.setPreview(false, true)
 		}
 		return m, nil
 	case ui.ConcealPreviewMsg:
 		if m.previewTransient {
-			m.setPreview(true, false)
+			return m, m.setPreview(true, false)
 		}
 		return m, nil
 	case ui.ToastMsg:
@@ -433,11 +442,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// over the list rather than splitting it, and pressing it again
 			// closes that. Otherwise it is the plain pane toggle.
 			if m.cfg.HidePreview {
-				m.setPreview(m.floating(), !m.floating())
-				return m, nil
+				return m, m.setPreview(m.floating(), !m.floating())
 			}
-			m.setPreview(!m.previewHidden, false)
-			return m, nil
+			return m, m.setPreview(!m.previewHidden, false)
 		case key.Matches(msg, m.keys.Refresh):
 			// Init() flips the view back into its loading state. Only start a
 			// spinner loop if one isn't already running (i.e. nothing was loading).
@@ -542,16 +549,31 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 // concealTransient ends a transient reveal (see ui.ConcealPreviewMsg).
 func (m *Model) concealTransient() {
 	if m.previewTransient {
-		m.setPreview(true, false)
+		_ = m.setPreview(true, false)
 	}
 }
 
 // setPreview moves the preview between hidden and shown. One place owns the
 // flags so every path (the key, a reveal, a config change) agrees on what
-// "transient" means, which is what the float keys off.
-func (m *Model) setPreview(hidden, transient bool) {
+// "transient" means, which is what the float keys off. It also tells the
+// views which state they are in: what counts as reading a row depends on
+// whether the detail is actually on screen.
+func (m *Model) setPreview(hidden, transient bool) tea.Cmd {
+	was, wasFloat := m.previewHidden, m.floating()
 	m.previewHidden, m.previewTransient = hidden, transient
 	m.layout()
+	var cmds []tea.Cmd
+	if was != hidden {
+		shown := !hidden
+		cmds = append(cmds, func() tea.Msg { return ui.PreviewShownMsg(shown) })
+	}
+	if isFloat := m.floating(); wasFloat != isFloat {
+		cmds = append(cmds, func() tea.Msg { return ui.PreviewFloatingMsg(isFloat) })
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }
 
 // floating reports whether the detail should render as a centered overlay
@@ -715,13 +737,13 @@ func (m *Model) runAction(path string) tea.Cmd {
 		m.keysEd = newKeybindEditor()
 		return nil
 	case "action:test_notification":
-		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.Sound == nil || *m.cfg.Notify.Sound)
+		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.Sound == nil || *m.cfg.Notify.Sound, m.cfg.Notify.ClickAction())
 		if n == nil {
 			m.settings.errMsg = "set popup to terminal or desktop first"
 			return nil
 		}
 		return func() tea.Msg {
-			return n.Notify("agenda test", "This is what a notification looks like.")
+			return n.Notify("agenda test", "This is what a notification looks like.", "https://github.com/sanity-labs/agenda")
 		}
 	}
 	return nil
@@ -745,8 +767,14 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "toggles":
 		persist := m.cfg.TogglesPersist()
 		return func() tea.Msg { return ui.TogglesPersistMsg(persist) }
+	case path == "unread":
+		on := m.cfg.UnreadEnabled()
+		return func() tea.Msg { return ui.UnreadMsg(on) }
+	case path == "unread_sync":
+		on := m.cfg.UnreadSync
+		return func() tea.Msg { return ui.UnreadSyncMsg(on) }
 	case path == "hide_preview":
-		m.setPreview(m.cfg.HidePreview, false)
+		return m.setPreview(m.cfg.HidePreview, false)
 	case strings.HasPrefix(path, "refresh."):
 		m.refresh = refreshIntervals(m.cfg, m.views)
 		m.refreshGen++ // orphan the old tick loops
@@ -974,7 +1002,8 @@ func (m Model) View() tea.View {
 		}
 	}
 
-	// Composite the message log, if open.
+	// Composite the message log, if open. Bordered like the other overlays:
+	// without a frame it reads as part of the pane behind it.
 	if m.statusOpen {
 		content = m.overlayCentered(content, ui.DetailView(m.status, min(70, m.width-10)))
 	}

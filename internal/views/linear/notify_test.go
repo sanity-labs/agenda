@@ -49,4 +49,4 @@ func TestNotifyNewGating(t *testing.T) {
 
 type fakeNotifier struct{}
 
-func (fakeNotifier) Notify(title, body string) tea.Msg { return nil }
+func (fakeNotifier) Notify(title, body, _ string) tea.Msg { return nil }

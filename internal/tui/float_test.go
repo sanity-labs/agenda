@@ -100,3 +100,33 @@ func TestZoomOutranksFloat(t *testing.T) {
 		t.Error("floated while zoomed; zoom should win")
 	}
 }
+
+// The views are told whether the detail is on screen, since that decides
+// what counts as reading a row.
+func TestPreviewVisibilityIsBroadcast(t *testing.T) {
+	m := floatModel(t)
+	cmd := m.setPreview(false, true)
+	if cmd == nil {
+		t.Fatal("showing the preview broadcast nothing")
+	}
+	// A reveal changes both facts at once: shown, and shown as a float.
+	var shown, floating bool
+	for _, c := range cmd().(tea.BatchMsg) {
+		switch msg := c().(type) {
+		case ui.PreviewShownMsg:
+			shown = bool(msg)
+		case ui.PreviewFloatingMsg:
+			floating = bool(msg)
+		}
+	}
+	if !shown {
+		t.Error("the reveal did not broadcast PreviewShownMsg(true)")
+	}
+	if !floating {
+		t.Error("a transient reveal did not broadcast PreviewFloatingMsg(true)")
+	}
+	// No change, no message.
+	if cmd := m.setPreview(false, true); cmd != nil {
+		t.Errorf("re-showing an already-shown preview broadcast %#v", cmd())
+	}
+}

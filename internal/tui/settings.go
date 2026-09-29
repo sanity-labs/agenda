@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ const (
 	kindBool
 	kindEnum
 	kindText
+	// kindNum is a whole number, edited as text but validated as an int so
+	// a duration-shaped value cannot be stored in a count.
+	kindNum
 	// kindAction rows run something instead of storing a value (e.g. a test
 	// notification); enter triggers them and nothing is written to the file.
 	kindAction
@@ -52,6 +56,22 @@ func boolSetting(label, path, note string, get func(config.Config) bool, set fun
 			return "off"
 		},
 		set: func(c *config.Config, v string) { set(c, v == "on") },
+	}
+}
+
+// numSetting is a whole-number field, edited as text and ignored when the
+// input is not a number (the overlay validates before calling set).
+func numSetting(label, path, note string, get func(config.Config) int, set func(*config.Config, int)) setting {
+	return setting{
+		label: label, path: path, kind: kindNum, note: note,
+		get: func(c config.Config) string { return strconv.Itoa(get(c)) },
+		set: func(c *config.Config, v string) {
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil {
+				return
+			}
+			set(c, n)
+		},
 	}
 }
 
@@ -133,6 +153,12 @@ func settingsTable() []setting {
 			set: func(*config.Config, string) {},
 		},
 		header("Lists"),
+		boolSetting("mark new items", "unread", "",
+			func(c config.Config) bool { return c.UnreadEnabled() },
+			func(c *config.Config, v bool) { setOptBool(&c.Unread, v) }),
+		boolSetting("sync reads with GitHub", "unread_sync", "",
+			func(c config.Config) bool { return c.UnreadSync },
+			func(c *config.Config, v bool) { c.UnreadSync = v }),
 		boolSetting("group by sort", "grouping", "",
 			func(c config.Config) bool { return c.Grouping },
 			func(c *config.Config, v bool) { c.Grouping = v }),
@@ -168,6 +194,12 @@ func settingsTable() []setting {
 			func(c *config.Config, d config.Duration) { c.Refresh.Sessions = &d }),
 		header("Notifications"),
 		{
+			label: "notification click", path: "notifications.click", kind: kindEnum, note: "restart",
+			options: func() []string { return []string{"url", "none"} },
+			get:     func(c config.Config) string { return c.Notify.ClickAction() },
+			set:     func(c *config.Config, v string) { c.Notify.Click = v },
+		},
+		{
 			label: "popup", path: "notifications.popup", kind: kindEnum, note: "restart",
 			options: func() []string { return []string{"off", "terminal", "desktop"} },
 			get: func(c config.Config) string {
@@ -200,6 +232,15 @@ func settingsTable() []setting {
 		boolSetting("show review-requested", "github.show_review_requested", "restart",
 			func(c config.Config) bool { return c.ShowReviewRequested() },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.ShowReviewRequested, v) }),
+		boolSetting("lazy paging", "github.lazy_paging", "restart",
+			func(c config.Config) bool { return c.GitHub.LazyPagingEnabled() },
+			func(c *config.Config, v bool) { setOptBool(&c.GitHub.LazyPaging, v) }),
+		numSetting("page size", "github.page_size", "restart",
+			func(c config.Config) int { return c.GitHub.ResolvedPageSize() },
+			func(c *config.Config, v int) { c.GitHub.PageSize = v }),
+		numSetting("summary lines", "github.summary_lines", "restart",
+			func(c config.Config) int { return c.GitHub.SummaryLines },
+			func(c *config.Config, v int) { c.GitHub.SummaryLines = v }),
 		boolSetting("mark reviewed PRs", "github.mark_reviewed", "restart",
 			func(c config.Config) bool { return c.GitHub.MarkReviewed },
 			func(c *config.Config, v bool) { c.GitHub.MarkReviewed = v }),
@@ -315,7 +356,7 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 			return &settingChange{s: s, val: val}, false
 		case kindEnum:
 			return &settingChange{s: s, val: cycle(s.options(), s.get(cfg), +1)}, false
-		case kindText:
+		case kindText, kindNum:
 			if msg.String() == "enter" {
 				o.editing, o.buf = true, ""
 			}

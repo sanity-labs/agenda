@@ -39,6 +39,19 @@ type Config struct {
 	// you toggle back, which is what the views did before.
 	Toggles string `yaml:"toggles"`
 
+	// Unread marks rows that arrived since the last fetch with a dot, so a
+	// notification you missed is still visible in the list. Selecting a row
+	// clears its mark. On by default.
+	Unread *bool `yaml:"unread"`
+
+	// UnreadSync keeps unread marks and GitHub notifications in step, both
+	// ways: reading a row here marks its notification read, and a
+	// notification read anywhere else clears the mark here. Review-requested
+	// PRs only, since your own PRs have no notification behind them. Off by
+	// default: reading here is a cursor move, and that should not quietly
+	// clear your real inbox.
+	UnreadSync bool `yaml:"unread_sync"`
+
 	// Grouping renders lists as swimlanes derived from the active sort
 	// (status lanes for Linear's status sort, time buckets for date sorts,
 	// and so on). Off by default: flat lists, the original behavior. Sorts
@@ -87,6 +100,9 @@ func (c Config) UpdateCheckEnabled() bool { return c.UpdateCheck == nil || *c.Up
 // resets to the configured view.
 func (c Config) TogglesPersist() bool { return c.Toggles == "persist" }
 
+// UnreadEnabled reports whether new rows are marked unread.
+func (c Config) UnreadEnabled() bool { return c.Unread == nil || *c.Unread }
+
 // GlyphsEnabled reports whether decorative Nerd Font icons render.
 func (c Config) GlyphsEnabled() bool { return c.Theme.Glyphs == nil || *c.Theme.Glyphs }
 
@@ -108,9 +124,23 @@ type NotifyConfig struct {
 	Popup string `yaml:"popup"`
 	// Sound plays a sound alongside the popup (default true when on).
 	Sound *bool `yaml:"sound"`
+	// Click is what a desktop notification does when clicked: "url" opens
+	// the PR or issue (default), "none" does nothing. macOS needs
+	// terminal-notifier for this; osascript notifications are not clickable.
+	Click string `yaml:"click"`
 }
 
-func (n NotifyConfig) Enabled() bool      { return n.Popup == "terminal" || n.Popup == "desktop" }
+func (n NotifyConfig) Enabled() bool { return n.Popup == "terminal" || n.Popup == "desktop" }
+
+// ClickAction is the notification click behaviour, defaulting to opening the
+// item.
+func (n NotifyConfig) ClickAction() string {
+	if n.Click == "none" {
+		return "none"
+	}
+	return "url"
+}
+
 func (n NotifyConfig) SoundEnabled() bool { return n.Enabled() && (n.Sound == nil || *n.Sound) }
 
 type GitHubConfig struct {

@@ -232,6 +232,23 @@ out of the box agenda looks and acts as it did before these options existed.
   `v` opens the detail as a centered window over the list rather than
   splitting the pane; `v` again, or moving to another row, closes it. With
   the pane on, `v` keeps its original meaning and hides or shows the pane.
+- **Notification clicks**: a desktop notification opens the PR or issue when
+  clicked (`notifications.click: none` turns that off). On macOS this needs
+  `brew install terminal-notifier`, which also gives the notification a
+  proper icon rather than Script Editor's; without it agenda falls back to
+  `osascript`, which posts but cannot be clicked.
+- **Unread marks**: a row that arrived since the last fetch carries a blue
+  dot until you have seen it, so a notification you missed is still visible
+  at a glance. Marks persist across restarts: quitting does not mark
+  anything read. What counts as reading depends on the detail pane. With it
+  on screen, moving onto a row reads it; with it hidden (`hide_preview`),
+  the row is read when you ask for the detail with `v`. Independent of
+  whether notifications are on; `unread: false` turns it off, and
+  `unread_sync: true` keeps marks and GitHub notifications in step both
+  ways (review-requested PRs only, one extra request per refresh).
+- **Floating detail**: with the preview pane off, `v` opens the detail as a
+  centered window over the list rather than splitting the pane, and moving
+  to another row closes it. `z` still zooms the pane when one is in view.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

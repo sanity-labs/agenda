@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -45,6 +48,11 @@ func TestSettingsTableRoundTrips(t *testing.T) {
 			s.set(&cfg, "7m")
 			if got := s.get(cfg); got != "7m" {
 				t.Errorf("%s: set 7m, get %q", s.path, got)
+			}
+		case kindNum:
+			s.set(&cfg, "37")
+			if got := s.get(cfg); got != "37" {
+				t.Errorf("%s: set 37, get %q", s.path, got)
 			}
 		}
 	}
@@ -119,5 +127,42 @@ func TestOverlayNavigationSkipsHeaders(t *testing.T) {
 			t.Fatalf("cursor landed on header %q", o.rows[o.cursor].label)
 		}
 		o.Update(press('j'), cfg)
+	}
+}
+
+// Every config option should be reachable from ctrl+s: a setting only in the
+// YAML is one most people never find. Container keys and free-text fields
+// (tokens, search queries, keymaps) are deliberately file-only.
+func TestEveryConfigKeyHasASettingRow(t *testing.T) {
+	fileOnly := map[string]bool{
+		// Containers, not settings in themselves.
+		"github": true, "linear": true, "sessions": true, "theme": true,
+		"refresh": true, "notifications": true, "keys": true, "filter": true,
+		// Free text, edited in the file.
+		"token": true, "review_filter": true, "views": true, "palette": true,
+		"glyphs": true, "command": true, "limit": true, "scope": true,
+		"teams": true, "projects": true, "states": true, "nav": true,
+		"include_completed": true, "include_canceled": true,
+	}
+	src, err := os.ReadFile("../config/config.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := settingsTable()
+	for _, m := range regexp.MustCompile(`yaml:"([a-z_]+)"`).FindAllStringSubmatch(string(src), -1) {
+		key := m[1]
+		if fileOnly[key] {
+			continue
+		}
+		found := false
+		for _, r := range rows {
+			if r.path == key || strings.HasSuffix(r.path, "."+key) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("config key %q has no row in the ctrl+s overlay; add one or list it as file-only", key)
+		}
 	}
 }

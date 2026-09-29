@@ -19,7 +19,11 @@ const (
 )
 
 // IconSection heads a preview section (Description, Checks, Comments).
-const IconSection = "\uf0c9" //  list
+const IconSection = "\uf0c9" //  list
+
+// IconUnread marks a row that arrived since the last fetch, until you
+// select it.
+const IconUnread = "●"
 
 // Pill caps (powerline half-circles), used to round the ends of label pills.
 // Both fall back to nothing when decorative glyphs are off, leaving the plain

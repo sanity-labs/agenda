@@ -59,9 +59,15 @@ type issue struct {
 	// Inbox rows represent a notification about the issue rather than the
 	// issue itself: who did what (InboxEvent/InboxActor) and whether it is
 	// still unread. UpdatedAt then carries the notification time.
-	InboxEvent    string    `json:"-"`
-	InboxActor    string    `json:"-"`
-	InboxUnread   bool      `json:"-"`
+	InboxEvent  string `json:"-"`
+	InboxActor  string `json:"-"`
+	InboxUnread bool   `json:"-"`
+	// Fresh marks an issue that arrived since the last fetch, cleared when
+	// you select it. Distinct from InboxUnread, which is Linear's own
+	// notification state on an inbox row. FreshGutter reserves the column
+	// even when read, so clearing a mark does not shift the row.
+	Fresh         bool      `json:"-"`
+	FreshGutter   bool      `json:"-"`
 	Identifier    string    `json:"identifier"`
 	Title         string    `json:"title"`
 	URL           string    `json:"url"`
@@ -200,6 +206,16 @@ func (i issue) Render(width int, selected bool, hl ui.Highlighter) string {
 		return i.renderInboxRow(width, selected, hl)
 	}
 	glyphs := i.priorityCell()
+	// An arrival since the last fetch leads with a bold blue dot, the one
+	// palette colour distinct from the accent in every built-in theme; the
+	// gutter stays reserved once read so rows do not shift on clearing.
+	if i.FreshGutter {
+		mark := strings.Repeat(" ", lipgloss.Width(ui.IconUnread))
+		if i.Fresh {
+			mark = ui.Blue.Bold(true).Render(ui.IconUnread)
+		}
+		glyphs = mark + " " + glyphs
+	}
 
 	// Metadata: state · identifier (· project), minus whatever the active
 	// grouping's lane header already announces.
@@ -421,6 +437,15 @@ type View struct {
 	cfgShowComments bool
 	// togglesPersist keeps the comments toggle when the selection moves.
 	togglesPersist bool
+
+	// fresh is the set of identifiers that arrived since the last fetch,
+	// cleared per issue when you select it.
+	fresh    map[string]bool
+	unreadOn bool
+	// previewShown tracks whether the detail pane is on screen, which
+	// decides what marks an issue read: hovering, or asking for the detail.
+	previewShown bool
+
 	showComments   bool
 	comments       map[string]*commentsState
 	commentsRev    int
@@ -492,6 +517,12 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 		if cached, ok := cache.Load[[]issue](cacheName); ok && len(cached) > 0 {
 			v.raw = cached
 			v.seeded = true
+			if ids, ok := cache.Load[[]string](freshCacheName); ok && len(ids) > 0 {
+				v.fresh = make(map[string]bool, len(ids))
+				for _, id := range ids {
+					v.fresh[id] = true
+				}
+			}
 			v.applySort()
 			v.publish(cached)
 			v.loading = false
@@ -501,6 +532,27 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 }
 
 const cacheName = "linear"
+
+// freshCacheName holds the unread set. Kept beside the issues rather than
+// inside them: changing that entry's shape would throw away every existing
+// cache, and an unread mark must outlive a restart to mean anything.
+const freshCacheName = "linear-unread"
+
+// freshIDs is the unread set as a sorted slice, for a stable cache file.
+func (v *View) freshIDs() []string {
+	if len(v.fresh) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(v.fresh))
+	for id := range v.fresh {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// saveFresh persists the unread set so marks survive a restart.
+func (v *View) saveFresh() { _ = cache.Save(freshCacheName, v.freshIDs()) }
 
 func (v *View) Title() string { return "Linear" }
 
@@ -757,6 +809,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.err = nil
 		var cmd tea.Cmd
 		if msg.source == v.lastLoaded {
+			v.markFresh(v.raw, msg.issues)
 			cmd = v.notifyNew(v.raw, msg.issues)
 		}
 		v.lastLoaded = msg.source
@@ -766,6 +819,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.publish(msg.issues)
 		if msg.source == v.defaultSource {
 			_ = cache.Save(cacheName, msg.issues)
+			v.saveFresh()
 		}
 		return cmd
 	case favsMsg:
@@ -785,6 +839,19 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
+		return nil
+	case ui.UnreadMsg:
+		v.unreadOn = bool(msg)
+		if !v.unreadOn {
+			v.fresh = nil
+		}
+		v.applySort()
+		return nil
+	case ui.PreviewShownMsg:
+		v.previewShown = bool(msg)
+		if v.previewShown {
+			v.clearFresh()
+		}
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -819,10 +886,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			// restart the 'c' jump cycle.
 			v.commentsJumped = false
 			if v.list.Selected().Identifier != before {
-				// Moving on ends a transient preview reveal, and returns the
-				// comments toggle to what the config asks for: it belongs to
-				// the issue it was pressed on.
+				// Moving on ends a transient preview reveal and returns the
+				// comments toggle to what the config asks for. It reads the
+				// issue being left, not the one arrived at, and only when
+				// its detail was on screen.
 				v.resetToggles()
+				if v.previewShown {
+					v.clearFreshFor(before)
+				}
 				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview)
 			}
 			return tea.Batch(cmd, v.maybeFetchComments())
@@ -890,6 +961,45 @@ func newIssues(prev, next []issue) []issue {
 	return out
 }
 
+// markFresh records issues that were not in the previous set. Independent of
+// notifications: the mark is how you catch up on what arrived while you were
+// not looking, which is exactly when a notification gets missed.
+func (v *View) markFresh(prev, next []issue) {
+	// The caller only invokes this when the source is unchanged, so prev is
+	// a real previous set rather than a first load.
+	if !v.unreadOn {
+		return
+	}
+	known := make(map[string]bool, len(prev))
+	for _, i := range prev {
+		known[i.Identifier] = true
+	}
+	for _, i := range next {
+		if i.Identifier != "" && !known[i.Identifier] {
+			if v.fresh == nil {
+				v.fresh = map[string]bool{}
+			}
+			v.fresh[i.Identifier] = true
+		}
+	}
+}
+
+// clearFresh drops the mark for the selected issue.
+func (v *View) clearFresh() { v.clearFreshFor(v.list.Selected().Identifier) }
+
+// clearFreshFor reads one issue by identifier. The selection has already
+// moved by the time a move is handled, so the caller that is leaving an
+// issue has to name it: clearing "the selection" there would read the one
+// you land on.
+func (v *View) clearFreshFor(id string) {
+	if id == "" || !v.fresh[id] {
+		return
+	}
+	delete(v.fresh, id)
+	v.applySort()
+	v.saveFresh()
+}
+
 // notifyNew posts a notification for issues that appeared since the last
 // fetch. nil unless the view was already seeded with data (so the first
 // paint stays quiet) and a notifier is configured.
@@ -913,14 +1023,22 @@ func (v *View) notifyNew(prev, next []issue) tea.Cmd {
 			body += is.Identifier + ": " + is.Title
 		}
 	}
+	url := ""
+	if len(fresh) == 1 {
+		url = fresh[0].URL
+	}
 	n := v.notifier
-	return func() tea.Msg { return n.Notify(title, body) }
+	return func() tea.Msg { return n.Notify(title, body, url) }
 }
 
 // applySort rebuilds the list: the active sort, plus swimlane headers when
 // grouping is on and this sort declares a grouping dimension.
 func (v *View) applySort() {
 	items := sortIssues(v.raw, v.sort, v.rev)
+	for i := range items {
+		items[i].Fresh = v.fresh[items[i].Identifier]
+		items[i].FreshGutter = v.unreadOn
+	}
 	if v.grouping {
 		if label := groupLabelFn(v.sort); label != nil {
 			items = ui.InsertGroups(items, label, func(l string) issue { return issue{Separator: l} })
