@@ -39,6 +39,11 @@ type Config struct {
 	// you toggle back, which is what the views did before.
 	Toggles string `yaml:"toggles"`
 
+	// Unread marks rows that arrived since the last fetch with a dot, so a
+	// notification you missed is still visible in the list. Selecting a row
+	// clears its mark. On by default.
+	Unread *bool `yaml:"unread"`
+
 	// Grouping renders lists as swimlanes derived from the active sort
 	// (status lanes for Linear's status sort, time buckets for date sorts,
 	// and so on). Off by default: flat lists, the original behavior. Sorts
@@ -86,6 +91,9 @@ func (c Config) UpdateCheckEnabled() bool { return c.UpdateCheck == nil || *c.Up
 // another item. Only "persist" does; anything else, including the default,
 // resets to the configured view.
 func (c Config) TogglesPersist() bool { return c.Toggles == "persist" }
+
+// UnreadEnabled reports whether new rows are marked unread.
+func (c Config) UnreadEnabled() bool { return c.Unread == nil || *c.Unread }
 
 // GlyphsEnabled reports whether decorative Nerd Font icons render.
 func (c Config) GlyphsEnabled() bool { return c.Theme.Glyphs == nil || *c.Theme.Glyphs }

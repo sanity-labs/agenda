@@ -62,6 +62,12 @@ type pr struct {
 	ViewerLatestReview struct {
 		State string `json:"state"`
 	} `json:"viewerLatestReview"`
+	// Unread marks a row that arrived since the last fetch, cleared when you
+	// select it, so a notification you missed is still visible in the list.
+	// UnreadGutter reserves the column even when this row is read, so marks
+	// clearing does not shift every other row.
+	Unread       bool `json:"-"`
+	UnreadGutter bool `json:"-"`
 	// Reviewed marks a review-requested row the viewer has already reviewed
 	// (set at assembly when github.mark_reviewed is on): rendered dim with a
 	// "reviewed" tag so the eye can skip it.
@@ -280,6 +286,15 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 		return ui.SectionSeparator(p.Separator, width)
 	}
 	glyphs := p.stateIcon() + " " + p.ciIcon() + " " + p.reviewIcon()
+	// An unread row leads with an accent dot. The gutter is always there,
+	// blank once read, so clearing a mark does not shift the row sideways.
+	if p.UnreadGutter {
+		mark := strings.Repeat(" ", lipgloss.Width(ui.IconUnread))
+		if p.Unread {
+			mark = ui.Accent.Render(ui.IconUnread)
+		}
+		glyphs = mark + " " + glyphs
+	}
 
 	// Right cluster: diff · comments · age.
 	right := strings.TrimSpace(p.diffCell() + "  " + p.commentsCell() + "  " + ui.Dim.Render(ui.Age(p.UpdatedAt)))
@@ -528,6 +543,14 @@ type View struct {
 	// flight. An empty cursor with hasMore false means fully loaded.
 	minePage, reviewPage pageState
 
+	// unread is the set of URLs that arrived since the last fetch, by URL so
+	// it survives re-sorts and re-fetches. Selecting a row removes it.
+	unread   map[string]bool
+	unreadOn bool
+	// mineSeeded marks the own-PRs list as having a baseline to diff
+	// against; seeded is the review list's equivalent.
+	mineSeeded bool
+
 	// settleGen drops stale selection-settle ticks, so only the final
 	// position of a navigation burst triggers pane fetches.
 	settleGen int
@@ -664,7 +687,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 	// Paint last run's PRs immediately; the live fetch refreshes them.
 	if cached, ok := cache.Load[cachedPRs](cacheName); ok && len(cached.Mine)+len(cached.Review) > 0 {
 		v.raw, v.reviewRaw = cached.Mine, cached.Review
-		v.seeded = true
+		v.seeded, v.mineSeeded = true, true
 		v.applySort()
 		v.publish(append(cached.Mine, cached.Review...))
 		v.loading = false
@@ -960,10 +983,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.more {
 			v.raw = append(v.raw, msg.page.prs...)
 		} else {
+			v.markUnread(v.raw, msg.page.prs, v.mineSeeded)
 			v.raw = msg.page.prs
 		}
 		v.minePage.cursor, v.minePage.hasMore = msg.page.cursor, msg.page.hasMore
 		v.minePage.total = msg.page.total
+		v.mineSeeded = true
 		v.applySort()
 		v.publish(append(v.raw, v.reviewRaw...))
 		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw})
@@ -989,6 +1014,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// is all new by definition and would notify for every row.
 		var cmd tea.Cmd
 		if !msg.more {
+			v.markUnread(v.reviewRaw, next, v.seeded)
 			cmd = v.notifyNewReviews(v.reviewRaw, next)
 		}
 		if partial != nil {
@@ -1038,6 +1064,13 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
 		return nil
+	case ui.UnreadMsg:
+		v.unreadOn = bool(msg)
+		if !v.unreadOn {
+			v.unread = nil
+		}
+		v.applySort()
+		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applySort()
@@ -1077,8 +1110,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				more = v.fetchMore()
 			}
 			if v.list.Selected().URL != before {
-				// Moving on ends a transient preview reveal.
+				// Moving on ends a transient preview reveal, resets the
+				// toggles it carried, and looking at a row marks it read.
 				v.resetToggles()
+				v.clearUnread()
 				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more)
 			}
 			return tea.Batch(cmd, v.scheduleSettle(), more)
@@ -1558,6 +1593,12 @@ func (v *View) applySort() {
 			rev[i].Reviewed = rev[i].reviewedByMe()
 		}
 	}
+	for _, set := range [][]pr{mine, rev} {
+		for i := range set {
+			set[i].Unread = v.unread[set[i].URL]
+			set[i].UnreadGutter = v.unreadOn
+		}
+	}
 
 	if !v.showReview || (len(rev) == 0 && v.reviewErr == nil) {
 		v.list.SetItems(v.groupSection(mine))
@@ -1621,6 +1662,38 @@ func (v *View) groupSection(items []pr) []pr {
 		return items
 	}
 	return ui.InsertGroups(items, label, func(l string) pr { return pr{Separator: l, Group: true} })
+}
+
+// markUnread records rows that were not in the previous set. It runs whether
+// or not notifications are on: the mark is how you catch up on what arrived
+// while you were not looking, which is exactly when a notification is missed.
+func (v *View) markUnread(prev, next []pr, seeded bool) {
+	// The first load of a section is everything, not "new": marking it
+	// would light up the whole list on startup.
+	if !v.unreadOn || !seeded {
+		return
+	}
+	known := make(map[string]bool, len(prev))
+	for _, p := range prev {
+		known[p.URL] = true
+	}
+	for _, p := range next {
+		if !known[p.URL] {
+			if v.unread == nil {
+				v.unread = map[string]bool{}
+			}
+			v.unread[p.URL] = true
+		}
+	}
+}
+
+// clearUnread drops the mark for the selected row: looking at it is what
+// makes it read.
+func (v *View) clearUnread() {
+	if url := v.list.Selected().URL; url != "" && v.unread[url] {
+		delete(v.unread, url)
+		v.applySort()
+	}
 }
 
 // notifyNewReviews posts a notification for review requests that appeared
@@ -1690,6 +1763,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 	}
 	v.annIdx = 0
 	v.resetToggles()
+	v.clearUnread()
 	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more)
 }
 

@@ -210,6 +210,9 @@ func (m Model) Init() tea.Cmd {
 	if m.cfg.TogglesPersist() {
 		cmds = append(cmds, func() tea.Msg { return ui.TogglesPersistMsg(true) })
 	}
+	if m.cfg.UnreadEnabled() {
+		cmds = append(cmds, func() tea.Msg { return ui.UnreadMsg(true) })
+	}
 	// The views start out fetching, so kick the spinner loop; it stops itself
 	// once nothing is loading.
 	cmds = append(cmds, spinnerTick())
@@ -745,6 +748,9 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "toggles":
 		persist := m.cfg.TogglesPersist()
 		return func() tea.Msg { return ui.TogglesPersistMsg(persist) }
+	case path == "unread":
+		on := m.cfg.UnreadEnabled()
+		return func() tea.Msg { return ui.UnreadMsg(on) }
 	case path == "hide_preview":
 		m.setPreview(m.cfg.HidePreview, false)
 	case strings.HasPrefix(path, "refresh."):
@@ -974,7 +980,8 @@ func (m Model) View() tea.View {
 		}
 	}
 
-	// Composite the message log, if open.
+	// Composite the message log, if open. Bordered like the other overlays:
+	// without a frame it reads as part of the pane behind it.
 	if m.statusOpen {
 		content = m.overlayCentered(content, ui.DetailView(m.status, min(70, m.width-10)))
 	}

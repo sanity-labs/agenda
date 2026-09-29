@@ -101,3 +101,7 @@ func ConcealPreview() tea.Msg { return ConcealPreviewMsg{} }
 // an expanded description, shown comments) survives moving to another item.
 // Broadcast by the root model at startup and when the setting changes.
 type TogglesPersistMsg bool
+
+// UnreadMsg tells every view whether to mark rows that arrived since the
+// last fetch. Broadcast by the root model at startup and on change.
+type UnreadMsg bool

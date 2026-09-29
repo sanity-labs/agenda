@@ -19,6 +19,10 @@ update_check: true
 # status gets status lanes, date sorts get Today/Yesterday/7d/30d/Older
 # buckets, sessions by cwd get cwd lanes, and so on. Sorts with no sensible
 # buckets (e.g. sessions by msgs) stay flat. Off by default: flat lists.
+# Mark rows that arrived since the last fetch with a dot, cleared when you
+# select the row. Catches what a missed notification would have told you.
+unread: true
+
 grouping: false
 
 # How long a per-item view toggle lasts. "ephemeral" (default) resets it when

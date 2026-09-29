@@ -73,8 +73,17 @@ func (s StatusMsg) Line(width int, hintKey string) string {
 	return body + strings.Repeat(" ", gap) + hint
 }
 
-// DetailView renders the message log as an overlay body, newest first.
+// DetailView renders the message log as an overlay, newest first. Bordered
+// like the other overlays: without a frame it blends into the pane behind.
 func DetailView(msgs []StatusMsg, width int) string {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(Pal().Accent)).
+		Padding(0, 2).
+		Render(detailBody(msgs, width))
+}
+
+func detailBody(msgs []StatusMsg, width int) string {
 	var b strings.Builder
 	b.WriteString(Bold.Render("Messages"))
 	b.WriteString("\n\n")

@@ -232,6 +232,10 @@ out of the box agenda looks and acts as it did before these options existed.
   `v` opens the detail as a centered window over the list rather than
   splitting the pane; `v` again, or moving to another row, closes it. With
   the pane on, `v` keeps its original meaning and hides or shows the pane.
+- **Unread marks**: a row that arrived since the last fetch carries an
+  accent dot until you select it, so a notification you missed is still
+  visible at a glance. Independent of whether notifications are on;
+  `unread: false` turns it off.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

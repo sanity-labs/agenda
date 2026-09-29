@@ -421,6 +421,12 @@ type View struct {
 	cfgShowComments bool
 	// togglesPersist keeps the comments toggle when the selection moves.
 	togglesPersist bool
+
+	// fresh is the set of identifiers that arrived since the last fetch,
+	// cleared per issue when you select it.
+	fresh    map[string]bool
+	unreadOn bool
+
 	showComments   bool
 	comments       map[string]*commentsState
 	commentsRev    int
@@ -757,6 +763,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.err = nil
 		var cmd tea.Cmd
 		if msg.source == v.lastLoaded {
+			v.markFresh(v.raw, msg.issues)
 			cmd = v.notifyNew(v.raw, msg.issues)
 		}
 		v.lastLoaded = msg.source
@@ -819,10 +826,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			// restart the 'c' jump cycle.
 			v.commentsJumped = false
 			if v.list.Selected().Identifier != before {
-				// Moving on ends a transient preview reveal, and returns the
-				// comments toggle to what the config asks for: it belongs to
-				// the issue it was pressed on.
+				// Moving on ends a transient preview reveal, returns the
+				// comments toggle to what the config asks for, and marks
+				// the issue read: both belong to the issue you left.
 				v.resetToggles()
+				v.clearFresh()
 				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview)
 			}
 			return tea.Batch(cmd, v.maybeFetchComments())
@@ -888,6 +896,37 @@ func newIssues(prev, next []issue) []issue {
 		}
 	}
 	return out
+}
+
+// markFresh records issues that were not in the previous set. Independent of
+// notifications: the mark is how you catch up on what arrived while you were
+// not looking, which is exactly when a notification gets missed.
+func (v *View) markFresh(prev, next []issue) {
+	// The caller only invokes this when the source is unchanged, so prev is
+	// a real previous set rather than a first load.
+	if !v.unreadOn {
+		return
+	}
+	known := make(map[string]bool, len(prev))
+	for _, i := range prev {
+		known[i.Identifier] = true
+	}
+	for _, i := range next {
+		if i.Identifier != "" && !known[i.Identifier] {
+			if v.fresh == nil {
+				v.fresh = map[string]bool{}
+			}
+			v.fresh[i.Identifier] = true
+		}
+	}
+}
+
+// clearFresh drops the mark for the selected issue.
+func (v *View) clearFresh() {
+	if id := v.list.Selected().Identifier; id != "" && v.fresh[id] {
+		delete(v.fresh, id)
+		v.applySort()
+	}
 }
 
 // notifyNew posts a notification for issues that appeared since the last
