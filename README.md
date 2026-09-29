@@ -227,6 +227,10 @@ out of the box agenda looks and acts as it did before these options existed.
   an expanded description or shown comments reset when you move on, and the
   pane you opened to review a PR folds away once you have reviewed it.
   `toggles: persist` keeps them until you toggle back.
+- **Floating detail**: with the preview pane off (`hide_preview: true`),
+  `v` opens the detail as a centered window over the list rather than
+  splitting the pane; `v` again, or moving to another row, closes it. With
+  the pane on, `v` keeps its original meaning and hides or shows the pane.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

@@ -14,6 +14,7 @@ type theme struct {
 	tabBar        lipgloss.Style
 	preview       lipgloss.Style
 	previewZoomed lipgloss.Style
+	previewFloat  lipgloss.Style
 	footer        lipgloss.Style
 	footerKey     lipgloss.Style
 	footerDesc    lipgloss.Style
@@ -50,6 +51,10 @@ func defaultTheme() theme {
 			PaddingLeft(2),
 		previewZoomed: lipgloss.NewStyle().
 			PaddingLeft(2),
+		previewFloat: lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(accent).
+			Padding(0, 1),
 		footer: lipgloss.NewStyle().
 			Foreground(dim),
 		footerKey: lipgloss.NewStyle().

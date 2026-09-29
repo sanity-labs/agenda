@@ -21,6 +21,13 @@ const (
 	// title its own line, so the list column can be narrower and the preview
 	// gets the larger share.
 	previewRatio = 50
+	// The floating detail's share of the screen (percent), when the preview
+	// pane is off and 'v' reveals one row's detail.
+	floatWRatio = 70
+	floatHRatio = 70
+	// The float's border (2) and horizontal padding (2), which Width()
+	// counts as part of the box.
+	floatChrome = 4
 )
 
 // Model is agenda's root Bubble Tea model: chrome around a set of views.
@@ -265,14 +272,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ui.RevealPreviewMsg:
 		if m.previewHidden {
-			m.previewHidden, m.previewTransient = false, true
-			m.layout()
+			m.setPreview(false, true)
 		}
 		return m, nil
 	case ui.ConcealPreviewMsg:
 		if m.previewTransient {
-			m.previewHidden, m.previewTransient = true, false
-			m.layout()
+			m.setPreview(true, false)
 		}
 		return m, nil
 	case ui.ToastMsg:
@@ -424,9 +429,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusOpen = !m.statusOpen
 			return m, nil
 		case key.Matches(msg, m.keys.TogglePreview):
-			// A deliberate toggle overrides any transient reveal state.
-			m.previewHidden, m.previewTransient = !m.previewHidden, false
-			m.layout()
+			// With the pane configured off, 'v' shows the detail as a float
+			// over the list rather than splitting it, and pressing it again
+			// closes that. Otherwise it is the plain pane toggle.
+			if m.cfg.HidePreview {
+				m.setPreview(m.floating(), !m.floating())
+				return m, nil
+			}
+			m.setPreview(!m.previewHidden, false)
 			return m, nil
 		case key.Matches(msg, m.keys.Refresh):
 			// Init() flips the view back into its loading state. Only start a
@@ -532,9 +542,33 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 // concealTransient ends a transient reveal (see ui.ConcealPreviewMsg).
 func (m *Model) concealTransient() {
 	if m.previewTransient {
-		m.previewHidden, m.previewTransient = true, false
-		m.layout()
+		m.setPreview(true, false)
 	}
+}
+
+// setPreview moves the preview between hidden and shown. One place owns the
+// flags so every path (the key, a reveal, a config change) agrees on what
+// "transient" means, which is what the float keys off.
+func (m *Model) setPreview(hidden, transient bool) {
+	m.previewHidden, m.previewTransient = hidden, transient
+	m.layout()
+}
+
+// floating reports whether the detail should render as a centered overlay
+// rather than a side pane: the pane is off, and something revealed it for
+// this row only. Zoom still wins, being an explicit full-screen request.
+func (m Model) floating() bool {
+	return m.previewTransient && !m.zoomed
+}
+
+// floatDims sizes the floating detail box: a readable column that still
+// leaves the list visible around it. The height is bounded by the content
+// region, not the screen, so the box can never push the footer off.
+func (m Model) floatDims() (w, h int) {
+	contentH := max(1, m.height-tabBarHeight-footerHeight-m.statusHeight())
+	w = max(20, min(m.width*floatWRatio/100, m.width-4))
+	h = max(1, min(m.height*floatHRatio/100, contentH-2))
+	return w, h
 }
 
 // syncPreviewKey resets the preview scroll to the top when the selected item
@@ -712,8 +746,7 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 		persist := m.cfg.TogglesPersist()
 		return func() tea.Msg { return ui.TogglesPersistMsg(persist) }
 	case path == "hide_preview":
-		m.previewHidden, m.previewTransient = m.cfg.HidePreview, false
-		m.layout()
+		m.setPreview(m.cfg.HidePreview, false)
 	case strings.HasPrefix(path, "refresh."):
 		m.refresh = refreshIntervals(m.cfg, m.views)
 		m.refreshGen++ // orphan the old tick loops
@@ -822,6 +855,11 @@ func (m Model) dims() (listW, previewContentW, contentH int) {
 	previewPane := m.width * previewRatio / 100
 	if m.zoomed {
 		previewPane = m.width
+	} else if m.floating() {
+		// The list keeps the full width; the detail floats over it, so it
+		// is sized from the float box rather than from a pane.
+		fw, _ := m.floatDims()
+		return m.width, max(1, fw-floatChrome-scrollGutter), contentH
 	} else if m.previewHidden {
 		previewPane = 0 // nav-only: the list takes the full width
 	}
@@ -888,7 +926,7 @@ func (m Model) View() tea.View {
 	var body string
 	if m.zoomed {
 		body = m.theme.previewZoomed.Height(contentH).Render(m.previewPane(cur, previewContentW, contentH))
-	} else if m.previewHidden {
+	} else if m.previewHidden || m.floating() {
 		body = clipFrom(cur.ListView(), 0, contentH)
 	} else {
 		body = lipgloss.JoinHorizontal(
@@ -904,6 +942,19 @@ func (m Model) View() tea.View {
 	}
 	rows = append(rows, m.renderFooter())
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
+
+	// The floating detail sits over the list, under any modal.
+	if m.floating() {
+		_, fh := m.floatDims()
+		// Width() is the box's outer width, so it has to cover the line
+		// (contentW plus the scrollbar previewPane appends) as well as the
+		// border and padding around it. Too narrow and every line wraps,
+		// doubling the float's height until it runs off the screen.
+		body := clipFrom(m.previewPane(cur, previewContentW, fh), 0, fh)
+		outer := previewContentW + scrollGutter + floatChrome
+		content = m.overlayCentered(content,
+			m.theme.previewFloat.Width(outer).Render(body))
+	}
 
 	// Composite the picker modal centered over the content, if open.
 	if m.picker != nil {
@@ -1251,7 +1302,7 @@ func (m Model) renderFooter() string {
 	// Zooming an already-hidden preview makes no sense, so the zoom hint
 	// only shows while the preview is in view (v brings it back first).
 	pane := []key.Binding{m.keys.TogglePreview}
-	if !m.previewHidden {
+	if !m.previewHidden && !m.floating() {
 		pane = append(pane, m.keys.Zoom)
 	}
 	full := append(append(append(append([]key.Binding{}, view...), follow...),
