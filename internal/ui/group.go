@@ -115,3 +115,8 @@ type PreviewShownMsg bool
 // the matching GitHub notification read. Off unless asked for: a cursor
 // move should not quietly clear your real inbox.
 type UnreadSyncMsg bool
+
+// PreviewFloatingMsg tells the views whether the detail on screen is a
+// float, which ends when the selection moves, or a pane that stays open
+// and so shows the row you arrive at.
+type PreviewFloatingMsg bool

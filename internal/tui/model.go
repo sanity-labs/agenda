@@ -559,14 +559,21 @@ func (m *Model) concealTransient() {
 // views which state they are in: what counts as reading a row depends on
 // whether the detail is actually on screen.
 func (m *Model) setPreview(hidden, transient bool) tea.Cmd {
-	was := m.previewHidden
+	was, wasFloat := m.previewHidden, m.floating()
 	m.previewHidden, m.previewTransient = hidden, transient
 	m.layout()
-	if was == hidden {
+	var cmds []tea.Cmd
+	if was != hidden {
+		shown := !hidden
+		cmds = append(cmds, func() tea.Msg { return ui.PreviewShownMsg(shown) })
+	}
+	if isFloat := m.floating(); wasFloat != isFloat {
+		cmds = append(cmds, func() tea.Msg { return ui.PreviewFloatingMsg(isFloat) })
+	}
+	if len(cmds) == 0 {
 		return nil
 	}
-	shown := !hidden
-	return func() tea.Msg { return ui.PreviewShownMsg(shown) }
+	return tea.Batch(cmds...)
 }
 
 // floating reports whether the detail should render as a centered overlay

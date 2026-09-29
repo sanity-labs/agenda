@@ -886,12 +886,13 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			// restart the 'c' jump cycle.
 			v.commentsJumped = false
 			if v.list.Selected().Identifier != before {
-				// Moving on ends a transient preview reveal, returns the
-				// comments toggle to what the config asks for, and marks
-				// the issue read: both belong to the issue you left.
+				// Moving on ends a transient preview reveal and returns the
+				// comments toggle to what the config asks for. It reads the
+				// issue being left, not the one arrived at, and only when
+				// its detail was on screen.
 				v.resetToggles()
 				if v.previewShown {
-					v.clearFresh()
+					v.clearFreshFor(before)
 				}
 				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview)
 			}
@@ -984,12 +985,19 @@ func (v *View) markFresh(prev, next []issue) {
 }
 
 // clearFresh drops the mark for the selected issue.
-func (v *View) clearFresh() {
-	if id := v.list.Selected().Identifier; id != "" && v.fresh[id] {
-		delete(v.fresh, id)
-		v.applySort()
-		v.saveFresh()
+func (v *View) clearFresh() { v.clearFreshFor(v.list.Selected().Identifier) }
+
+// clearFreshFor reads one issue by identifier. The selection has already
+// moved by the time a move is handled, so the caller that is leaving an
+// issue has to name it: clearing "the selection" there would read the one
+// you land on.
+func (v *View) clearFreshFor(id string) {
+	if id == "" || !v.fresh[id] {
+		return
 	}
+	delete(v.fresh, id)
+	v.applySort()
+	v.saveFresh()
 }
 
 // notifyNew posts a notification for issues that appeared since the last

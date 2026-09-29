@@ -180,3 +180,37 @@ func TestClearedUnreadStaysClearedAcrossRestart(t *testing.T) {
 		t.Errorf("unread = %v after restart, want the cleared marks to stay cleared", second.unread)
 	}
 }
+
+// Leaving a floated row must not read the row you land on. The selection
+// has already moved by the time the move is handled, and the conceal that
+// ends the float is only dispatched afterwards, so a naive clear here
+// reads the wrong row: press 'v', move on, and the next one is read
+// before you have seen it.
+func TestMovingOffAFloatDoesNotReadTheNextRow(t *testing.T) {
+	v := unreadView(t)
+	v.Update(mineMsg{page: searchPage{prs: []pr{{Number: 1, URL: "u1"}}}})
+	v.Update(mineMsg{page: searchPage{prs: []pr{
+		{Number: 1, URL: "u1"}, {Number: 2, URL: "u2"}, {Number: 3, URL: "u3"},
+	}}})
+	if !v.unread["u2"] || !v.unread["u3"] {
+		t.Fatalf("setup: want u2 and u3 marked, got %v", v.unread)
+	}
+
+	// The pane is off, so 'v' floats the detail for the selected row only.
+	v.Update(ui.PreviewShownMsg(false))
+	v.Update(tea.KeyPressMsg{Code: 'j'}) // onto u2, still unread: not seen
+	if !v.unread["u2"] {
+		t.Fatal("hovering read a row with the detail hidden")
+	}
+	v.Update(ui.PreviewShownMsg(true)) // 'v': the float opens on u2
+	v.Update(ui.PreviewFloatingMsg(true))
+	if v.unread["u2"] {
+		t.Fatal("setup: opening the float should have read u2")
+	}
+
+	// Moving on closes the float. u3 has not been seen.
+	v.Update(tea.KeyPressMsg{Code: 'j'})
+	if !v.unread["u3"] {
+		t.Errorf("moving off the float read the next row: unread = %v", v.unread)
+	}
+}

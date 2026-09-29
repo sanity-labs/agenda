@@ -109,8 +109,21 @@ func TestPreviewVisibilityIsBroadcast(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("showing the preview broadcast nothing")
 	}
-	if shown, ok := cmd().(ui.PreviewShownMsg); !ok || !bool(shown) {
-		t.Errorf("broadcast = %#v, want PreviewShownMsg(true)", cmd())
+	// A reveal changes both facts at once: shown, and shown as a float.
+	var shown, floating bool
+	for _, c := range cmd().(tea.BatchMsg) {
+		switch msg := c().(type) {
+		case ui.PreviewShownMsg:
+			shown = bool(msg)
+		case ui.PreviewFloatingMsg:
+			floating = bool(msg)
+		}
+	}
+	if !shown {
+		t.Error("the reveal did not broadcast PreviewShownMsg(true)")
+	}
+	if !floating {
+		t.Error("a transient reveal did not broadcast PreviewFloatingMsg(true)")
 	}
 	// No change, no message.
 	if cmd := m.setPreview(false, true); cmd != nil {

@@ -1,6 +1,8 @@
 package linear
 
 import (
+	tea "charm.land/bubbletea/v2"
+
 	"strings"
 	"testing"
 
@@ -69,5 +71,27 @@ func TestHoverKeepsFreshWhilePreviewHidden(t *testing.T) {
 	v.Update(ui.PreviewShownMsg(false))
 	if !v.fresh["SRE-1"] {
 		t.Errorf("fresh = %v, want the mark kept while the detail is hidden", v.fresh)
+	}
+}
+
+// Leaving a viewed issue must not read the one you land on: the selection
+// has already moved by the time the move is handled.
+func TestMovingOnReadsTheIssueYouLeft(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
+	v.SetSize(80, 60, 40)
+	v.Update(ui.UnreadMsg(true))
+	v.Update(ui.PreviewShownMsg(true))
+	v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1"}}, source: v.defaultSource})
+	v.Update(loadedMsg{issues: []issue{
+		{Identifier: "SRE-1"}, {Identifier: "SRE-2"}, {Identifier: "SRE-3"},
+	}, source: v.defaultSource})
+	if !v.fresh["SRE-2"] || !v.fresh["SRE-3"] {
+		t.Fatalf("setup: want SRE-2 and SRE-3 marked, got %v", v.fresh)
+	}
+
+	v.Update(tea.KeyPressMsg{Code: 'j'}) // leaves SRE-1, lands on SRE-2
+	if !v.fresh["SRE-2"] {
+		t.Errorf("landing on an issue read it: fresh = %v", v.fresh)
 	}
 }

@@ -548,6 +548,9 @@ type View struct {
 	// previewShown tracks whether the detail pane is on screen, which
 	// decides what marks a row read: hovering, or asking for the detail.
 	previewShown bool
+	// floatReveal distinguishes a float, which closes when you move on,
+	// from a pane that stays open and shows the row you arrive at.
+	floatReveal bool
 
 	// unread is the set of URLs that arrived since the last fetch, by URL so
 	// it survives re-sorts and re-fetches. Selecting a row removes it.
@@ -1135,11 +1138,15 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
-		// Revealing the pane shows whatever is selected, so that row is read.
+		// Revealing the detail shows whatever is selected, so that row is
+		// read.
 		if v.previewShown {
 			v.clearUnread()
 		}
 		return v.drainSync()
+	case ui.PreviewFloatingMsg:
+		v.floatReveal = bool(msg)
+		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applySort()
@@ -1180,11 +1187,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			}
 			if v.list.Selected().URL != before {
 				// Moving on ends a transient preview reveal and resets the
-				// toggles it carried. It marks the row read only when the
-				// detail is on screen; hidden, you have not seen it yet.
+				// toggles it carried. It reads the row being left, not the
+				// one arrived at, and only when its detail was on screen;
+				// hidden, you have not seen anything yet.
 				v.resetToggles()
+				// A float ends here, so the row arrived at is not on screen
+				// yet; a pane that stays open does show it.
 				if v.previewShown {
-					v.clearUnread()
+					v.clearUnreadFor(before)
+					if !v.floatReveal {
+						v.clearUnread()
+					}
 				}
 				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
 			}
@@ -1761,15 +1774,20 @@ func (v *View) markUnread(prev, next []pr, seeded bool) {
 
 // clearUnread drops the mark for the selected row: looking at it is what
 // makes it read.
-func (v *View) clearUnread() {
-	sel := v.list.Selected()
-	if url := sel.URL; url != "" && v.unread[url] {
-		delete(v.unread, url)
-		v.applySort()
-		v.saveCache()
-		if v.unreadSync && sel.repo() != "" && sel.Number != 0 {
-			v.syncPending = append(v.syncPending, markThreadRead(sel.repo(), sel.Number))
-		}
+func (v *View) clearUnread() { v.clearUnreadFor(v.list.Selected().URL) }
+
+// clearUnreadFor reads one row by URL. The selection has already moved by
+// the time a move is handled, so the caller that is leaving a row has to
+// name it: clearing "the selection" there would read the row you land on.
+func (v *View) clearUnreadFor(url string) {
+	if url == "" || !v.unread[url] {
+		return
+	}
+	delete(v.unread, url)
+	v.applySort()
+	v.saveCache()
+	if p, ok := v.prByURL(url); v.unreadSync && ok && p.repo() != "" && p.Number != 0 {
+		v.syncPending = append(v.syncPending, markThreadRead(p.repo(), p.Number))
 	}
 }
 
@@ -1870,7 +1888,10 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 	v.annIdx = 0
 	v.resetToggles()
 	if v.previewShown {
-		v.clearUnread()
+		v.clearUnreadFor(before)
+		if !v.floatReveal {
+			v.clearUnread()
+		}
 	}
 	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
 }
