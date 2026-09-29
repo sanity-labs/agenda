@@ -442,6 +442,9 @@ type View struct {
 	// cleared per issue when you select it.
 	fresh    map[string]bool
 	unreadOn bool
+	// previewShown tracks whether the detail pane is on screen, which
+	// decides what marks an issue read: hovering, or asking for the detail.
+	previewShown bool
 
 	showComments   bool
 	comments       map[string]*commentsState
@@ -514,6 +517,12 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 		if cached, ok := cache.Load[[]issue](cacheName); ok && len(cached) > 0 {
 			v.raw = cached
 			v.seeded = true
+			if ids, ok := cache.Load[[]string](freshCacheName); ok && len(ids) > 0 {
+				v.fresh = make(map[string]bool, len(ids))
+				for _, id := range ids {
+					v.fresh[id] = true
+				}
+			}
 			v.applySort()
 			v.publish(cached)
 			v.loading = false
@@ -523,6 +532,27 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 }
 
 const cacheName = "linear"
+
+// freshCacheName holds the unread set. Kept beside the issues rather than
+// inside them: changing that entry's shape would throw away every existing
+// cache, and an unread mark must outlive a restart to mean anything.
+const freshCacheName = "linear-unread"
+
+// freshIDs is the unread set as a sorted slice, for a stable cache file.
+func (v *View) freshIDs() []string {
+	if len(v.fresh) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(v.fresh))
+	for id := range v.fresh {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// saveFresh persists the unread set so marks survive a restart.
+func (v *View) saveFresh() { _ = cache.Save(freshCacheName, v.freshIDs()) }
 
 func (v *View) Title() string { return "Linear" }
 
@@ -789,6 +819,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.publish(msg.issues)
 		if msg.source == v.defaultSource {
 			_ = cache.Save(cacheName, msg.issues)
+			v.saveFresh()
 		}
 		return cmd
 	case favsMsg:
@@ -815,6 +846,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.fresh = nil
 		}
 		v.applySort()
+		return nil
+	case ui.PreviewShownMsg:
+		v.previewShown = bool(msg)
+		if v.previewShown {
+			v.clearFresh()
+		}
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -853,7 +890,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				// comments toggle to what the config asks for, and marks
 				// the issue read: both belong to the issue you left.
 				v.resetToggles()
-				v.clearFresh()
+				if v.previewShown {
+					v.clearFresh()
+				}
 				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview)
 			}
 			return tea.Batch(cmd, v.maybeFetchComments())
@@ -949,6 +988,7 @@ func (v *View) clearFresh() {
 	if id := v.list.Selected().Identifier; id != "" && v.fresh[id] {
 		delete(v.fresh, id)
 		v.applySort()
+		v.saveFresh()
 	}
 }
 

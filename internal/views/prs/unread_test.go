@@ -46,9 +46,10 @@ func TestArrivalIsMarkedUnread(t *testing.T) {
 	}
 }
 
-// Selecting a row is what makes it read.
+// Selecting a row is what makes it read, while the detail is on screen.
 func TestSelectingClearsUnread(t *testing.T) {
 	v := unreadView(t)
+	v.Update(ui.PreviewShownMsg(true))
 	v.Update(mineMsg{page: searchPage{prs: []pr{{Number: 1, URL: "u1"}}}})
 	v.Update(mineMsg{page: searchPage{prs: []pr{
 		{Number: 1, URL: "u1"}, {Number: 2, URL: "u2"},
@@ -94,5 +95,88 @@ func TestUnreadOffClearsMarks(t *testing.T) {
 	v.Update(ui.UnreadMsg(false))
 	if len(v.unread) != 0 {
 		t.Errorf("unread = %v after turning the feature off, want cleared", v.unread)
+	}
+}
+
+// With the detail hidden, moving onto a row is not reading it: you have not
+// seen anything yet, so the mark has to survive until you ask for the detail.
+func TestHoverKeepsUnreadWhilePreviewHidden(t *testing.T) {
+	v := unreadView(t)
+	v.Update(ui.PreviewShownMsg(false))
+	v.Update(mineMsg{page: searchPage{prs: []pr{{Number: 1, URL: "u1"}}}})
+	v.Update(mineMsg{page: searchPage{prs: []pr{
+		{Number: 1, URL: "u1"}, {Number: 2, URL: "u2"},
+	}}})
+	if len(v.unread) == 0 {
+		t.Fatal("nothing marked, so the test proves nothing")
+	}
+	for i := 0; i < 3; i++ {
+		v.Update(tea.KeyPressMsg{Code: 'j'})
+	}
+	if !v.unread["u2"] {
+		t.Errorf("hovering cleared the mark with the detail hidden: unread = %v", v.unread)
+	}
+	// Revealing the detail shows the selected row, which reads it.
+	v.Update(ui.PreviewShownMsg(true))
+	if v.unread["u2"] {
+		t.Errorf("revealing the detail left the mark: unread = %v", v.unread)
+	}
+}
+
+// The bug this fixes: an unread mark you never looked at vanished on
+// restart, because the mark lived only in memory while the rows it
+// described were cached. Quitting silently marked everything read.
+func TestUnreadSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+
+	first := New(config.GitHubConfig{}, nil, nil, nil)
+	first.SetSize(80, 60, 40)
+	first.Update(ui.UnreadMsg(true))
+	first.Update(mineMsg{page: searchPage{prs: []pr{{Number: 1, URL: "u1"}}}})
+	first.Update(mineMsg{page: searchPage{prs: []pr{
+		{Number: 1, URL: "u1"}, {Number: 2, URL: "u2"},
+	}}})
+	if !first.unread["u2"] {
+		t.Fatalf("nothing marked before the restart: unread = %v", first.unread)
+	}
+
+	// A second process against the same cache: the mark is still there.
+	second := New(config.GitHubConfig{}, nil, nil, nil)
+	second.SetSize(80, 60, 40)
+	second.Update(ui.UnreadMsg(true))
+	if !second.unread["u2"] {
+		t.Errorf("unread = %v after restart, want u2 still marked", second.unread)
+	}
+	if second.unread["u1"] {
+		t.Errorf("a row that was never new came back marked: %v", second.unread)
+	}
+}
+
+// Reading has to persist too, or a mark you cleared returns on restart.
+func TestClearedUnreadStaysClearedAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+
+	first := New(config.GitHubConfig{}, nil, nil, nil)
+	first.SetSize(80, 60, 40)
+	first.Update(ui.UnreadMsg(true))
+	first.Update(ui.PreviewShownMsg(true))
+	first.Update(mineMsg{page: searchPage{prs: []pr{{Number: 1, URL: "u1"}}}})
+	first.Update(mineMsg{page: searchPage{prs: []pr{
+		{Number: 1, URL: "u1"}, {Number: 2, URL: "u2"},
+	}}})
+	for i := 0; i < 3 && len(first.unread) > 0; i++ {
+		first.Update(tea.KeyPressMsg{Code: 'j'})
+	}
+	if len(first.unread) != 0 {
+		t.Fatalf("the marks were not cleared before the restart: %v", first.unread)
+	}
+
+	second := New(config.GitHubConfig{}, nil, nil, nil)
+	second.SetSize(80, 60, 40)
+	second.Update(ui.UnreadMsg(true))
+	if len(second.unread) != 0 {
+		t.Errorf("unread = %v after restart, want the cleared marks to stay cleared", second.unread)
 	}
 }

@@ -545,10 +545,20 @@ type View struct {
 	// flight. An empty cursor with hasMore false means fully loaded.
 	minePage, reviewPage pageState
 
+	// previewShown tracks whether the detail pane is on screen, which
+	// decides what marks a row read: hovering, or asking for the detail.
+	previewShown bool
+
 	// unread is the set of URLs that arrived since the last fetch, by URL so
 	// it survives re-sorts and re-fetches. Selecting a row removes it.
 	unread   map[string]bool
 	unreadOn bool
+	// unreadSync mirrors a read back to the GitHub notification; off by
+	// default, since moving the cursor should not clear your real inbox.
+	unreadSync bool
+	// syncPending collects write-backs earned by clearUnread, drained by
+	// the caller that has a tea.Cmd to return.
+	syncPending []tea.Cmd
 	// mineSeeded marks the own-PRs list as having a baseline to diff
 	// against; seeded is the review list's equivalent.
 	mineSeeded bool
@@ -690,6 +700,12 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 	if cached, ok := cache.Load[cachedPRs](cacheName); ok && len(cached.Mine)+len(cached.Review) > 0 {
 		v.raw, v.reviewRaw = cached.Mine, cached.Review
 		v.seeded, v.mineSeeded = true, true
+		if len(cached.Unread) > 0 {
+			v.unread = make(map[string]bool, len(cached.Unread))
+			for _, url := range cached.Unread {
+				v.unread[url] = true
+			}
+		}
 		v.applySort()
 		v.publish(append(cached.Mine, cached.Review...))
 		v.loading = false
@@ -697,10 +713,26 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 	return v
 }
 
-// cachedPRs is the on-disk shape of the last fetch.
+// cachedPRs is the on-disk shape of the last fetch. Unread rides along: a
+// mark you never looked at has to survive a restart, or quitting silently
+// marks everything read.
 type cachedPRs struct {
-	Mine   []pr `json:"mine"`
-	Review []pr `json:"review"`
+	Mine   []pr     `json:"mine"`
+	Review []pr     `json:"review"`
+	Unread []string `json:"unread,omitempty"`
+}
+
+// unreadURLs is the unread set as a sorted slice, for a stable cache file.
+func (v *View) unreadURLs() []string {
+	if len(v.unread) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(v.unread))
+	for url := range v.unread {
+		out = append(out, url)
+	}
+	sort.Strings(out)
+	return out
 }
 
 const cacheName = "prs"
@@ -993,7 +1025,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.mineSeeded = true
 		v.applySort()
 		v.publish(append(v.raw, v.reviewRaw...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw})
+		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
 		return partial
 	case reviewListMsg:
 		v.reviewLoading = false
@@ -1028,7 +1060,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.seeded = true
 		v.applySort()
 		v.publish(append(v.raw, next...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: next})
+		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: next, Unread: v.unreadURLs()})
 		return cmd
 	case diffMsg:
 		v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
@@ -1073,6 +1105,16 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		v.applySort()
 		return nil
+	case ui.UnreadSyncMsg:
+		v.unreadSync = bool(msg)
+		return nil
+	case ui.PreviewShownMsg:
+		v.previewShown = bool(msg)
+		// Revealing the pane shows whatever is selected, so that row is read.
+		if v.previewShown {
+			v.clearUnread()
+		}
+		return v.drainSync()
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applySort()
@@ -1112,11 +1154,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				more = v.fetchMore()
 			}
 			if v.list.Selected().URL != before {
-				// Moving on ends a transient preview reveal, resets the
-				// toggles it carried, and looking at a row marks it read.
+				// Moving on ends a transient preview reveal and resets the
+				// toggles it carried. It marks the row read only when the
+				// detail is on screen; hidden, you have not seen it yet.
 				v.resetToggles()
-				v.clearUnread()
-				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more)
+				if v.previewShown {
+					v.clearUnread()
+				}
+				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
 			}
 			return tea.Batch(cmd, v.scheduleSettle(), more)
 		}
@@ -1692,10 +1737,38 @@ func (v *View) markUnread(prev, next []pr, seeded bool) {
 // clearUnread drops the mark for the selected row: looking at it is what
 // makes it read.
 func (v *View) clearUnread() {
-	if url := v.list.Selected().URL; url != "" && v.unread[url] {
+	sel := v.list.Selected()
+	if url := sel.URL; url != "" && v.unread[url] {
 		delete(v.unread, url)
 		v.applySort()
+		v.saveCache()
+		if v.unreadSync && sel.repo() != "" && sel.Number != 0 {
+			v.syncPending = append(v.syncPending, markThreadRead(sel.repo(), sel.Number))
+		}
 	}
+}
+
+// drainSync returns the write-backs clearUnread queued, if any.
+func (v *View) drainSync() tea.Cmd {
+	if len(v.syncPending) == 0 {
+		return nil
+	}
+	cmds := v.syncPending
+	v.syncPending = nil
+	return tea.Batch(cmds...)
+}
+
+// markRead clears the selected row's mark when the preview is off and you
+// asked for the detail explicitly. Hovering is enough only while the detail
+// is on screen; with it hidden, a row you never opened is not read.
+func (v *View) markRead() {
+	v.clearUnread()
+}
+
+// saveCache rewrites the cache so a mark cleared (or earned) in this session
+// survives a restart. Cheap: one small JSON file, written atomically.
+func (v *View) saveCache() {
+	_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
 }
 
 // notifyNewReviews posts a notification for review requests that appeared
@@ -1771,8 +1844,10 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 	}
 	v.annIdx = 0
 	v.resetToggles()
-	v.clearUnread()
-	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more)
+	if v.previewShown {
+		v.clearUnread()
+	}
+	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
 }
 
 func (v *View) SetSize(listW, prevW, h int) {

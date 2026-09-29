@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
@@ -33,5 +34,40 @@ func TestUnreadMsgClearsFresh(t *testing.T) {
 	v.Update(ui.UnreadMsg(false))
 	if len(v.fresh) != 0 {
 		t.Errorf("fresh = %v after turning unread off, want cleared", v.fresh)
+	}
+}
+
+// A mark you never looked at has to outlive the process, or quitting
+// silently marks everything read (the PR-side bug, in the issues list).
+func TestFreshSurvivesRestart(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cfg := config.LinearConfig{Token: "test-token"}
+
+	first := New(cfg, nil, nil, nil)
+	first.SetSize(80, 60, 40)
+	first.Update(ui.UnreadMsg(true))
+	first.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1"}}, source: first.defaultSource})
+	first.Update(loadedMsg{issues: []issue{
+		{Identifier: "SRE-1"}, {Identifier: "SRE-2"},
+	}, source: first.defaultSource})
+	if !first.fresh["SRE-2"] {
+		t.Fatalf("nothing marked before the restart: fresh = %v", first.fresh)
+	}
+
+	second := New(cfg, nil, nil, nil)
+	second.SetSize(80, 60, 40)
+	second.Update(ui.UnreadMsg(true))
+	if !second.fresh["SRE-2"] {
+		t.Errorf("fresh = %v after restart, want SRE-2 still marked", second.fresh)
+	}
+}
+
+// With the detail hidden, hovering is not reading.
+func TestHoverKeepsFreshWhilePreviewHidden(t *testing.T) {
+	v := &View{fresh: map[string]bool{"SRE-1": true}, unreadOn: true}
+	v.list = ui.NewList[issue]()
+	v.Update(ui.PreviewShownMsg(false))
+	if !v.fresh["SRE-1"] {
+		t.Errorf("fresh = %v, want the mark kept while the detail is hidden", v.fresh)
 	}
 }

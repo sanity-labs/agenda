@@ -105,3 +105,13 @@ type TogglesPersistMsg bool
 // UnreadMsg tells every view whether to mark rows that arrived since the
 // last fetch. Broadcast by the root model at startup and on change.
 type UnreadMsg bool
+
+// PreviewShownMsg tells every view whether the detail pane is on screen.
+// Views use it to decide what counts as reading a row: with the detail
+// visible, moving onto a row shows it; with it hidden, you have to ask.
+type PreviewShownMsg bool
+
+// UnreadSyncMsg tells the PR view whether reading a row should also mark
+// the matching GitHub notification read. Off unless asked for: a cursor
+// move should not quietly clear your real inbox.
+type UnreadSyncMsg bool

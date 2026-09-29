@@ -44,6 +44,12 @@ type Config struct {
 	// clears its mark. On by default.
 	Unread *bool `yaml:"unread"`
 
+	// UnreadSync also marks the matching GitHub notification read upstream
+	// when a row is read here, so agenda and github.com/notifications
+	// agree. Off by default: reading here is a cursor move, and that should
+	// not quietly clear your real inbox.
+	UnreadSync bool `yaml:"unread_sync"`
+
 	// Grouping renders lists as swimlanes derived from the active sort
 	// (status lanes for Linear's status sort, time buckets for date sorts,
 	// and so on). Off by default: flat lists, the original behavior. Sorts

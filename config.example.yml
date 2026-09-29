@@ -23,6 +23,11 @@ update_check: true
 # select the row. Catches what a missed notification would have told you.
 unread: true
 
+# Also mark the matching GitHub notification read when you read a row here,
+# so agenda and github.com/notifications agree. Off by default: reading a
+# row is a cursor move, and that should not quietly clear your real inbox.
+unread_sync: false
+
 grouping: false
 
 # How long a per-item view toggle lasts. "ephemeral" (default) resets it when
