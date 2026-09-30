@@ -152,6 +152,10 @@ github:
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
+  # Drop PRs you have already approved from the review-requested list: the
+  # ball is with the author, not you. Off by default. A PR you only
+  # commented on stays, since that is not a verdict that ends your turn.
+  hide_approved: false
   # Re-read the selected PR once the cursor stops moving, so check state and
   # review decisions are current on the row you are about to act on rather
   # than as of the last full refresh. On by default: one request for a single

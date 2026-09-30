@@ -206,3 +206,72 @@ func TestFirstApprovalDoesNotAsk(t *testing.T) {
 		t.Error("the first approval did not submit")
 	}
 }
+
+// A PR you approved is waiting on its author, so hide_approved drops it
+// from the review list.
+func TestHideApprovedFiltersTheReviewList(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{HideApproved: true, ShowReviewRequested: boolPtr(true)}, nil, nil, nil)
+	v.SetSize(80, 60, 40)
+
+	approved := mergeable(1)
+	approved.URL = "u1"
+	approved.ViewerLatestReview.State = "APPROVED"
+	pending := mergeable(2)
+	pending.URL = "u2"
+	commented := mergeable(3)
+	commented.URL = "u3"
+	commented.ViewerLatestReview.State = "COMMENTED"
+
+	v.Update(reviewListMsg{page: searchPage{prs: []pr{approved, pending, commented}}})
+
+	var urls []string
+	for _, p := range v.list.Items() {
+		if p.URL != "" {
+			urls = append(urls, p.URL)
+		}
+	}
+	for _, url := range urls {
+		if url == "u1" {
+			t.Errorf("an approved PR is still listed: %v", urls)
+		}
+	}
+	// Only approval hides it: a comment is not a verdict that ends your turn.
+	for _, want := range []string{"u2", "u3"} {
+		found := false
+		for _, url := range urls {
+			if url == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s was hidden but is not approved: %v", want, urls)
+		}
+	}
+
+	// v.reviewRaw keeps every row: hiding is a view filter, not a fetch
+	// filter, or toggling it off would need a refetch.
+	if len(v.reviewRaw) != 3 {
+		t.Errorf("reviewRaw = %d rows, want all 3 kept", len(v.reviewRaw))
+	}
+}
+
+// Off by default, the list shows what it always did.
+func TestApprovedShownByDefault(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{ShowReviewRequested: boolPtr(true)}, nil, nil, nil)
+	v.SetSize(80, 60, 40)
+	approved := mergeable(1)
+	approved.URL = "u1"
+	approved.ViewerLatestReview.State = "APPROVED"
+	v.Update(reviewListMsg{page: searchPage{prs: []pr{approved}}})
+
+	for _, p := range v.list.Items() {
+		if p.URL == "u1" {
+			return
+		}
+	}
+	t.Error("an approved PR was hidden with hide_approved off")
+}
+
+func boolPtr(b bool) *bool { return &b }

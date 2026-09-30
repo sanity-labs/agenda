@@ -173,6 +173,10 @@ type GitHubConfig struct {
 	// reviewed and tags them "reviewed", so the eye can skip them. Off by
 	// default.
 	MarkReviewed bool `yaml:"mark_reviewed"`
+	// HideApproved drops PRs the viewer has already approved from the
+	// review-requested list: the ball is with the author, not you. Off by
+	// default, so the list still shows everything it did before.
+	HideApproved bool `yaml:"hide_approved"`
 	// RefreshRow re-reads the selected PR once the cursor stops moving, so
 	// check state and review decisions are current on the row you are
 	// about to act on rather than as of the last full refresh. On by

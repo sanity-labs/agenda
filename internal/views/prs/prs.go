@@ -25,6 +25,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/notify"
@@ -558,6 +560,9 @@ type View struct {
 	rowRefresh bool
 	rowGen     int
 
+	// hideApproved drops already-approved PRs from the review list.
+	hideApproved bool
+
 	// unread is the set of URLs that arrived since the last fetch, by URL so
 	// it survives re-sorts and re-fetches. Selecting a row removes it.
 	unread   map[string]bool
@@ -740,6 +745,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 		},
 	}
 	v.rowRefresh = cfg.RefreshRowEnabled()
+	v.hideApproved = cfg.HideApproved
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
 
@@ -1367,6 +1373,12 @@ func (v *View) resetToggles() {
 func (v *View) setPane(mode paneMode) tea.Cmd {
 	if v.pane == mode {
 		v.pane = paneBody
+		// Back to the description, not away from the detail: concealing
+		// here would shut a floated preview instead of switching panes.
+		// Only a pane the toggle itself revealed goes away again.
+		if v.previewShown {
+			return nil
+		}
 		return ui.ConcealPreview
 	}
 	v.pane = mode
@@ -1912,6 +1924,17 @@ func (v *View) maybeFetchDiff() tea.Cmd {
 func (v *View) applySort() {
 	mine := sortPRs(v.raw, v.sort, v.rev)
 	rev := sortPRs(v.reviewRaw, v.sort, v.rev)
+	// A PR you approved is waiting on its author, not on you. Only the
+	// review list: your own approved PRs are still yours to land.
+	if v.hideApproved {
+		kept := rev[:0]
+		for _, p := range rev {
+			if p.ViewerLatestReview.State != "APPROVED" {
+				kept = append(kept, p)
+			}
+		}
+		rev = kept
+	}
 	if v.cfg.MarkReviewed {
 		for i := range rev {
 			rev[i].Reviewed = rev[i].reviewedByMe()
@@ -2312,8 +2335,8 @@ func (v *View) commentsBlock(p pr) string {
 	if p.Comments.TotalCount == 0 {
 		return head + "\n" + ui.Faint.Render("  none yet")
 	}
-	return head + "\n" + ui.Faint.Render(fmt.Sprintf("  %d · %s to toggle",
-		p.Comments.TotalCount, v.keyHint("comments")))
+	return head + "\n" + ui.Faint.Render(fmt.Sprintf("  %d · %s or click %s",
+		p.Comments.TotalCount, v.keyHint("comments"), commentsMarker))
 }
 
 // renderedDiff renders the diff pane body for p (the colorized diff with
@@ -2383,12 +2406,46 @@ func (v *View) renderedBody(p pr) string {
 	case limit <= 0:
 		// Truncation off: the whole description, no hint.
 	case expanded:
-		out += "\n" + ui.Faint.Render(fmt.Sprintf("… %s to toggle", v.keyHint("expand")))
+		out += "\n" + ui.Faint.Render(fmt.Sprintf("… %s or click %s",
+			v.keyHint("expand"), expandMarker))
 	default:
 		out = truncateSummary(out, limit, v.keyHint("expand"))
 	}
 	v.bodyKey, v.body = key, out
 	return out
+}
+
+// hintMarkers are the phrases the clickable preview hints end with. A
+// click is matched against the rendered text rather than a tracked line
+// number, so a layout change cannot silently move the target.
+const (
+	expandMarker   = "to toggle the description"
+	commentsMarker = "to toggle comments"
+)
+
+// ClickPreview toggles whatever hint the click landed on. line is counted
+// from the top of the rendered preview, so it survives scrolling.
+func (v *View) ClickPreview(line int) tea.Cmd {
+	lines := strings.Split(v.PreviewView(), "\n")
+	if line < 0 || line >= len(lines) {
+		return nil
+	}
+	text := ansi.Strip(lines[line])
+	switch {
+	case strings.Contains(text, expandMarker):
+		if sel := v.list.Selected(); sel.URL != "" {
+			if v.expanded == sel.URL {
+				v.expanded = ""
+			} else {
+				v.expanded = sel.URL
+			}
+			v.bodyKey = ""
+		}
+		return nil
+	case strings.Contains(text, commentsMarker):
+		return v.setPane(paneComments)
+	}
+	return nil
 }
 
 // truncateSummary clips a rendered description to limit lines and says how to
@@ -2400,7 +2457,8 @@ func truncateSummary(rendered string, limit int, hintKey string) string {
 		return rendered
 	}
 	kept := strings.Join(lines[:limit], "\n")
-	hint := fmt.Sprintf("… %d more lines · %s to toggle", len(lines)-limit, hintKey)
+	hint := fmt.Sprintf("… %d more lines · %s or click %s",
+		len(lines)-limit, hintKey, expandMarker)
 	return kept + "\n\n" + ui.Faint.Render(hint)
 }
 
