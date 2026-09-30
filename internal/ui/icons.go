@@ -26,6 +26,9 @@ const IconSection = "\uf0c9" //  list
 // message log, and the footer's pointer to it.
 const IconIssue = "\uea6c" // 
 
+// IconReset marks an action that puts a setting back to its default.
+const IconReset = "\U000f099b" // 󰦛
+
 // IconSearch heads the effective-query line.
 const IconSearch = "\uf422" //  search
 

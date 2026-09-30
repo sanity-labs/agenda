@@ -301,6 +301,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setPreview(false, false)
 		}
 		return m, nil
+	case ui.ConfigSetMsg:
+		// A view applied this to its own config already; persist it so it
+		// survives the next run, and mirror it into the live config.
+		if err := config.Set(msg.Path, msg.Value); err != nil {
+			return m, func() tea.Msg {
+				return ui.Status(ui.SeverityError, "config", err.Error(), "")
+			}
+		}
+		switch msg.Path {
+		case "github.filter":
+			m.cfg.GitHub.Filter = msg.Value
+		case "github.review_filter":
+			m.cfg.GitHub.ReviewFilter = msg.Value
+		}
+		m.invalidateFrame()
+		return m, nil
 	case ui.ToastMsg:
 		m.toast = &msg
 		m.toastGen++
@@ -851,6 +867,22 @@ func (m *Model) runAction(path string) tea.Cmd {
 	case "action:edit_keybinds":
 		m.settings = nil
 		m.keysEd = newKeybindEditor()
+		return nil
+	case "action:reset_filters":
+		// Back to what a fresh install would use, both searches, written
+		// through so the file matches what the list is doing.
+		def := config.Default().GitHub
+		for path, val := range map[string]string{
+			"github.filter":        def.Filter,
+			"github.review_filter": def.ReviewFilter,
+		} {
+			if err := config.Set(path, val); err != nil {
+				m.settings.errMsg = err.Error()
+				return nil
+			}
+		}
+		m.cfg.GitHub.Filter, m.cfg.GitHub.ReviewFilter = def.Filter, def.ReviewFilter
+		m.settings.errMsg = ""
 		return nil
 	case "action:test_notification":
 		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.Sound == nil || *m.cfg.Notify.Sound, m.cfg.Notify.ClickAction())

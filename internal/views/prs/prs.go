@@ -650,6 +650,9 @@ type View struct {
 	// hideApproved drops already-approved PRs from the review list.
 	hideApproved bool
 
+	// filterEd is the open search-filter editor ('F'), nil when closed.
+	filterEd *filterEdit
+
 	// unread is the set of URLs that arrived since the last fetch, by URL so
 	// it survives re-sorts and re-fetches. Selecting a row removes it.
 	unread   map[string]bool
@@ -815,6 +818,7 @@ type viewKeys struct {
 	OpenJob    key.Binding
 	JobLog     key.Binding
 	Rerun      key.Binding
+	EditFilter key.Binding
 }
 
 // binding looks a binding up by its action name, for prompts that name the
@@ -871,6 +875,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			OpenJob:    bind("open_job", "", "o"),
 			JobLog:     bind("job_log", "", "p"),
 			Rerun:      bind("rerun", "", "x"),
+			EditFilter: bind("edit_filter", "search", "F"),
 		},
 	}
 	if mode, ok := sortByName(cfg.Sort); ok {
@@ -1427,6 +1432,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				return ui.RevealPreview
 			}
 		}
+		if v.filterEd != nil {
+			return v.updateFilterEdit(msg)
+		}
 		before := v.list.Selected().URL
 		if consumed, cmd := v.list.Update(msg); consumed {
 			// Selection may have moved while a data pane is showing; fetch
@@ -1482,6 +1490,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				v.bodyKey = "" // the body is cached per expansion state
 			}
 			return nil
+		case key.Matches(msg, v.keys.EditFilter):
+			return v.editFilter()
 		case key.Matches(msg, v.keys.Comments):
 			return v.setPane(paneComments)
 		case key.Matches(msg, v.keys.Jobs):
@@ -2395,6 +2405,8 @@ func (v *View) SetSize(listW, prevW, h int) {
 func (v *View) ListView() string {
 	header := ""
 	switch {
+	case v.filterEd != nil:
+		header = v.filterPromptLine()
 	case v.input != nil:
 		header = v.threadPromptLine()
 	default:
@@ -2734,7 +2746,7 @@ func (v *View) Bindings() []key.Binding {
 		}
 		return v.jobsBindings()
 	}
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review}
+	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
 }
 
 // Status is the footer's right-hand slot. The list header already carries
@@ -2769,7 +2781,8 @@ func (v *View) FocusKeepLines() (first, n int, ok bool) {
 }
 
 func (v *View) InputActive() bool {
-	return v.list.Filtering() || v.review != nil || v.rerun != nil || v.input != nil
+	return v.list.Filtering() || v.review != nil || v.rerun != nil ||
+		v.input != nil || v.filterEd != nil
 }
 
 func (v *View) Fields() []string { return v.list.FieldNames() }

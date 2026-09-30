@@ -309,6 +309,11 @@ out of the box agenda looks and acts as it did before these options existed.
   `checks:failing`, `author:x`, `repo:y`, quoted values for labels with
   spaces. Terms are ANDed and a leading `-` excludes. A bare word still
   matches fuzzily across the visible fields.
+- **Edit the search**: `F` opens the GitHub search query for the section
+  the cursor is in (your PRs, or review requests), prefilled. Enter
+  refetches with it and writes it to config, so it persists; esc cancels.
+  Both filters are also editable rows in the prs settings tab, with a
+  reset action that puts them back to the defaults.
 - **Effective query**: a bordered bar above the footer names the search
   actually in force (the configured filter, plus what the enabled settings
   imply), so a missing PR can be explained from the screen. At the bottom
