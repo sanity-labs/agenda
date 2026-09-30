@@ -335,10 +335,39 @@ func (sc settingChange) fileValue() any {
 	return sc.val
 }
 
-// configOverlay is the ctrl+s modal: a cursor over the settings table.
+// settingsTabs groups the table's sections into tabs, so the overlay is a
+// few screenfuls to page between rather than one long scroll. Each entry
+// lists the section headers it holds, in table order; a section missing
+// from every tab would be unreachable, which a test checks.
+var settingsTabs = []struct {
+	name     string
+	sections []string
+}{
+	{"appearance", []string{"Theme", "Keybinds"}},
+	{"lists", []string{"Lists", "Views"}},
+	{"alerts", []string{"Auto-refresh", "Notifications"}},
+	{"prs", []string{"PRs"}},
+	{"linear", []string{"Linear", "Sessions", "Linear filter"}},
+}
+
+// tabBar renders the section tabs, the active one highlighted.
+func (o *configOverlay) tabBar() string {
+	var parts []string
+	for i, t := range settingsTabs {
+		if i == o.tab {
+			parts = append(parts, ui.Accent.Bold(true).Render(t.name))
+			continue
+		}
+		parts = append(parts, ui.Dim.Render(t.name))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// configOverlay is the ctrl+s modal: a cursor over one tab's rows.
 type configOverlay struct {
 	rows    []setting
-	cursor  int
+	tab     int
+	cursor  int // an index into o.rows, always within the active tab
 	editing bool
 	buf     string
 	errMsg  string
@@ -346,19 +375,81 @@ type configOverlay struct {
 
 func newConfigOverlay() *configOverlay {
 	o := &configOverlay{rows: settingsTable()}
-	o.cursor = o.next(-1, +1) // first selectable row
+	o.cursor = o.firstSetting()
 	return o
+}
+
+// firstSetting is the active tab's first non-header row.
+func (o *configOverlay) firstSetting() int {
+	for _, idx := range o.visible() {
+		if o.rows[idx].kind != kindHeader {
+			return idx
+		}
+	}
+	return 0
+}
+
+// visible lists the table indices the active tab shows, in table order.
+// Collected rather than sliced: a tab's sections need not be adjacent in
+// the table, and assuming they were left one section unreachable.
+func (o *configOverlay) visible() []int {
+	var out []int
+	show := false
+	for i, s := range o.rows {
+		if s.kind == kindHeader {
+			show = o.inTab(s.label)
+		}
+		if show {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// inTab reports whether a section header belongs to the active tab.
+func (o *configOverlay) inTab(section string) bool {
+	for _, want := range settingsTabs[o.tab].sections {
+		if want == section {
+			return true
+		}
+	}
+	return false
+}
+
+// setTab switches tabs and puts the cursor on that tab's first setting.
+func (o *configOverlay) setTab(d int) {
+	o.tab = (o.tab + d + len(settingsTabs)) % len(settingsTabs)
+	o.editing, o.buf, o.errMsg = false, "", ""
+	o.cursor = o.firstSetting()
 }
 
 // next returns the nearest selectable (non-header) row from i in direction d,
 // or i's clamp when there is none.
 func (o *configOverlay) next(i, d int) int {
-	for j := i + d; j >= 0 && j < len(o.rows); j += d {
-		if o.rows[j].kind != kindHeader {
-			return j
+	vis := o.visible()
+	// Walk the visible indices, not the table: the tab's rows may not be
+	// one contiguous run.
+	at := -1
+	for k, idx := range vis {
+		if idx == i {
+			at = k
+			break
 		}
 	}
-	return max(0, min(i, len(o.rows)-1))
+	for k := at + d; k >= 0 && k < len(vis); k += d {
+		if o.rows[vis[k]].kind != kindHeader {
+			return vis[k]
+		}
+	}
+	if at >= 0 {
+		return i // no further setting this way: stay put
+	}
+	for _, idx := range vis {
+		if o.rows[idx].kind != kindHeader {
+			return idx
+		}
+	}
+	return 0
 }
 
 // Update handles one key. It returns a committed change (nil for pure
@@ -370,6 +461,14 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 		switch msg.String() {
 		case "esc":
 			o.editing, o.buf, o.errMsg = false, "", ""
+		case "tab", "shift+tab":
+			// Leave the edit behind rather than typing the key into it: a
+			// half-typed value must not follow the cursor to another tab.
+			d := +1
+			if msg.String() == "shift+tab" {
+				d = -1
+			}
+			o.setTab(d)
 		case "enter":
 			if _, err := parseDur(o.buf); err != nil {
 				o.errMsg = err.Error()
@@ -398,6 +497,10 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 	switch msg.String() {
 	case "esc", "q", "ctrl+s":
 		return nil, true
+	case "tab":
+		o.setTab(+1)
+	case "shift+tab":
+		o.setTab(-1)
 	case "up", "k":
 		o.cursor, o.errMsg = o.next(o.cursor, -1), ""
 	case "down", "j":
@@ -446,19 +549,34 @@ func cycle(opts []string, cur string, d int) string {
 
 // View renders the overlay box.
 func (o *configOverlay) View(cfg config.Config) string {
+	vis := o.visible()
 	labelW := 0
-	for _, s := range o.rows {
-		if s.kind != kindHeader && len(s.label) > labelW {
+	for _, idx := range vis {
+		if s := o.rows[idx]; s.kind != kindHeader && len(s.label) > labelW {
 			labelW = len(s.label)
 		}
 	}
 
 	var b strings.Builder
-	b.WriteString(ui.Bold.Render("Config"))
+	b.WriteString(ui.Bold.Render("settings"))
 	b.WriteString("\n\n")
-	for i, s := range o.rows {
+	b.WriteString(o.tabBar())
+	b.WriteString("\n\n")
+	// A tab holding one section needs no header: the tab name already says
+	// it, and repeating it costs a row for nothing.
+	sections := 0
+	for _, idx := range vis {
+		if o.rows[idx].kind == kindHeader {
+			sections++
+		}
+	}
+	for n, idx := range vis {
+		i, s := idx, o.rows[idx]
 		if s.kind == kindHeader {
-			if i > 0 {
+			if sections < 2 {
+				continue
+			}
+			if n > 0 {
 				b.WriteByte('\n')
 			}
 			b.WriteString(ui.Dim.Render(s.label))
@@ -497,7 +615,7 @@ func (o *configOverlay) View(cfg config.Config) string {
 	path, _ := config.Path()
 	b.WriteString(ui.Faint.Render(path))
 	b.WriteByte('\n')
-	b.WriteString(ui.Dim.Render("↑↓ move · space/←→ change · enter edit · esc close"))
+	b.WriteString(ui.Dim.Render("↑↓ move · tab section · space/←→ change · enter edit · esc close"))
 
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).

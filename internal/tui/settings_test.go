@@ -93,9 +93,11 @@ func TestOverlayToggleAndCycle(t *testing.T) {
 func TestOverlayTextEditValidation(t *testing.T) {
 	cfg := config.Default()
 	o := newConfigOverlay()
-	// Move to the first text row (refresh every).
-	for o.rows[o.cursor].kind != kindText {
-		o.Update(press('j'), cfg)
+	// Move to the first text row (refresh every). It is not in the tab the
+	// overlay opens on, so walk tabs as well as rows, and bound both: an
+	// unbounded walk hangs the suite rather than failing it.
+	if !seekKind(o, cfg, kindText) {
+		t.Fatal("no text row reachable from any tab")
 	}
 	o.Update(special(tea.KeyEnter), cfg) // start editing
 	if !o.editing {
@@ -165,4 +167,24 @@ func TestEveryConfigKeyHasASettingRow(t *testing.T) {
 			t.Errorf("config key %q has no row in the ctrl+s overlay; add one or list it as file-only", key)
 		}
 	}
+}
+
+// seekKind moves the cursor to the first row of kind k, across tabs.
+// Bounded so a row that has become unreachable fails the test instead of
+// hanging it.
+func seekKind(o *configOverlay, cfg config.Config, k settingKind) bool {
+	for tab := 0; tab < len(settingsTabs); tab++ {
+		for i := 0; i < len(o.rows); i++ {
+			if o.rows[o.cursor].kind == k {
+				return true
+			}
+			before := o.cursor
+			o.Update(press('j'), cfg)
+			if o.cursor == before {
+				break // hit the end of this tab
+			}
+		}
+		o.Update(special(tea.KeyTab), cfg)
+	}
+	return o.rows[o.cursor].kind == k
 }
