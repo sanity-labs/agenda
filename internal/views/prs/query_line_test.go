@@ -23,94 +23,78 @@ func queryView(t *testing.T, mut func(*config.GitHubConfig)) *View {
 	return v
 }
 
-// The effective query has to name what is actually filtering the list, or
-// "why is this PR missing" cannot be answered from the screen.
-func TestEffectiveQueryNamesTheFiltersInForce(t *testing.T) {
-	v := queryView(t, nil)
-	q := v.effectiveQuery()
-	if !strings.Contains(q, "author:@me") {
-		t.Errorf("effective query %q omits the configured filter", q)
-	}
-	// The review search only runs when that section is shown.
-	if strings.Contains(q, "review-requested") {
-		t.Errorf("effective query %q names the review search while it is off", q)
-	}
-
+// Each section's band names the search that produced it, so the two are
+// read together rather than joined into one line somewhere else.
+func TestBandNamesItsOwnSearch(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	show := true
-	v = queryView(t, func(c *config.GitHubConfig) { c.ShowReviewRequested = &show })
-	if q := v.effectiveQuery(); !strings.Contains(q, "review-requested") {
-		t.Errorf("effective query %q omits the review search while it is on", q)
-	}
+	cfg := config.Default().GitHub
+	cfg.ShowReviewRequested = &show
+	v := New(cfg, nil, nil, nil)
+	v.SetSize(160, 0, 30)
 
-	// A setting that narrows client-side reads as a term, since that is
-	// what it does from the user's side.
-	v = queryView(t, func(c *config.GitHubConfig) { c.HideApproved = true })
-	if q := v.effectiveQuery(); !strings.Contains(q, "-review:approved") {
-		t.Errorf("effective query %q omits hide_approved", q)
-	}
-}
+	mine := pr{Number: 1, URL: "mine", Title: "t", State: "OPEN"}
+	mine.Repository.NameWithOwner = "o/r"
+	rev := pr{Number: 2, URL: "rev", Title: "t", State: "OPEN"}
+	rev.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{mine}}})
+	v.Update(reviewListMsg{page: searchPage{prs: []pr{rev}}})
 
-// The typed filter is not repeated here: it already shows on the filter
-// line, and saying it twice is noise.
-func TestEffectiveQueryOmitsTheTypedFilter(t *testing.T) {
-	v := queryView(t, nil)
-	v.list.SetQuery("-label:deps")
-	if q := v.effectiveQuery(); strings.Contains(q, "label:deps") {
-		t.Errorf("effective query %q repeats the typed filter", q)
-	}
-}
-
-// The bar spans the frame and never overflows it, at any width: Width() is
-// the outer box, so sizing it to the full width pushes the border past the
-// screen.
-func TestQueryBarFitsTheWidth(t *testing.T) {
-	for _, w := range []int{200, 120, 100, 60, 40, 31, 30, 29, 10} {
-		v := queryView(t, nil)
-		bar := v.QueryBar(w)
-		if bar == "" {
-			continue // too narrow for a box, which is allowed
+	var bands []string
+	for _, p := range v.list.Items() {
+		if p.Separator != "" {
+			bands = append(bands, ansi.Strip(p.Separator))
 		}
-		for i, line := range strings.Split(bar, "\n") {
-			if got := lipgloss.Width(line); got > w {
-				t.Errorf("width %d: bar line %d is %d wide", w, i, got)
+	}
+	if len(bands) != 2 {
+		t.Fatalf("got %d bands, want one per section: %q", len(bands), bands)
+	}
+	if !strings.Contains(bands[0], "author:@me") {
+		t.Errorf("the own-PRs band does not name its search: %q", bands[0])
+	}
+	if !strings.Contains(bands[1], "review-requested") {
+		t.Errorf("the review band does not name its search: %q", bands[1])
+	}
+	// Each names only its own, or the two are being conflated again.
+	if strings.Contains(bands[0], "review-requested") {
+		t.Errorf("the own-PRs band names the review search: %q", bands[0])
+	}
+}
+
+// The counts are what the band is for, so a long query gives way rather
+// than pushing them out.
+func TestBandKeepsItsCountsWhenNarrow(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.Default().GitHub, nil, nil, nil)
+
+	label := "MY PULL REQUESTS  ·  8 of 9"
+	long := strings.Repeat("author:someone-long ", 10)
+	for _, w := range []int{200, 120, 80, 60, 40, 20, 10} {
+		v.SetSize(w, 0, 30)
+		band := ansi.Strip(v.bandWithQuery(label, long))
+		if !strings.Contains(band, "8 of 9") {
+			t.Errorf("width %d: the query pushed the counts out: %q", w, band)
+		}
+		// SectionSeparator pads a space each side, so the band has to fit
+		// inside that or it clips the label instead.
+		// The query must not push the band past the pane. A label longer
+		// than the pane is SectionSeparator's problem, not this one, so
+		// only check the widths where the label itself fits.
+		if lipgloss.Width(label) <= w-2 {
+			if got := lipgloss.Width(band); got > w-2 {
+				t.Errorf("width %d: band is %d wide, want at most %d", w, got, w-2)
 			}
 		}
-		// Three rows: two borders and the query. A wrapped query would be
-		// more, and would silently eat a list row.
-		if h := lipgloss.Height(bar); h != 3 {
-			t.Errorf("width %d: bar is %d rows, want 3 (a wrapped query)", w, h)
-		}
 	}
 }
 
-// A query longer than the bar is truncated, not wrapped.
-func TestLongQueryIsTruncated(t *testing.T) {
-	v := queryView(t, func(c *config.GitHubConfig) {
-		c.Filter = strings.Repeat("author:someone-with-a-long-name ", 12)
-	})
-	bar := v.QueryBar(80)
-	if h := lipgloss.Height(bar); h != 3 {
-		t.Fatalf("a long query made the bar %d rows, want 3", h)
-	}
-	if !strings.Contains(ansi.Strip(bar), "…") {
-		t.Error("a truncated query has no ellipsis to say so")
-	}
-}
-
-// Below a usable width the bar is dropped rather than rendering a border
-// with no room for the query inside it.
-func TestNoBarWhenTooNarrow(t *testing.T) {
-	v := queryView(t, nil)
-	if bar := v.QueryBar(20); bar != "" {
-		t.Errorf("a 20-column frame rendered a bar:\n%s", bar)
-	}
-}
-
-// No configured filter, no bar: there is nothing to report.
-func TestNoBarWithoutAFilter(t *testing.T) {
-	v := queryView(t, func(c *config.GitHubConfig) { c.Filter = "" })
-	if bar := v.QueryBar(120); bar != "" {
-		t.Errorf("a blank filter still rendered a bar: %q", ansi.Strip(bar))
+// No filter configured, no band change: nothing to report.
+func TestBandWithoutAFilter(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.Default().GitHub, nil, nil, nil)
+	v.SetSize(160, 0, 30)
+	if got := v.bandWithQuery("MY PULL REQUESTS", ""); got != "MY PULL REQUESTS" {
+		t.Errorf("a blank filter changed the band: %q", got)
 	}
 }
 

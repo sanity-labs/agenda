@@ -314,11 +314,10 @@ out of the box agenda looks and acts as it did before these options existed.
   refetches with it and writes it to config, so it persists; esc cancels.
   Both filters are also editable rows in the prs settings tab, with a
   reset action that puts them back to the defaults.
-- **Effective query**: a bordered bar above the footer names the search
-  actually in force (the configured filter, plus what the enabled settings
-  imply), so a missing PR can be explained from the screen. At the bottom
-  deliberately: always visible, but out of the way at the top where the
-  eye starts on the list.
+- **Effective query**: each section's band names the search that produced
+  it, so a missing PR can be explained from the screen. The counts keep
+  their room and the query truncates, since the counts are what the band
+  is for.
 - **Hotkey bar**: `footer: false` hides it, leaving a waiting-errors
   marker and the help key on the right. Warnings and errors no longer
   hold a permanent row: the toast announces one and the footer says it is

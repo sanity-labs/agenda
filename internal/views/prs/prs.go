@@ -1951,17 +1951,6 @@ func (v *View) submitReview(verdict string) tea.Cmd {
 	}
 }
 
-// QueryBar implements tui.queryBarer: the effective search, rendered at the
-// bottom of the frame so it says what is filtering the list without taking
-// space at the top, where the eye starts.
-func (v *View) QueryBar(width int) string {
-	q := v.effectiveQuery()
-	if q == "" || width < queryBoxMin {
-		return ""
-	}
-	return queryBox(q, width)
-}
-
 // Refs implements ui.Referencer: the Linear issues this PR points at, plus the
 // agent sessions that mention this PR (sourced from the shared store).
 func (v *View) Refs() []ui.Ref {
@@ -2178,6 +2167,9 @@ func (v *View) applySort() {
 		}
 	}
 
+	// A lone section stays bandless, as it always has: a header costs two
+	// rows to say what the whole screen already is. The query goes with a
+	// band, so a single-section list simply has none.
 	if !v.showReview || (len(rev) == 0 && v.reviewErr == nil) {
 		v.list.SetItems(v.groupSection(mine))
 		return
@@ -2189,10 +2181,13 @@ func (v *View) applySort() {
 
 	var items []pr
 	if len(mine) > 0 {
-		items = append(items, pr{Separator: sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total)})
+		items = append(items, pr{Separator: v.bandWithQuery(
+			sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total),
+			v.cfg.Filter)})
 		items = append(items, v.groupSection(mine)...)
 	}
-	items = append(items, pr{Separator: v.reviewLabel(rev)})
+	items = append(items, pr{Separator: v.bandWithQuery(
+		v.reviewLabel(rev), v.cfg.ReviewFilter)})
 	items = append(items, v.groupSection(rev)...)
 	v.list.SetItems(items)
 }
@@ -2218,6 +2213,29 @@ func (v *View) reviewLabel(rev []pr) string {
 // sectionLabel names a section and counts it. total is what the search
 // matched: when more rows are still unpaged it reads "20 of 79", so a
 // partially loaded list never looks like the whole set.
+// bandWithQuery appends a section's search to its band. The label keeps
+// its room and the query takes what is left: the counts are what the band
+// is for, so the query is the part that gives way on a narrow terminal.
+func (v *View) bandWithQuery(label, query string) string {
+	q := strings.TrimSpace(query)
+	if q == "" || v.listW <= 0 {
+		return label
+	}
+	sep := "  ·  "
+	icon := ui.Glyph(ui.IconSearch, "?") + " "
+	// SectionSeparator pads the label with a space each side.
+	room := v.listW - 2 - lipgloss.Width(label) - lipgloss.Width(sep) -
+		lipgloss.Width(icon)
+	if room < bandQueryMin {
+		return label // too little room to say anything useful
+	}
+	return label + sep + icon + ansi.Truncate(q, room, "…")
+}
+
+// bandQueryMin is the least room worth showing a query in: below it the
+// ellipsis says more than the text does.
+const bandQueryMin = 12
+
 func sectionLabel(name string, n, reviewed, total int) string {
 	label := fmt.Sprintf("%s  ·  %d", name, n)
 	if total > n {

@@ -1,9 +1,7 @@
 package prs
 
 import (
-	"charm.land/lipgloss/v2"
 	"fmt"
-	"github.com/charmbracelet/x/ansi"
 	"strings"
 
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -108,52 +106,3 @@ func pillsFor(labels []label) []string {
 	}
 	return out
 }
-
-// effectiveQuery is the search actually in force for the section in view:
-// the configured filter, plus the terms the enabled settings imply.
-// Surfaced because the two combine invisibly otherwise, and "why is this
-// PR missing" is then unanswerable from the screen.
-//
-// The typed filter is not included: it already shows on the filter line,
-// and repeating it would say the same thing twice.
-func (v *View) effectiveQuery() string {
-	q := strings.TrimSpace(v.cfg.Filter)
-	if v.showReview && strings.TrimSpace(v.cfg.ReviewFilter) != "" {
-		// Two searches run, so show both rather than implying one.
-		q += "  +  " + strings.TrimSpace(v.cfg.ReviewFilter)
-	}
-	if v.hideApproved {
-		q += " -review:approved"
-	}
-	return strings.TrimSpace(q)
-}
-
-// queryBox renders a query in a bordered box of the given width, the way
-// gh-dash shows its search: the border is what makes it read as the query
-// in force rather than another status line.
-func queryBox(q string, width int) string {
-	// Width() counts the border and padding inside the width it is given,
-	// and the Nerd Font magnifier is two columns, not one. Measure both
-	// rather than assume, or the query runs a column long and wraps the
-	// box to four rows.
-	icon := ui.Glyph(ui.IconSearch, "?")
-	lead := icon + " "
-	boxW := width - 2
-	text := max(1, boxW-queryBoxChrome-lipgloss.Width(lead))
-	body := ui.Faint.Render(lead) + ui.Faint.Italic(true).Render(
-		ansi.Truncate(q, text, "…"))
-	return lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(ui.Pal().Border)).
-		Padding(0, 1).
-		Width(boxW).
-		Render(body)
-}
-
-const (
-	// queryBoxChrome is the border (2) and padding (2) Width() counts.
-	queryBoxChrome = 4
-	// queryBoxMin is the narrowest list that gets a box: below it the two
-	// border rows cost more than the query is worth.
-	queryBoxMin = 30
-)
