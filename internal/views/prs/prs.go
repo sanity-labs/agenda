@@ -74,7 +74,10 @@ type pr struct {
 	// Reviewed marks a review-requested row the viewer has already reviewed
 	// (set at assembly when github.mark_reviewed is on): rendered dim with a
 	// "reviewed" tag so the eye can skip it.
-	Reviewed   bool `json:"-"`
+	Reviewed bool `json:"-"`
+	// ShowLabels adds a label column, set at assembly when the preview pane
+	// is off and the row is wide enough to spare the space.
+	ShowLabels bool `json:"-"`
 	Repository struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
@@ -253,30 +256,16 @@ func (p pr) diffCell() string {
 	if p.Additions == 0 && p.Deletions == 0 {
 		return ""
 	}
-	return ui.Green.Render("+"+strconv.Itoa(p.Additions)) + " " +
-		ui.Red.Render("-"+strconv.Itoa(p.Deletions))
+	return ui.Green.Render("+"+compactCount(p.Additions)) + " " +
+		ui.Red.Render("-"+compactCount(p.Deletions))
 }
 
 // diffPlain / commentsPlain are the uncolored cell texts, for dim rows.
-func (p pr) diffPlain() string {
-	if p.Additions == 0 && p.Deletions == 0 {
-		return ""
-	}
-	return fmt.Sprintf("+%d -%d", p.Additions, p.Deletions)
-}
-
-func (p pr) commentsPlain() string {
-	if p.Comments.TotalCount == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%s%d", ui.IconComment, p.Comments.TotalCount)
-}
-
 func (p pr) commentsCell() string {
 	if p.Comments.TotalCount == 0 {
 		return ""
 	}
-	return ui.Dim.Render(fmt.Sprintf("%s%d", ui.IconComment, p.Comments.TotalCount))
+	return ui.Dim.Render(p.commentsText())
 }
 
 // Render draws one PR as a two-line block, à la gh-dash's non-compact layout:
@@ -308,8 +297,10 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 		glyphs = mark + " " + glyphs
 	}
 
-	// Right cluster: diff · comments · age.
-	right := strings.TrimSpace(p.diffCell() + "  " + p.commentsCell() + "  " + ui.Dim.Render(ui.Age(p.UpdatedAt)))
+	// Right cluster: labels · diff · comments · age. The numeric cells are
+	// padded to a fixed width so they form columns instead of drifting with
+	// their contents; labels take whatever is left after them.
+	right := p.rightCluster(width, false)
 
 	// Metadata: repo #num · @author · branch (plain for measurement/truncation,
 	// styled for display).
@@ -329,7 +320,7 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 	if p.Reviewed {
 		plain += " · reviewed"
 		styled = ui.Dim.Render(plain)
-		right = ui.Dim.Render(strings.TrimSpace(p.diffPlain() + "  " + p.commentsPlain() + "  " + ui.Age(p.UpdatedAt)))
+		right = p.rightCluster(width, true)
 		return ui.TwoLineRowFaint(width, selected, glyphs, plain, styled, right, p.Title, hl)
 	}
 
@@ -1250,6 +1241,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.previewShown {
 			v.clearUnread()
 		}
+		// Labels live in the space a hidden preview frees up.
+		v.applySort()
 		return v.drainSync()
 	case ui.PreviewFloatingMsg:
 		v.floatReveal = bool(msg)
@@ -1977,10 +1970,14 @@ func (v *View) applySort() {
 			rev[i].Reviewed = rev[i].reviewedByMe()
 		}
 	}
+	// Labels fill the space a hidden preview frees up, and only when the
+	// list is wide enough that they are not crowding the metadata out.
+	labels := !v.previewShown && v.listW >= labelColMinWidth
 	for _, set := range [][]pr{mine, rev} {
 		for i := range set {
 			set[i].Unread = v.unread[set[i].URL]
 			set[i].UnreadGutter = v.unreadOn
+			set[i].ShowLabels = labels
 		}
 	}
 
@@ -2196,9 +2193,15 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
+	was := v.listW
 	v.listW, v.prevW, v.height = listW, prevW, h
 	v.list.SetSize(listW, max(1, h-1)) // reserve a row for the header line
 	v.bodyKey = ""                     // width changed: invalidate the body cache
+	// The label column depends on the list's width, so a resize across the
+	// threshold has to re-decide it.
+	if was != listW && v.seeded {
+		v.applySort()
+	}
 }
 
 func (v *View) ListView() string {
@@ -2461,14 +2464,20 @@ const (
 )
 
 // ClickPreview toggles whatever hint the click landed on. line is counted
-// from the top of the rendered preview, so it survives scrolling.
-func (v *View) ClickPreview(line int) tea.Cmd {
+// from the top of the rendered preview, so it survives scrolling; col is
+// unused for now, the hints span their whole line.
+func (v *View) ClickPreview(line, col int) tea.Cmd {
 	lines := strings.Split(v.PreviewView(), "\n")
 	if line < 0 || line >= len(lines) {
 		return nil
 	}
 	text := ansi.Strip(lines[line])
 	switch {
+	// A click anywhere in a diff or comments pane puts it away, the same
+	// as pressing the key again: hunting for the hint to close what you
+	// opened is busywork.
+	case v.pane != paneBody:
+		return v.setPane(v.pane)
 	case strings.Contains(text, expandMarker):
 		if sel := v.list.Selected(); sel.URL != "" {
 			if v.expanded == sel.URL {

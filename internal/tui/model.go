@@ -603,6 +603,21 @@ func (m Model) floating() bool {
 	return m.previewTransient && !m.zoomed
 }
 
+// floatBox is the floating detail's screen rectangle: where it is drawn
+// and how big. One helper so the render and the click routing cannot
+// disagree about where the box is; contentX/contentY are the first cell
+// inside the border and padding, which is where the body starts.
+func (m Model) floatBox() (x, y, w, h, contentX, contentY int) {
+	_, previewContentW, _ := m.dims()
+	_, fh := m.floatDims()
+	w = previewContentW + scrollGutter + floatChrome
+	h = fh + 2 // the box's own top and bottom border
+	x = max(0, (m.width-w)/2)
+	// The box is centered on the whole screen, matching overlayCentered.
+	y = max(0, (m.height-h)/2)
+	return x, y, w, h, x + 2, y + 1 // border + 1 padding column, border row
+}
+
 // floatDims sizes the floating detail box: a readable column that still
 // leaves the list visible around it. The height is bounded by the content
 // region, not the screen, so the box can never push the footer off.

@@ -4,18 +4,18 @@ package ui
 // state/CI/review with the same vocabulary. Colors are applied by each view.
 
 const (
-	IconOpen      = ""      //
+	IconOpen      = "\uea64" // 
 	IconDraft     = "\uebdb" // 
-	IconMerged    = ""      //
-	IconClosed    = ""      //
-	IconCIOK      = ""      //
-	IconCIFail    = ""      //
-	IconCIPending = ""      //
+	IconMerged    = "\uf1f7" // 
+	IconClosed    = "\uf48e" // 
+	IconCIOK      = "\ueab2" // 
+	IconCIFail    = "\uf467" // 
+	IconCIPending = "\uf111" // 
 	IconApproved  = "\uedc6" // 
-	IconChanges   = ""
-	IconReviewReq = ""
-	IconComment   = ""
-	IconDot       = "·"
+	IconChanges   = "\uf41b" // 
+	IconReviewReq = "\uf4a0" // 
+	IconComment   = "\uea6b" // 
+	IconDot       = "\u00b7" // ·
 )
 
 // IconSection heads a preview section (Description, Checks, Comments).
@@ -23,14 +23,14 @@ const IconSection = "\uf0c9" //  list
 
 // IconUnread marks a row that arrived since the last fetch, until you
 // select it.
-const IconUnread = "●"
+const IconUnread = "\u25cf" // ●
 
 // Pill caps (powerline half-circles), used to round the ends of label pills.
 // Both fall back to nothing when decorative glyphs are off, leaving the plain
 // padded background the view rendered before.
 const (
-	IconPillLeft  = "\ue0b6" //
-	IconPillRight = "\ue0b4" //
+	IconPillLeft  = "\ue0b6" // 
+	IconPillRight = "\ue0b4" // 
 )
 
 // Decorative icons, gated by the theme.glyphs toggle (see Glyph).
