@@ -560,6 +560,20 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// commitSetting writes a change to the live config, the file, and whatever
+// live re-apply its path warrants. Shared by the keyboard and the mouse so
+// the two cannot drift.
+func (m *Model) commitSetting(change *settingChange) tea.Cmd {
+	if change.s.kind == kindAction {
+		return m.runAction(change.s.path)
+	}
+	change.s.set(&m.cfg, change.val)
+	if err := config.Set(change.s.path, change.fileValue()); err != nil {
+		m.settings.errMsg = err.Error()
+	}
+	return m.applyConfigChange(change.s.path)
+}
+
 // concealTransient ends a transient reveal (see ui.ConcealPreviewMsg), and
 // its mirror: a pane peeked away with the toggle comes back, since the
 // pane is what the config asks for.

@@ -287,8 +287,10 @@ out of the box agenda looks and acts as it did before these options existed.
 - **Settings tabs**: `ctrl+s` opens the settings in six tabbed sections
   (general, appearance, alerts, prs, linear, sessions) rather than one
   long scroll;
-  `tab`/`shift+tab` moves between them. A test asserts every section
-  belongs to exactly one tab, so a setting cannot become unreachable.
+  `tab`/`shift+tab` moves between them, and the mouse works too: a click
+  on a tab switches, a click on a row toggles or cycles it, a click
+  outside closes. A test asserts every section belongs to exactly one tab,
+  so a setting cannot become unreachable.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

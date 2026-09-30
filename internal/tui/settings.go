@@ -385,6 +385,93 @@ func (o *configOverlay) TopY(cfg config.Config, screenH int) int {
 	return max(0, (screenH-tallest)/2)
 }
 
+// Rows above the first setting inside the box: the border, the title, a
+// blank, the tab bar, the rule, and a blank. Derived from View's own
+// preamble, and a test renders the overlay to confirm they agree.
+const settingsPreamble = 6
+
+// RowAt maps a click inside the overlay to a settings row, given the box's
+// top-left corner. Returns -1 for a click on the chrome, a header, or a
+// blank line between sections.
+func (o *configOverlay) RowAt(boxX, boxY, x, y int) int {
+	line := y - boxY - settingsPreamble
+	if line < 0 {
+		return -1
+	}
+	// Walk the visible rows the way View prints them, counting the blank
+	// line a section header puts before it (bar the first).
+	vis := o.visible()
+	sections := 0
+	for _, idx := range vis {
+		if o.rows[idx].kind == kindHeader {
+			sections++
+		}
+	}
+	printHeaders := sections >= 2
+
+	at := 0
+	for n, idx := range vis {
+		if o.rows[idx].kind == kindHeader {
+			if !printHeaders {
+				continue
+			}
+			if n > 0 {
+				at++ // the blank line before the header
+			}
+			at++ // the header itself
+			continue
+		}
+		if at == line {
+			return idx
+		}
+		at++
+	}
+	return -1
+}
+
+// TabAt maps a click on the tab bar to a tab index, or -1. The tab bar is
+// the fourth row inside the box (border, title, blank, tabs).
+func (o *configOverlay) TabAt(boxX, boxY, x, y int) int {
+	if y-boxY != 3 {
+		return -1
+	}
+	// The bar starts after the border and the left padding.
+	col := x - boxX - 3
+	at := 0
+	for i, t := range settingsTabs {
+		w := lipgloss.Width(t.name)
+		if col >= at && col < at+w {
+			return i
+		}
+		at += w + 2 // the two spaces between tabs
+	}
+	return -1
+}
+
+// SetCursor moves to a row, ignoring headers and anything out of range.
+func (o *configOverlay) SetCursor(i int) {
+	if i < 0 || i >= len(o.rows) || o.rows[i].kind == kindHeader {
+		return
+	}
+	o.cursor, o.errMsg = i, ""
+}
+
+// SetTabIndex switches to a tab by index.
+func (o *configOverlay) SetTabIndex(i int) {
+	if i < 0 || i >= len(settingsTabs) || i == o.tab {
+		return
+	}
+	o.tab = i
+	o.editing, o.buf, o.errMsg = false, "", ""
+	o.cursor = o.firstSetting()
+}
+
+// Size is the overlay's rendered width and height, for hit-testing.
+func (o *configOverlay) Size(cfg config.Config) (w, h int) {
+	v := o.View(cfg)
+	return lipgloss.Width(v), lipgloss.Height(v)
+}
+
 // tabBar renders the section tabs, the active one highlighted.
 func (o *configOverlay) tabBar() string {
 	var parts []string
