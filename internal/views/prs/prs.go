@@ -2221,20 +2221,31 @@ func (v *View) bandWithQuery(label, query string) string {
 	if q == "" || v.listW <= 0 {
 		return label
 	}
-	sep := "  ·  "
-	icon := ui.Glyph(ui.IconSearch, "?") + " "
-	// SectionSeparator pads the label with a space each side.
-	room := v.listW - 2 - lipgloss.Width(label) - lipgloss.Width(sep) -
-		lipgloss.Width(icon)
-	if room < bandQueryMin {
+	// Glyph carries its own trailing space; adding another leaves the icon
+	// with a gap after it and none before.
+	icon := ui.Glyph(ui.IconSearch, "?")
+	// The query goes hard right, so the band's own colour does the
+	// separating and the two halves read as two things rather than one
+	// run of text. SectionSeparator pads a space each side, and needs one
+	// spare column or it clips the band it just built.
+	avail := v.listW - 2 - lipgloss.Width(label) - lipgloss.Width(icon) - bandGap
+	if avail < bandQueryMin {
 		return label // too little room to say anything useful
 	}
-	return label + sep + icon + ansi.Truncate(q, room, "…")
+	shown := ansi.Truncate(q, avail, "…")
+	gap := v.listW - 2 - lipgloss.Width(label) - lipgloss.Width(icon) -
+		lipgloss.Width(shown)
+	return label + strings.Repeat(" ", max(bandGap, gap)) + icon + shown
 }
 
-// bandQueryMin is the least room worth showing a query in: below it the
-// ellipsis says more than the text does.
-const bandQueryMin = 12
+const (
+	// bandQueryMin is the least room worth showing a query in: below it the
+	// ellipsis says more than the text does.
+	bandQueryMin = 12
+	// bandGap is the least space between the counts and the query, so they
+	// never run together when the query happens to fill the row.
+	bandGap = 4
+)
 
 func sectionLabel(name string, n, reviewed, total int) string {
 	label := fmt.Sprintf("%s  ·  %d", name, n)
