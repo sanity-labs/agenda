@@ -1,7 +1,9 @@
 package prs
 
 import (
+	"charm.land/lipgloss/v2"
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -126,13 +128,37 @@ func (v *View) effectiveQuery() string {
 	return strings.TrimSpace(q)
 }
 
-// queryLine renders the effective query under the status line: a magnifier,
-// then the query in faint italics, matching the filter line's own prefix.
+// queryLine renders the effective query in a bordered box spanning the
+// list, the way gh-dash shows its search: the border is what makes it read
+// as the query in force rather than another status line.
 func (v *View) queryLine() string {
 	q := v.effectiveQuery()
-	if q == "" {
+	if q == "" || v.listW < queryBoxMin {
 		return ""
 	}
+	// The box is listW-2 wide (leaving the list's own gutter), and Width()
+	// counts the border and padding inside that, so the text area is what
+	// is left after both. Measure the icon rather than assuming it is one
+	// column: the Nerd Font glyph is two, and guessing made the query one
+	// column too wide, wrapping the box to four rows.
 	icon := ui.Glyph(ui.IconSearch, "?")
-	return ui.Faint.Render(icon+" ") + ui.Faint.Italic(true).Render(q)
+	lead := icon + " "
+	boxW := v.listW - 2
+	text := max(1, boxW-queryBoxChrome-lipgloss.Width(lead))
+	body := ui.Faint.Render(lead) + ui.Faint.Italic(true).Render(
+		ansi.Truncate(q, text, "…"))
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(ui.Pal().Border)).
+		Padding(0, 1).
+		Width(boxW).
+		Render(body)
 }
+
+const (
+	// queryBoxChrome is the border (2) and padding (2) Width() counts.
+	queryBoxChrome = 4
+	// queryBoxMin is the narrowest list that gets a box: below it the two
+	// border rows cost more than the query is worth.
+	queryBoxMin = 30
+)

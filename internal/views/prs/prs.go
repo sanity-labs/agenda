@@ -2403,8 +2403,8 @@ func (v *View) ListView() string {
 // headerRows is how many rows ListView puts above the list, which SetSize
 // has to reserve or the last row falls off the bottom.
 func (v *View) headerRows() int {
-	if v.queryLine() != "" {
-		return 2
+	if q := v.queryLine(); q != "" {
+		return 1 + lipgloss.Height(q) // status, then the boxed query
 	}
 	return 1
 }

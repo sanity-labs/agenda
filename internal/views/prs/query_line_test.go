@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
@@ -63,16 +64,22 @@ func TestEffectiveQueryOmitsTheTypedFilter(t *testing.T) {
 // sized to leave room or the last row falls off the bottom.
 func TestQueryLineGetsItsOwnRow(t *testing.T) {
 	v := queryView(t, nil)
-	if got := v.headerRows(); got != 2 {
-		t.Errorf("headerRows = %d with a query line, want 2", got)
+	// The box is three rows (two borders and the query), so the status plus
+	// the box is four.
+	if got := v.headerRows(); got != 4 {
+		t.Errorf("headerRows = %d with a boxed query line, want 4", got)
 	}
 
 	lines := strings.Split(v.ListView(), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("ListView has %d lines, want a status and a query line", len(lines))
+	if len(lines) < 4 {
+		t.Fatalf("ListView has %d lines, want a status and a 3-row box", len(lines))
 	}
-	if !strings.Contains(ansi.Strip(lines[1]), "author:@me") {
-		t.Errorf("line 2 is not the query line: %q", ansi.Strip(lines[1]))
+	// Line 1 is the status, 2 the box's top border, 3 the query itself.
+	if !strings.Contains(ansi.Strip(lines[2]), "author:@me") {
+		t.Errorf("line 3 is not the query: %q", ansi.Strip(lines[2]))
+	}
+	if !strings.Contains(lines[1], "╭") {
+		t.Errorf("line 2 is not the box's top border: %q", ansi.Strip(lines[1]))
 	}
 
 	// No configured filter: no line, and the row is given back.
@@ -102,5 +109,62 @@ func TestFilterLinePrefixFollowsTheStyle(t *testing.T) {
 	got := ansi.Strip(v.list.FilterLine())
 	if !strings.HasPrefix(got, ui.Glyph(ui.IconSearch, "?")) {
 		t.Errorf("a qualified filter shows %q, want the magnifier prefix", got)
+	}
+}
+
+// The box spans the list and never overflows it, at any width: Width() is
+// the outer box, so sizing it to the full list width pushes the border a
+// column past the pane.
+func TestQueryBoxFitsTheList(t *testing.T) {
+	for _, w := range []int{200, 120, 100, 60, 40, 31, 30, 29, 10} {
+		v := queryView(t, nil)
+		v.SetSize(w, 0, 30)
+		q := v.queryLine()
+		if q == "" {
+			continue // too narrow for a box, which is allowed
+		}
+		for i, line := range strings.Split(q, "\n") {
+			if got := lipgloss.Width(line); got > w {
+				t.Errorf("list %d: box line %d is %d wide", w, i, got)
+			}
+		}
+		// Three rows: two borders and the query. A long query that wrapped
+		// would make it more.
+		if h := lipgloss.Height(q); h != 3 {
+			t.Errorf("list %d: box is %d rows, want 3 (a wrapped query)", w, h)
+		}
+		// And the list is sized to leave room for all of them.
+		if got, want := v.headerRows(), 1+lipgloss.Height(q); got != want {
+			t.Errorf("list %d: headerRows = %d, want %d", w, got, want)
+		}
+	}
+}
+
+// A query longer than the box is truncated, not wrapped: wrapping grows the
+// box and eats list rows.
+func TestLongQueryIsTruncated(t *testing.T) {
+	v := queryView(t, func(c *config.GitHubConfig) {
+		c.Filter = strings.Repeat("author:someone-with-a-long-name ", 12)
+	})
+	v.SetSize(80, 0, 30)
+	q := v.queryLine()
+	if h := lipgloss.Height(q); h != 3 {
+		t.Fatalf("a long query made the box %d rows, want 3", h)
+	}
+	if !strings.Contains(ansi.Strip(q), "…") {
+		t.Error("a truncated query has no ellipsis to say so")
+	}
+}
+
+// Below a usable width the box is dropped rather than rendering a border
+// with no room for the query inside it.
+func TestNoBoxOnANarrowList(t *testing.T) {
+	v := queryView(t, nil)
+	v.SetSize(20, 0, 30)
+	if q := v.queryLine(); q != "" {
+		t.Errorf("a 20-column list rendered a box:\n%s", q)
+	}
+	if got := v.headerRows(); got != 1 {
+		t.Errorf("headerRows = %d with no box, want 1", got)
 	}
 }
