@@ -152,6 +152,35 @@ github:
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
+  # The sort the PR list opens on: date, review, checks, repo, size or
+  # author. Omit (or leave empty) for the view's default, date. 's' still
+  # cycles sorts at runtime; this is only the starting point.
+  sort: ""
+  # Start with that sort reversed, as if you had pressed 'S'.
+  reverse: false
+  # Drop approved, still-open PRs from the review-requested list: the ball
+  # is with the author. Off by default, so you can still open one you want
+  # to comment on. An approval by anyone counts, not just yours: someone
+  # else approving is no reason for you to stop looking. Merged PRs are
+  # handled by review_filter's is:open, not by this.
+  hide_approved: false
+  # Re-read the selected PR once the cursor stops moving, so check state and
+  # review decisions are current on the row you are about to act on rather
+  # than as of the last full refresh. On by default: one request for a single
+  # PR, debounced, so cycling a list costs nothing until you stop.
+  refresh_row: true
+  # Add merge entries to the review popup ('r'): 'm' merges, 'M' enables
+  # auto-merge so a PR lands once its checks pass. Off by default, because
+  # merging is the one thing in that popup you cannot undo with another
+  # keypress. It always asks before merging, and refuses outright for a
+  # draft, a conflict, or while GitHub is still checking mergeability.
+  merge: false
+  # How 'm' merges: squash (default), merge, or rebase. A repo that forbids
+  # the method you pick says so when the merge runs.
+  merge_method: squash
+  # Delete the head branch after a successful merge, for repos that do not
+  # do it themselves. Off by default.
+  merge_delete_branch: false
   # Render diffs in the right pane on 'd'. Off by default: 'd' pages the
   # diff through less, the original behavior. The comments pane ('c') and
   # inline-thread annotations need this on to show threads in the diff.
@@ -174,6 +203,10 @@ linear:
   #   linear.app -> Settings -> Security & access -> API keys
   # Without it, the Linear view shows a setup hint instead of issues.
   token: ""
+  # The sort the issue list opens on: date, status, project or priority.
+  # Omit for the view's default, date.
+  sort: ""
+  reverse: false
   # Which issues to fetch (server-side). The default is your assigned issues
   # that aren't completed or canceled, the same as Linear's "assigned" view.
   filter:
@@ -197,3 +230,7 @@ linear:
 sessions:
   # Set to false to hide the agent-sessions view.
   enabled: true
+  # The sort the session list opens on: recent, cwd, tool, msgs or cost.
+  # Omit for the view's default, recent.
+  sort: ""
+  reverse: false

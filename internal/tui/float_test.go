@@ -130,3 +130,48 @@ func TestPreviewVisibilityIsBroadcast(t *testing.T) {
 		t.Errorf("re-showing an already-shown preview broadcast %#v", cmd())
 	}
 }
+
+// With the pane configured on, 'v' is a peek: hiding it to see the full
+// list should not leave it hidden, so the next row brings the pane back.
+func TestPeekedPaneComesBackOnMove(t *testing.T) {
+	cfg := config.Default() // hide_preview off: the pane is the normal state
+	m := New(cfg, []View{&stubView{"PRs"}})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+
+	got, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
+	m = got.(Model)
+	if !m.previewHidden {
+		t.Fatal("'v' did not hide the pane")
+	}
+	if !m.previewPeeked {
+		t.Fatal("hiding the pane was not recorded as a peek")
+	}
+
+	// Moving to another row sends this, the same as j/k in a view.
+	got, _ = m.Update(ui.ConcealPreviewMsg{})
+	m = got.(Model)
+	if m.previewHidden {
+		t.Error("the pane stayed hidden after moving on, want it back")
+	}
+	if m.previewPeeked {
+		t.Error("the peek was not cleared")
+	}
+}
+
+// With hide_preview on, the pane is not the configured state, so moving on
+// must not conjure one: 'v' floats and the float closes.
+func TestMovingOnDoesNotOpenAPaneWhenHidePreviewIsSet(t *testing.T) {
+	m := floatModel(t) // hide_preview: true
+	got, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
+	m = got.(Model)
+	if !m.floating() {
+		t.Fatal("'v' did not float with hide_preview on")
+	}
+	got, _ = m.Update(ui.ConcealPreviewMsg{})
+	m = got.(Model)
+	if !m.previewHidden || m.floating() {
+		t.Errorf("after moving on: hidden=%v floating=%v, want hidden and not floating",
+			m.previewHidden, m.floating())
+	}
+}

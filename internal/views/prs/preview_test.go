@@ -21,8 +21,11 @@ func TestTruncateSummary(t *testing.T) {
 	if got := strings.Count(out, "kept"); got != 10 {
 		t.Errorf("kept %d lines, want 10", got)
 	}
-	if !strings.Contains(out, "20 more lines") || !strings.Contains(out, "e to toggle") {
-		t.Errorf("missing the hint:\n%s", out)
+	// The hint names both affordances: the key and the click.
+	for _, want := range []string{"20 more lines", "e", expandMarker} {
+		if !strings.Contains(out, want) {
+			t.Errorf("hint is missing %q:\n%s", want, out)
+		}
 	}
 }
 

@@ -29,6 +29,14 @@ type clicker interface {
 	ClickList(x, y int) (row bool, cmd tea.Cmd)
 }
 
+// previewClicker is implemented by views with clickable targets in the
+// preview pane (the expand and comments hints). line is the preview line
+// clicked, counted from the top of the rendered preview, so the view can
+// match it against what it drew.
+type previewClicker interface {
+	ClickPreview(line int) tea.Cmd
+}
+
 // activator is implemented by views whose selection has a primary action
 // (what enter does), run on a double-click.
 type activator interface {
@@ -195,9 +203,21 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 
 	listW, _, contentH := m.dims()
 	y -= tabBarHeight
+	if y >= contentH {
+		return m, nil // the footer
+	}
+	// A click in the preview goes to whatever the view drew there. The
+	// scroll offset is the model's, so the view is told the line it drew,
+	// not the screen row.
+	if x >= listW && !m.previewHidden {
+		if pc, ok := m.views[m.current].(previewClicker); ok {
+			return m, pc.ClickPreview(y + m.previewScroll)
+		}
+		return m, nil
+	}
 	c, ok := m.views[m.current].(clicker)
-	if !ok || x >= listW || y >= contentH {
-		return m, nil // preview, footer, or a view without a clickable list
+	if !ok || x >= listW {
+		return m, nil // a view without a clickable list
 	}
 	row, cmd := c.ClickList(x, y)
 	m.syncPreviewKey(false)

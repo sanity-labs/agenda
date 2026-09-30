@@ -173,6 +173,48 @@ type GitHubConfig struct {
 	// reviewed and tags them "reviewed", so the eye can skip them. Off by
 	// default.
 	MarkReviewed bool `yaml:"mark_reviewed"`
+	// Sort is the sort the view opens on: date, review, checks, repo, size
+	// or author. Empty means the view's own default (date). Reverse flips
+	// it, the same as pressing the reverse key at startup.
+	Sort    string `yaml:"sort"`
+	Reverse bool   `yaml:"reverse"`
+	// HideApproved drops approved, still-open PRs from the
+	// review-requested list: the ball is with the author. An approval by
+	// anyone counts, not just the viewer's, since someone else approving
+	// is no reason to stop looking. Off by default, and merged PRs are the
+	// search filter's business (is:open), not this toggle's.
+	HideApproved bool `yaml:"hide_approved"`
+	// RefreshRow re-reads the selected PR once the cursor stops moving, so
+	// check state and review decisions are current on the row you are
+	// about to act on rather than as of the last full refresh. On by
+	// default: it is one request for a single PR, debounced, so cycling a
+	// list costs nothing until you stop.
+	RefreshRow *bool `yaml:"refresh_row"`
+	// Merge adds merge entries to the review popup ('r'). Off by default:
+	// merging is the one irreversible action in that popup, so it is opt-in
+	// rather than a keypress away for everyone.
+	Merge bool `yaml:"merge"`
+	// MergeMethod is how Merge merges: "squash" (default), "merge" or
+	// "rebase". A repo may forbid the one you pick, which gh reports.
+	MergeMethod string `yaml:"merge_method"`
+	// MergeDeleteBranch deletes the head branch after a successful merge,
+	// for repos that do not do it themselves. Off by default.
+	MergeDeleteBranch bool `yaml:"merge_delete_branch"`
+}
+
+// RefreshRowEnabled reports whether the selected PR is re-read on settle.
+func (g GitHubConfig) RefreshRowEnabled() bool { return g.RefreshRow == nil || *g.RefreshRow }
+
+// ResolvedMergeMethod is the gh flag for the configured merge method,
+// defaulting to squash. An unrecognised value falls back rather than
+// failing: gh would reject a bad flag well after the confirmation.
+func (g GitHubConfig) ResolvedMergeMethod() string {
+	switch g.MergeMethod {
+	case "merge", "rebase":
+		return g.MergeMethod
+	default:
+		return "squash"
+	}
 }
 
 // LazyPagingEnabled reports whether the PR search pages lazily.
@@ -197,6 +239,10 @@ type LinearConfig struct {
 	// Token is a Linear personal API key (lin_api_...). Required for the
 	// Linear view; when empty the view renders a setup hint instead.
 	Token string `yaml:"token"`
+	// Sort is the sort the view opens on: date, status, project or
+	// priority. Empty means the view's own default (date).
+	Sort    string `yaml:"sort"`
+	Reverse bool   `yaml:"reverse"`
 	// Filter narrows which issues are fetched. The default matches the
 	// previous hardcoded behavior: your assigned issues that aren't
 	// completed or canceled.
@@ -247,7 +293,22 @@ func (f *LinearFilter) UnmarshalYAML(n *yaml.Node) error {
 type SessionsConfig struct {
 	// Enabled toggles the sessions view. Defaults to true.
 	Enabled *bool `yaml:"enabled"`
+	// Sort is the sort the view opens on: recent, cwd, tool, msgs or cost.
+	// Empty means the view's own default (recent).
+	Sort    string `yaml:"sort"`
+	Reverse bool   `yaml:"reverse"`
 }
+
+// Sort vocabularies, one per view. Declared here because both the views
+// (resolving a name to a mode) and the settings overlay (offering the
+// choices) need them, and an empty value always means the view's default.
+// The views own the meanings; a name dropped from one of these lists stops
+// being selectable, and a name that no view knows falls back to default.
+var (
+	PRSortNames       = []string{"date", "review", "checks", "repo", "size", "author"}
+	LinearSortNames   = []string{"date", "status", "project", "priority"}
+	SessionsSortNames = []string{"recent", "cwd", "tool", "msgs", "cost"}
+)
 
 // Default returns the built-in configuration used when no file exists or to
 // fill gaps in a partial file.

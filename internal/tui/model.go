@@ -50,6 +50,10 @@ type Model struct {
 	// comments) rather than by the user's toggle; it re-hides when the
 	// selection moves on or the action completes.
 	previewTransient bool
+	// previewPeeked marks a pane hidden by the toggle while hide_preview is
+	// off: the pane is the configured state, so moving to another row
+	// brings it back rather than leaving it hidden indefinitely.
+	previewPeeked bool
 
 	// preview scrolling, owned centrally so it works the same in every view.
 	previewScroll int
@@ -285,8 +289,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case ui.ConcealPreviewMsg:
-		if m.previewTransient {
+		// Sent when the selection moves on. It ends a transient reveal, and
+		// equally a pane peeked away with the toggle: the pane is the
+		// configured state, so the next row gets it back.
+		switch {
+		case m.previewTransient:
 			return m, m.setPreview(true, false)
+		case m.previewPeeked:
+			m.previewPeeked = false
+			return m, m.setPreview(false, false)
 		}
 		return m, nil
 	case ui.ToastMsg:
@@ -444,6 +455,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cfg.HidePreview {
 				return m, m.setPreview(m.floating(), !m.floating())
 			}
+			// The pane is the configured state, so hiding it is a peek at
+			// this row's list entry: the next row brings the pane back.
+			m.previewPeeked = !m.previewHidden
 			return m, m.setPreview(!m.previewHidden, false)
 		case key.Matches(msg, m.keys.Refresh):
 			// Init() flips the view back into its loading state. Only start a
@@ -546,10 +560,16 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// concealTransient ends a transient reveal (see ui.ConcealPreviewMsg).
+// concealTransient ends a transient reveal (see ui.ConcealPreviewMsg), and
+// its mirror: a pane peeked away with the toggle comes back, since the
+// pane is what the config asks for.
 func (m *Model) concealTransient() {
-	if m.previewTransient {
+	switch {
+	case m.previewTransient:
 		_ = m.setPreview(true, false)
+	case m.previewPeeked:
+		m.previewPeeked = false
+		_ = m.setPreview(false, false)
 	}
 }
 
@@ -774,6 +794,7 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 		on := m.cfg.UnreadSync
 		return func() tea.Msg { return ui.UnreadSyncMsg(on) }
 	case path == "hide_preview":
+		m.previewPeeked = false
 		return m.setPreview(m.cfg.HidePreview, false)
 	case strings.HasPrefix(path, "refresh."):
 		m.refresh = refreshIntervals(m.cfg, m.views)

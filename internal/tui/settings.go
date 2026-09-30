@@ -46,6 +46,28 @@ type setting struct {
 
 func header(label string) setting { return setting{kind: kindHeader, label: label} }
 
+// sortSetting is a view's startup sort. "default" means the view's own,
+// which is also what an empty config value means, so the row reads the
+// same as the file.
+func sortSetting(path string, names []string, get func(config.Config) string, set func(*config.Config, string)) setting {
+	return setting{
+		label: "sort on open", path: path, kind: kindEnum, note: "restart",
+		options: func() []string { return append([]string{"default"}, names...) },
+		get: func(c config.Config) string {
+			if v := get(c); v != "" {
+				return v
+			}
+			return "default"
+		},
+		set: func(c *config.Config, v string) {
+			if v == "default" {
+				v = ""
+			}
+			set(c, v)
+		},
+	}
+}
+
 func boolSetting(label, path, note string, get func(config.Config) bool, set func(*config.Config, bool)) setting {
 	return setting{
 		label: label, path: path, kind: kindBool, note: note,
@@ -229,6 +251,12 @@ func settingsTable() []setting {
 			func(c config.Config) bool { return optBool(c.Linear.Enabled) },
 			func(c *config.Config, v bool) { setOptBool(&c.Linear.Enabled, v) }),
 		header("PRs"),
+		sortSetting("github.sort", config.PRSortNames,
+			func(c config.Config) string { return c.GitHub.Sort },
+			func(c *config.Config, v string) { c.GitHub.Sort = v }),
+		boolSetting("reverse sort", "github.reverse", "restart",
+			func(c config.Config) bool { return c.GitHub.Reverse },
+			func(c *config.Config, v bool) { c.GitHub.Reverse = v }),
 		boolSetting("show review-requested", "github.show_review_requested", "restart",
 			func(c config.Config) bool { return c.ShowReviewRequested() },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.ShowReviewRequested, v) }),
@@ -244,9 +272,41 @@ func settingsTable() []setting {
 		boolSetting("mark reviewed PRs", "github.mark_reviewed", "restart",
 			func(c config.Config) bool { return c.GitHub.MarkReviewed },
 			func(c *config.Config, v bool) { c.GitHub.MarkReviewed = v }),
+		boolSetting("hide approved PRs", "github.hide_approved", "restart",
+			func(c config.Config) bool { return c.GitHub.HideApproved },
+			func(c *config.Config, v bool) { c.GitHub.HideApproved = v }),
+		boolSetting("refresh row on settle", "github.refresh_row", "restart",
+			func(c config.Config) bool { return c.GitHub.RefreshRowEnabled() },
+			func(c *config.Config, v bool) { setOptBool(&c.GitHub.RefreshRow, v) }),
+		boolSetting("merge from review popup", "github.merge", "restart",
+			func(c config.Config) bool { return c.GitHub.Merge },
+			func(c *config.Config, v bool) { c.GitHub.Merge = v }),
+		{
+			label: "merge method", path: "github.merge_method", kind: kindEnum,
+			options: func() []string { return []string{"squash", "merge", "rebase"} },
+			get:     func(c config.Config) string { return c.GitHub.ResolvedMergeMethod() },
+			set:     func(c *config.Config, v string) { c.GitHub.MergeMethod = v },
+		},
+		boolSetting("delete branch after merge", "github.merge_delete_branch", "restart",
+			func(c config.Config) bool { return c.GitHub.MergeDeleteBranch },
+			func(c *config.Config, v bool) { c.GitHub.MergeDeleteBranch = v }),
 		boolSetting("inline diff pane", "github.diff_pane", "restart",
 			func(c config.Config) bool { return c.GitHub.DiffPane },
 			func(c *config.Config, v bool) { c.GitHub.DiffPane = v }),
+		header("Linear"),
+		sortSetting("linear.sort", config.LinearSortNames,
+			func(c config.Config) string { return c.Linear.Sort },
+			func(c *config.Config, v string) { c.Linear.Sort = v }),
+		boolSetting("reverse sort", "linear.reverse", "restart",
+			func(c config.Config) bool { return c.Linear.Reverse },
+			func(c *config.Config, v bool) { c.Linear.Reverse = v }),
+		header("Sessions"),
+		sortSetting("sessions.sort", config.SessionsSortNames,
+			func(c config.Config) string { return c.Sessions.Sort },
+			func(c *config.Config, v string) { c.Sessions.Sort = v }),
+		boolSetting("reverse sort", "sessions.reverse", "restart",
+			func(c config.Config) bool { return c.Sessions.Reverse },
+			func(c *config.Config, v bool) { c.Sessions.Reverse = v }),
 		header("Linear filter"),
 		boolSetting("include completed", "linear.filter.include_completed", "restart",
 			func(c config.Config) bool { return c.Linear.Filter.IncludeCompleted },

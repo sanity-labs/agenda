@@ -249,12 +249,41 @@ out of the box agenda looks and acts as it did before these options existed.
 - **Floating detail**: with the preview pane off, `v` opens the detail as a
   centered window over the list rather than splitting the pane, and moving
   to another row closes it. `z` still zooms the pane when one is in view.
+- **Hide approved**: `github.hide_approved: true` drops approved,
+  still-open PRs from the review-requested list, since the ball is with
+  the author. An approval by anyone counts, not just yours, and the
+  toggle is there for when you still want to look (to comment, say).
+  Merged PRs are `review_filter`'s business (`is:open`), not this.
+- **Fresher rows**: the selected PR is re-read once the cursor stops
+  moving, so checks that finished on GitHub and reviews left since the
+  last refresh show up without waiting for the refresh timer. Debounced,
+  and one PR rather than the whole search, so cycling a list fires
+  nothing until you stop. `github.refresh_row: false` turns it off.
+  Approving a PR you have already reviewed asks first, rather than
+  stacking a second approval on the first.
+- **Merge from the popup**: with `github.merge: true`, the review popup
+  ('r') gains `m` to merge and `M` to enable auto-merge. It always
+  confirms first, naming the PR and the method, and refuses a draft, a
+  conflict or a pending mergeability check rather than failing at the
+  `gh` call. An unapproved or failing PR warns but still asks: the repo's
+  own rules are what gate the merge. `github.merge_method` picks squash
+  (default), merge or rebase, and `github.merge_delete_branch` cleans up
+  the head branch.
+- **Startup sort**: each view's opening sort is configurable, since `s`
+  cycling back to the default on every launch meant re-pressing it every
+  time. `github.sort` (date, review, checks, repo, size, author),
+  `linear.sort` (date, status, project, priority) and `sessions.sort`
+  (recent, cwd, tool, msgs, cost), each with a `reverse` companion. Omit
+  for the view's own default; `s` and `S` behave exactly as before at
+  runtime.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.
 - **Nav-only mode**: `v` hides the preview pane so the list takes the full
-  width — `z`'s counterpart, for narrow terminals; `hide_preview: true`
-  makes it the startup state.
+  width — `z`'s counterpart, for narrow terminals. With the pane on this
+  is a peek: moving to another row brings it back. `hide_preview: true`
+  makes hidden the startup state, and there `v` floats one row's detail
+  instead.
 - **Swimlanes**: `grouping: true` renders every view's list as sections
   derived from the active sort: status lanes for Linear's status sort,
   repo/review/checks/size lanes for PRs, cwd/tool lanes for sessions, and

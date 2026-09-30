@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sanity-labs/agenda/internal/config"
 )
 
 func TestCleanText(t *testing.T) {
@@ -223,7 +225,7 @@ func TestIsAgent(t *testing.T) {
 }
 
 func TestApplyViewHidesAgents(t *testing.T) {
-	v := New(nil, nil)
+	v := New(config.SessionsConfig{}, nil, nil)
 	v.raw = []session{
 		{meta: meta{SessionID: "you1", Entrypoint: "cli", Cost: 5}, Tool: toolClaude, Updated: time.Now()},
 		{meta: meta{SessionID: "agent1", Entrypoint: "sdk-py", Cost: 3}, Tool: toolClaude, Updated: time.Now()},
@@ -361,7 +363,7 @@ func TestPreviewWindowing(t *testing.T) {
 	// in the real app — the body is why the session matches).
 	s := session{meta: meta{SessionID: "s", Body: "turn 3 has the needle here"}, Tool: toolClaude, Path: path}
 
-	v := New(nil, nil)
+	v := New(config.SessionsConfig{}, nil, nil)
 	v.list.SetItems([]session{s})
 	v.list.SetEnabledFields([]string{"text"}) // scope to body so 'needle' matches it
 
@@ -400,7 +402,7 @@ func TestCachedTurnsMemoizes(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "s.jsonl", `{"type":"user","message":{"content":"hello"}}`+"\n")
 	s := session{Tool: toolClaude, Path: path}
-	v := New(nil, nil)
+	v := New(config.SessionsConfig{}, nil, nil)
 	first := v.cachedTurns(s)
 	// Delete the file; a memoized second call must NOT re-read (would return empty).
 	_ = os.Remove(path)

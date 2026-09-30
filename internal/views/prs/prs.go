@@ -11,6 +11,7 @@ package prs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/color"
 	"os/exec"
@@ -23,6 +24,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
@@ -136,6 +139,13 @@ func (p pr) checkCounts() (passed, failed, running, total int) {
 // reviewedByMe reports whether the viewer's latest review still counts as
 // "handled": approved, changes requested, or commented. DISMISSED and PENDING
 // mean the ball is back with the viewer.
+// approvedAndOpen reports a PR that is approved and still open: the case
+// hide_approved is about. reviewDecision is the PR's overall decision, so
+// an approval by anyone counts, not just the viewer's own.
+func (p pr) approvedAndOpen() bool {
+	return p.ReviewDecision == "APPROVED" && p.State == "OPEN"
+}
+
 func (p pr) reviewedByMe() bool {
 	switch p.ViewerLatestReview.State {
 	case "APPROVED", "CHANGES_REQUESTED", "COMMENTED":
@@ -347,6 +357,27 @@ var sortName = map[sortMode]string{
 
 // groupLabelFn returns the swimlane label for a sort mode (nil = flat). The
 // label follows each sort's primary key, so equal labels are contiguous.
+// sortByName resolves a configured sort name to its mode. An unknown name
+// falls back to the default rather than failing: a typo in the config
+// should not stop the view opening.
+func sortByName(name string) (sortMode, bool) {
+	for mode, n := range sortName {
+		if n == name {
+			return mode, true
+		}
+	}
+	return sortRecent, false
+}
+
+// SortNames lists the sorts this view accepts, for the settings overlay.
+func SortNames() []string {
+	out := make([]string, 0, len(sortOrder))
+	for _, mode := range sortOrder {
+		out = append(out, sortName[mode])
+	}
+	return out
+}
+
 func groupLabelFn(mode sortMode) func(pr) string {
 	switch mode {
 	case sortRecent:
@@ -552,6 +583,14 @@ type View struct {
 	// from a pane that stays open and shows the row you arrive at.
 	floatReveal bool
 
+	// rowRefresh re-reads the selected PR once the cursor settles; rowGen
+	// supersedes earlier ticks so cycling a list costs one request.
+	rowRefresh bool
+	rowGen     int
+
+	// hideApproved drops already-approved PRs from the review list.
+	hideApproved bool
+
 	// unread is the set of URLs that arrived since the last fetch, by URL so
 	// it survives re-sorts and re-fetches. Selecting a row removes it.
 	unread   map[string]bool
@@ -621,22 +660,59 @@ const (
 type reviewFlow struct {
 	url, repo  string
 	num        int
-	sel        int    // cursor over reviewOptions while picking
+	sel        int    // cursor over the options while picking
 	verdict    string // "", then "approve" | "comment" | "request-changes"
 	body       string
 	submitting bool
+	// confirm names the merge awaiting a yes ("merge" or "auto"), and why
+	// it is a bad idea when it is: merging cannot be undone by another
+	// keypress, so it never happens on the first one.
+	confirm, warn string
+	// blocked explains why a merge is not offered at all (a draft, a
+	// conflict, changes requested), so the popup says so rather than
+	// failing after the fact.
+	blocked string
 }
 
-// reviewOptions are the popup's entries: a hotkey, a label, and the gh
-// verdict ("" for the non-submit entries).
-var reviewOptions = []struct {
+// reviewOption is one popup entry: a hotkey, a label, and the gh verdict
+// ("" for entries that are not a review submission).
+type reviewOption struct {
 	key, label, verdict string
-}{
+}
+
+// reviewOptions are the popup's entries. The review verdicts are always
+// there; the merge entries appear only when github.merge is on, since
+// merging is irreversible and not everyone wants it a keypress away.
+var reviewOptions = []reviewOption{
 	{"a", "Approve", "approve"},
 	{"c", "Comment", "comment"},
 	{"x", "Request changes", "request-changes"},
 	{"d", "View diff", ""},
 	{"", "Cancel", ""},
+}
+
+// mergeLabel and autoLabel are the merge entries' labels, kept as
+// constants because the flow matches on them.
+const (
+	mergeLabel = "Merge"
+	autoLabel  = "Enable auto-merge"
+)
+
+// options are the popup's entries for this view: the review verdicts, plus
+// the merge entries when they are configured on.
+func (v *View) options() []reviewOption {
+	if !v.cfg.Merge {
+		return reviewOptions
+	}
+	opts := make([]reviewOption, 0, len(reviewOptions)+2)
+	// Merge sits after the verdicts and before the read-only entries, so a
+	// fat-fingered 'd' or Cancel cannot land on it.
+	opts = append(opts, reviewOptions[:3]...)
+	opts = append(opts,
+		reviewOption{"m", mergeLabel, ""},
+		reviewOption{"M", autoLabel, ""},
+	)
+	return append(opts, reviewOptions[3:]...)
 }
 
 type viewKeys struct {
@@ -696,6 +772,12 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			Expand:     bind("expand", "expand", "e"),
 		},
 	}
+	if mode, ok := sortByName(cfg.Sort); ok {
+		v.sort = mode
+	}
+	v.rev = cfg.Reverse
+	v.rowRefresh = cfg.RefreshRowEnabled()
+	v.hideApproved = cfg.HideApproved
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
 
@@ -1076,6 +1158,31 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil // superseded by further navigation
 		}
 		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments())
+	case rowSettleMsg:
+		// Superseded, or the cursor moved on: the row that asked for this
+		// is no longer the one in front of you.
+		if msg.gen != v.rowGen || msg.url != v.list.Selected().URL {
+			return nil
+		}
+		return v.refreshRow(msg.url)
+	case rowFreshMsg:
+		if !msg.ok || !v.applyFresh(msg.pr) {
+			return nil
+		}
+		v.applySort()
+		v.bodyKey = "" // checks and review state render in the preview
+		return nil
+	case mergeDoneMsg:
+		v.review = nil
+		if msg.err != nil {
+			v.flash = ui.Red.Render("merge failed: " + msg.err.Error())
+			return statusCmd(ui.SeverityError, msg.err)
+		}
+		v.flash = ui.Green.Render("✓ " + msg.what)
+		// A merged PR leaves the search on the next fetch; auto-merge
+		// leaves it open, so only refetch and let the row speak for itself.
+		v.resetToggles()
+		return tea.Batch(ui.ConcealPreview, v.fetch())
 	case reviewDoneMsg:
 		v.review = nil
 		if msg.err != nil {
@@ -1199,7 +1306,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 						v.clearUnread()
 					}
 				}
-				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
+				return tea.Batch(cmd, v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
 			}
 			return tea.Batch(cmd, v.scheduleSettle(), more)
 		}
@@ -1298,6 +1405,12 @@ func (v *View) resetToggles() {
 func (v *View) setPane(mode paneMode) tea.Cmd {
 	if v.pane == mode {
 		v.pane = paneBody
+		// Back to the description, not away from the detail: concealing
+		// here would shut a floated preview instead of switching panes.
+		// Only a pane the toggle itself revealed goes away again.
+		if v.previewShown {
+			return nil
+		}
 		return ui.ConcealPreview
 	}
 	v.pane = mode
@@ -1347,21 +1460,38 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 	if r.submitting {
 		return nil // ignore keys while gh runs
 	}
+	// A merge waits on an explicit yes. Only "y" proceeds: enter is what
+	// selected the entry, so accepting it here would merge on one keypress.
+	if r.confirm != "" {
+		switch msg.String() {
+		case "y":
+			what := r.confirm
+			r.confirm, r.warn = "", ""
+			if what == "approve" {
+				return v.submitReview("approve")
+			}
+			return v.submitMerge(what == "auto")
+		default:
+			r.confirm, r.warn = "", ""
+			return nil
+		}
+	}
 	if r.verdict == "" {
+		opts := v.options()
 		switch msg.String() {
 		case "up", "k":
-			r.sel = (r.sel - 1 + len(reviewOptions)) % len(reviewOptions)
+			r.sel, r.blocked = (r.sel-1+len(opts))%len(opts), ""
 			return nil
 		case "down", "j":
-			r.sel = (r.sel + 1) % len(reviewOptions)
+			r.sel, r.blocked = (r.sel+1)%len(opts), ""
 			return nil
 		case "enter":
-			return v.activateReviewOption(reviewOptions[r.sel].label)
+			return v.activateReviewOption(opts[r.sel].label)
 		case "esc", "q", "ctrl+c":
 			v.review = nil
 			return nil
 		default:
-			for _, opt := range reviewOptions {
+			for _, opt := range opts {
 				if opt.key != "" && msg.String() == opt.key {
 					return v.activateReviewOption(opt.label)
 				}
@@ -1396,6 +1526,12 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 	r := v.review
 	switch label {
 	case "Approve":
+		// Already reviewed this one: say so rather than silently stacking a
+		// second approval on top of the first.
+		if p, ok := v.prByURL(r.url); ok && p.reviewedByMe() {
+			r.confirm, r.warn = "approve", reviewedNote(p.ViewerLatestReview.State)
+			return nil
+		}
 		return v.submitReview("approve")
 	case "Comment":
 		r.verdict = "comment"
@@ -1409,10 +1545,75 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 			return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments())
 		}
 		return v.diffInPager()
+	case mergeLabel:
+		v.askMerge("merge")
+	case autoLabel:
+		v.askMerge("auto")
 	case "Cancel":
 		v.review = nil
 	}
 	return nil
+}
+
+// reviewedNote says what the viewer's standing review on a PR is, for the
+// confirmation that catches a second one.
+func reviewedNote(state string) string {
+	switch state {
+	case "APPROVED":
+		return "you have already approved this"
+	case "CHANGES_REQUESTED":
+		return "you requested changes on this"
+	case "COMMENTED":
+		return "you have already commented on this"
+	}
+	return "you have already reviewed this"
+}
+
+// mergeTitle is the selected PR's title, so the confirmation names what is
+// about to land rather than a bare number.
+func (v *View) mergeTitle(url string) string {
+	if p, ok := v.prByURL(url); ok {
+		return p.Title
+	}
+	return ""
+}
+
+// askMerge stages a merge for confirmation, or refuses it outright when
+// GitHub already says it cannot land. A plain merge needs the PR to be
+// mergeable now; auto-merge is for the ones that are not yet, so it only
+// refuses on the states waiting will not fix.
+func (v *View) askMerge(kind string) {
+	r := v.review
+	p, ok := v.prByURL(r.url)
+	if !ok {
+		r.blocked = "this PR is no longer loaded; refresh and try again"
+		return
+	}
+	switch {
+	case p.IsDraft:
+		r.blocked = "it is a draft: mark it ready first"
+		return
+	case p.Mergeable == "CONFLICTING":
+		r.blocked = "it has conflicts to resolve first"
+		return
+	case kind == "merge" && p.Mergeable == "UNKNOWN":
+		r.blocked = "GitHub has not finished checking mergeability; try again shortly"
+		return
+	}
+	r.blocked = ""
+	r.confirm = kind
+	// Say what is off about it rather than refusing: these are judgement
+	// calls, and the repo's own rules are what actually gate the merge.
+	switch {
+	case p.ReviewDecision == "CHANGES_REQUESTED":
+		r.warn = "changes have been requested"
+	case p.ReviewDecision == "REVIEW_REQUIRED":
+		r.warn = "it has not been approved yet"
+	default:
+		if _, fail, _, _ := p.checkCounts(); fail > 0 {
+			r.warn = "checks are failing"
+		}
+	}
 }
 
 // Overlay implements the root model's view-modal hook: the review popup.
@@ -1423,13 +1624,46 @@ func (v *View) Overlay() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(ui.Bold.Render(fmt.Sprintf("Review %s#%d", r.repo, r.num)))
+	// The heading follows the step: "Review" is wrong above a merge.
+	heading := "Review"
+	if r.confirm == "merge" || r.confirm == "auto" {
+		heading = "Merge"
+	}
+	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s %s#%d", heading, r.repo, r.num)))
 	b.WriteString("\n\n")
 	switch {
 	case r.submitting:
 		b.WriteString(ui.Faint.Render("submitting review…"))
+	case r.confirm != "":
+		what := "Merge this PR?"
+		switch r.confirm {
+		case "auto":
+			what = "Merge this PR once its checks pass?"
+		case "approve":
+			what = "Approve it again?"
+		}
+		b.WriteString(what + "\n")
+		if title := v.mergeTitle(r.url); title != "" {
+			b.WriteString(ui.Dim.Render("  "+title) + "\n")
+		}
+		if r.confirm != "approve" {
+			detail := "  " + v.cfg.ResolvedMergeMethod()
+			if v.cfg.MergeDeleteBranch {
+				detail += ", then delete the branch"
+			}
+			b.WriteString(ui.Faint.Render(detail) + "\n")
+		}
+		if r.warn != "" {
+			b.WriteString("\n" + ui.Yellow.Render("! "+r.warn) + "\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(ui.Dim.Render("y to confirm · any other key cancels"))
 	case r.verdict == "":
-		for i, opt := range reviewOptions {
+		if r.blocked != "" {
+			b.WriteString(ui.Yellow.Render("! Cannot merge: ") +
+				r.blocked + "\n\n")
+		}
+		for i, opt := range v.options() {
 			cursor := "  "
 			label := opt.label
 			if i == r.sel {
@@ -1461,6 +1695,55 @@ func (v *View) Overlay() string {
 		BorderForeground(lipgloss.Color(ui.Pal().Accent)).
 		Padding(0, 2).
 		Render(b.String())
+}
+
+// mergeDoneMsg reports the outcome of a merge.
+type mergeDoneMsg struct {
+	what string
+	url  string
+	// auto is set when this enabled auto-merge rather than merging now, so
+	// the row is not struck through for a PR that is still open.
+	auto bool
+	err  error
+}
+
+// submitMerge shells out to gh pr merge. The method comes from config, and
+// gh reports a repo that forbids it rather than agenda guessing.
+func (v *View) submitMerge(auto bool) tea.Cmd {
+	r := v.review
+	r.submitting = true
+	args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo,
+		"--" + v.cfg.ResolvedMergeMethod()}
+	if auto {
+		args = append(args, "--auto")
+	}
+	if v.cfg.MergeDeleteBranch {
+		args = append(args, "--delete-branch")
+	}
+	what := fmt.Sprintf("merged %s#%d", r.repo, r.num)
+	if auto {
+		what = fmt.Sprintf("auto-merge enabled on %s#%d", r.repo, r.num)
+	}
+	url := r.url
+	return func() tea.Msg {
+		if out, err := exec.Command("gh", args...).CombinedOutput(); err != nil {
+			return mergeDoneMsg{err: ghErr(err, out), auto: auto}
+		}
+		return mergeDoneMsg{what: what, url: url, auto: auto}
+	}
+}
+
+// ghErr prefers gh's own message over the bare exit status: "not
+// mergeable" or a forbidden method is the useful part, and cmdErr would
+// reduce it to "exit status 1".
+func ghErr(err error, out []byte) error {
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "X"))
+		if line != "" && !strings.HasPrefix(line, "!") {
+			return errors.New(line)
+		}
+	}
+	return cmdErr(err)
 }
 
 // submitReview shells out to gh pr review with the flow's verdict and body.
@@ -1673,6 +1956,22 @@ func (v *View) maybeFetchDiff() tea.Cmd {
 func (v *View) applySort() {
 	mine := sortPRs(v.raw, v.sort, v.rev)
 	rev := sortPRs(v.reviewRaw, v.sort, v.rev)
+	// An approved PR is waiting on its author, so hide it by default and
+	// let the toggle bring it back: an approval from someone else does not
+	// mean you are done with it, you may still want to comment.
+	//
+	// Approved-and-open only. A merged PR is gone from the list either way
+	// with the default is:open filter, and a merged one is not something
+	// this toggle should resurrect if that filter is widened.
+	if v.hideApproved {
+		kept := rev[:0]
+		for _, p := range rev {
+			if !p.approvedAndOpen() {
+				kept = append(kept, p)
+			}
+		}
+		rev = kept
+	}
 	if v.cfg.MarkReviewed {
 		for i := range rev {
 			rev[i].Reviewed = rev[i].reviewedByMe()
@@ -1893,7 +2192,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 			v.clearUnread()
 		}
 	}
-	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
+	return tea.Batch(v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
@@ -2073,8 +2372,8 @@ func (v *View) commentsBlock(p pr) string {
 	if p.Comments.TotalCount == 0 {
 		return head + "\n" + ui.Faint.Render("  none yet")
 	}
-	return head + "\n" + ui.Faint.Render(fmt.Sprintf("  %d · %s to toggle",
-		p.Comments.TotalCount, v.keyHint("comments")))
+	return head + "\n" + ui.Faint.Render(fmt.Sprintf("  %d · %s or click %s",
+		p.Comments.TotalCount, v.keyHint("comments"), commentsMarker))
 }
 
 // renderedDiff renders the diff pane body for p (the colorized diff with
@@ -2144,12 +2443,46 @@ func (v *View) renderedBody(p pr) string {
 	case limit <= 0:
 		// Truncation off: the whole description, no hint.
 	case expanded:
-		out += "\n" + ui.Faint.Render(fmt.Sprintf("… %s to toggle", v.keyHint("expand")))
+		out += "\n" + ui.Faint.Render(fmt.Sprintf("… %s or click %s",
+			v.keyHint("expand"), expandMarker))
 	default:
 		out = truncateSummary(out, limit, v.keyHint("expand"))
 	}
 	v.bodyKey, v.body = key, out
 	return out
+}
+
+// hintMarkers are the phrases the clickable preview hints end with. A
+// click is matched against the rendered text rather than a tracked line
+// number, so a layout change cannot silently move the target.
+const (
+	expandMarker   = "to toggle the description"
+	commentsMarker = "to toggle comments"
+)
+
+// ClickPreview toggles whatever hint the click landed on. line is counted
+// from the top of the rendered preview, so it survives scrolling.
+func (v *View) ClickPreview(line int) tea.Cmd {
+	lines := strings.Split(v.PreviewView(), "\n")
+	if line < 0 || line >= len(lines) {
+		return nil
+	}
+	text := ansi.Strip(lines[line])
+	switch {
+	case strings.Contains(text, expandMarker):
+		if sel := v.list.Selected(); sel.URL != "" {
+			if v.expanded == sel.URL {
+				v.expanded = ""
+			} else {
+				v.expanded = sel.URL
+			}
+			v.bodyKey = ""
+		}
+		return nil
+	case strings.Contains(text, commentsMarker):
+		return v.setPane(paneComments)
+	}
+	return nil
 }
 
 // truncateSummary clips a rendered description to limit lines and says how to
@@ -2161,7 +2494,8 @@ func truncateSummary(rendered string, limit int, hintKey string) string {
 		return rendered
 	}
 	kept := strings.Join(lines[:limit], "\n")
-	hint := fmt.Sprintf("… %d more lines · %s to toggle", len(lines)-limit, hintKey)
+	hint := fmt.Sprintf("… %d more lines · %s or click %s",
+		len(lines)-limit, hintKey, expandMarker)
 	return kept + "\n\n" + ui.Faint.Render(hint)
 }
 

@@ -4,14 +4,14 @@ package ui
 // state/CI/review with the same vocabulary. Colors are applied by each view.
 
 const (
-	IconOpen      = "" //
-	IconDraft     = "" //
-	IconMerged    = "" //
-	IconClosed    = "" //
-	IconCIOK      = "" //
-	IconCIFail    = "" //
-	IconCIPending = "" //
-	IconApproved  = "󰄜"
+	IconOpen      = ""      //
+	IconDraft     = "\uebdb" // 
+	IconMerged    = ""      //
+	IconClosed    = ""      //
+	IconCIOK      = ""      //
+	IconCIFail    = ""      //
+	IconCIPending = ""      //
+	IconApproved  = "\uedc6" // 
 	IconChanges   = ""
 	IconReviewReq = ""
 	IconComment   = ""
