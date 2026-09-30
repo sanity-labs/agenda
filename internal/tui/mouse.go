@@ -34,7 +34,7 @@ type clicker interface {
 // clicked, counted from the top of the rendered preview, so the view can
 // match it against what it drew.
 type previewClicker interface {
-	ClickPreview(line int) tea.Cmd
+	ClickPreview(line, col int) tea.Cmd
 }
 
 // activator is implemented by views whose selection has a primary action
@@ -201,6 +201,21 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// The float is an overlay, so it takes clicks before the list beneath
+	// it: while floating the list spans the full width, and falling through
+	// would move the selection and close the very window that was clicked.
+	if m.floating() {
+		bx, by, bw, bh, cx, cy := m.floatBox()
+		if x >= bx && x < bx+bw && y >= by && y < by+bh {
+			if pc, ok := m.views[m.current].(previewClicker); ok {
+				return m, pc.ClickPreview(y-cy+m.previewScroll, x-cx)
+			}
+			return m, nil
+		}
+		// Outside the box: dismiss it, like the other centered overlays.
+		return m, m.setPreview(true, false)
+	}
+
 	listW, _, contentH := m.dims()
 	y -= tabBarHeight
 	if y >= contentH {
@@ -211,7 +226,7 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	// not the screen row.
 	if x >= listW && !m.previewHidden {
 		if pc, ok := m.views[m.current].(previewClicker); ok {
-			return m, pc.ClickPreview(y + m.previewScroll)
+			return m, pc.ClickPreview(y+m.previewScroll, x-listW)
 		}
 		return m, nil
 	}

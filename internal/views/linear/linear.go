@@ -56,6 +56,9 @@ type issue struct {
 	// says it.
 	HideStatus  bool `json:"-"`
 	HideProject bool `json:"-"`
+	// ShowLabels adds a label column, set at assembly when the preview pane
+	// is off and the row is wide enough to spare the space.
+	ShowLabels bool `json:"-"`
 	// Inbox rows represent a notification about the issue rather than the
 	// issue itself: who did what (InboxEvent/InboxActor) and whether it is
 	// still unread. UpdatedAt then carries the notification time.
@@ -198,6 +201,23 @@ func (i issue) priorityCell() string {
 	}
 }
 
+const (
+	// ageCellW pads the age so it forms a column instead of drifting.
+	ageCellW = 4 // "999d"
+	// labelColReserve is the room the metadata line needs: state,
+	// identifier and project.
+	labelColReserve = 40
+)
+
+// pillsFor renders one pill per label, for the shared column packer.
+func pillsFor(labels []label) []string {
+	out := make([]string, len(labels))
+	for i := range labels {
+		out[i] = labelPills(labels[i : i+1])
+	}
+	return out
+}
+
 func (i issue) Render(width int, selected bool, hl ui.Highlighter) string {
 	if i.Separator != "" {
 		return ui.GroupHeader(i.Separator, width)
@@ -231,7 +251,17 @@ func (i issue) Render(width int, selected bool, hl ui.Highlighter) string {
 		styled += ui.Dim.Render(" · " + i.Project.Name)
 	}
 
-	right := ui.Dim.Render(ui.Age(i.UpdatedAt))
+	// Age is fixed-width so it forms a column; labels take the space a
+	// hidden preview frees up, to its left.
+	right := ui.PadCell(ui.Dim.Render(ui.Age(i.UpdatedAt)), ageCellW)
+	if i.ShowLabels {
+		budget := ui.LabelColWidth(width, ageCellW, labelColReserve)
+		if budget > 0 {
+			labels := ui.FitLabels(pillsFor(i.Labels.Nodes), budget)
+			right = ui.PadCell(labels, budget) +
+				strings.Repeat(" ", ui.LabelColMargin) + right
+		}
+	}
 
 	return ui.TwoLineRow(width, selected, glyphs, plain, styled, right, i.Title, hl)
 }
@@ -876,6 +906,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.previewShown {
 			v.clearFresh()
 		}
+		// The label column lives in the space a hidden preview frees up.
+		v.applySort()
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -1059,9 +1091,13 @@ func (v *View) notifyNew(prev, next []issue) tea.Cmd {
 // grouping is on and this sort declares a grouping dimension.
 func (v *View) applySort() {
 	items := sortIssues(v.raw, v.sort, v.rev)
+	// Labels fill the space a hidden preview frees up, and only when the
+	// list is wide enough that they are not crowding the metadata out.
+	labels := !v.previewShown && v.listW >= ui.LabelColMinRow
 	for i := range items {
 		items[i].Fresh = v.fresh[items[i].Identifier]
 		items[i].FreshGutter = v.unreadOn
+		items[i].ShowLabels = labels
 	}
 	if v.grouping {
 		if label := groupLabelFn(v.sort); label != nil {
@@ -1127,9 +1163,15 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
+	was := v.listW
 	v.listW, v.prevW, v.height = listW, prevW, h
 	v.resizeList()
 	v.bodyKey = ""
+	// The label column depends on the list's width, so a resize across the
+	// threshold has to re-decide it.
+	if was != listW && v.seeded {
+		v.applySort()
+	}
 }
 
 // resizeList gives the list whatever the nav tree doesn't take. The tree

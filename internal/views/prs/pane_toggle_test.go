@@ -71,12 +71,12 @@ func TestClickingTheExpandHintToggles(t *testing.T) {
 	v.Update(mineMsg{page: searchPage{prs: []pr{long}}})
 
 	line := hintLine(t, v, expandMarker)
-	v.ClickPreview(line)
+	v.ClickPreview(line, 0)
 	if v.expanded != "u" {
 		t.Fatalf("clicking the expand hint did not expand: expanded = %q", v.expanded)
 	}
 	// Expanded, the hint is still there and clicking it collapses again.
-	v.ClickPreview(hintLine(t, v, expandMarker))
+	v.ClickPreview(hintLine(t, v, expandMarker), 0)
 	if v.expanded != "" {
 		t.Errorf("clicking again did not collapse: expanded = %q", v.expanded)
 	}
@@ -90,7 +90,7 @@ func TestClickingTheCommentsHintOpensComments(t *testing.T) {
 	p.Comments.TotalCount = 3
 	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
 
-	v.ClickPreview(hintLine(t, v, commentsMarker))
+	v.ClickPreview(hintLine(t, v, commentsMarker), 0)
 	if v.pane != paneComments {
 		t.Errorf("pane = %v after clicking the comments hint, want comments", v.pane)
 	}
@@ -100,13 +100,13 @@ func TestClickingTheCommentsHintOpensComments(t *testing.T) {
 func TestClickingElsewhereDoesNothing(t *testing.T) {
 	v := paneView(t)
 	before := v.expanded
-	v.ClickPreview(0) // the title line
+	v.ClickPreview(0, 0) // the title line
 	if v.expanded != before || v.pane != paneBody {
 		t.Error("a click on the title changed the view")
 	}
 	// Out of range is ignored rather than panicking.
-	v.ClickPreview(-1)
-	v.ClickPreview(1 << 20)
+	v.ClickPreview(-1, 0)
+	v.ClickPreview(1<<20, 0)
 }
 
 // hintLine is the preview line carrying marker.

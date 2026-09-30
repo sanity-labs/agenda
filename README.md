@@ -276,6 +276,14 @@ out of the box agenda looks and acts as it did before these options existed.
   (recent, cwd, tool, msgs, cost), each with a `reverse` companion. Omit
   for the view's own default; `s` and `S` behave exactly as before at
   runtime.
+- **Label column**: with the preview pane off, a wide enough list shows
+  labels between the metadata and the right-hand cells, in a fixed column
+  so they line up down the list. In both the PRs and Linear views. Labels
+  that do not fit collapse to a `+2` rather than being dropped silently.
+- **Stable columns**: the diff, comment and age cells are padded to fixed
+  widths and left-aligned, so they read as columns instead of shifting
+  with their contents. Large counts switch unit (`+1.2k -567`) rather than
+  widening the column.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.
