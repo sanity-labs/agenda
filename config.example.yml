@@ -157,6 +157,10 @@ github:
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
+  # Both filters take GitHub search syntax and are the starting point for
+  # every fetch; the in-app filter ('/') narrows what they returned, and
+  # takes qualified terms too (-label:deps, is:draft, review:approved,
+  # checks:failing) matched locally against the loaded rows.
   # The sort the PR list opens on: date, review, checks, repo, size or
   # author. Omit (or leave empty) for the view's default, date. 's' still
   # cycles sorts at runtime; this is only the starting point.

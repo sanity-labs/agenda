@@ -22,6 +22,9 @@ const (
 // IconSection heads a preview section (Description, Checks, Comments).
 const IconSection = "\uf0c9" //  list
 
+// IconSearch heads the effective-query line.
+const IconSearch = "\uf422" //  search
+
 // IconUnread marks a row that arrived since the last fetch, until you
 // select it.
 const IconUnread = "\u25cf" // ●

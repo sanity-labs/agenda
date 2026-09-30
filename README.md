@@ -303,6 +303,15 @@ out of the box agenda looks and acts as it did before these options existed.
   on a tab switches, a click on a row toggles or cycles it, a click
   outside closes. A test asserts every section belongs to exactly one tab,
   so a setting cannot become unreachable.
+- **GitHub-style filtering**: the in-app filter takes qualified terms as
+  well as fuzzy words, matched against the rows already loaded, so no
+  refetch: `-label:dependencies`, `is:draft`, `review:approved`,
+  `checks:failing`, `author:x`, `repo:y`, quoted values for labels with
+  spaces. Terms are ANDed and a leading `-` excludes. A bare word still
+  matches fuzzily across the visible fields.
+- **Effective query**: the line under the status names the search actually
+  in force (the configured filter, plus what the enabled settings imply),
+  so a missing PR can be explained from the screen.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

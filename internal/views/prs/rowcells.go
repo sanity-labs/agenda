@@ -106,3 +106,33 @@ func pillsFor(labels []label) []string {
 	}
 	return out
 }
+
+// effectiveQuery is the search actually in force for the section in view:
+// the configured filter, plus the terms the enabled settings imply.
+// Surfaced because the two combine invisibly otherwise, and "why is this
+// PR missing" is then unanswerable from the screen.
+//
+// The typed filter is not included: it already shows on the filter line,
+// and repeating it would say the same thing twice.
+func (v *View) effectiveQuery() string {
+	q := strings.TrimSpace(v.cfg.Filter)
+	if v.showReview && strings.TrimSpace(v.cfg.ReviewFilter) != "" {
+		// Two searches run, so show both rather than implying one.
+		q += "  +  " + strings.TrimSpace(v.cfg.ReviewFilter)
+	}
+	if v.hideApproved {
+		q += " -review:approved"
+	}
+	return strings.TrimSpace(q)
+}
+
+// queryLine renders the effective query under the status line: a magnifier,
+// then the query in faint italics, matching the filter line's own prefix.
+func (v *View) queryLine() string {
+	q := v.effectiveQuery()
+	if q == "" {
+		return ""
+	}
+	icon := ui.Glyph(ui.IconSearch, "?")
+	return ui.Faint.Render(icon+" ") + ui.Faint.Italic(true).Render(q)
+}

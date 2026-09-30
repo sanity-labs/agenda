@@ -184,7 +184,75 @@ func (p pr) Fields() []ui.Field {
 		{Name: "title", Text: p.Title},
 		{Name: "description", Text: p.Body},
 		{Name: "author", Text: p.Author.Login},
+		// Qualifier-only, so the in-app filter can say "-label:deps" or
+		// "is:draft" the way a GitHub search does. Qualified keeps them out
+		// of the bare-word match: searching "open" should not return every
+		// open PR.
+		{Name: "label", Text: p.labelText(), Qualified: true},
+		{Name: "is", Text: p.stateTerms(), Qualified: true},
+		{Name: "review", Text: p.reviewTerm(), Qualified: true},
+		{Name: "checks", Text: p.checksTerm(), Qualified: true},
 	}
+}
+
+// labelText joins the PR's label names, for the "label:" qualifier.
+func (p pr) labelText() string {
+	names := make([]string, 0, len(p.Labels.Nodes))
+	for _, l := range p.Labels.Nodes {
+		names = append(names, l.Name)
+	}
+	return strings.Join(names, " ")
+}
+
+// stateTerms are the words "is:" accepts for this PR. Several can apply at
+// once (an open draft), so the field holds them all.
+func (p pr) stateTerms() string {
+	var terms []string
+	switch strings.ToUpper(p.State) {
+	case "OPEN":
+		terms = append(terms, "open")
+	case "MERGED":
+		terms = append(terms, "merged")
+	case "CLOSED":
+		terms = append(terms, "closed")
+	}
+	if p.IsDraft {
+		terms = append(terms, "draft")
+	}
+	if p.Mergeable == "CONFLICTING" {
+		terms = append(terms, "conflicting")
+	}
+	return strings.Join(terms, " ")
+}
+
+// reviewTerm is the word "review:" accepts, mirroring GitHub's own
+// review:approved / review:required / review:changes_requested.
+func (p pr) reviewTerm() string {
+	switch p.ReviewDecision {
+	case "APPROVED":
+		return "approved"
+	case "CHANGES_REQUESTED":
+		return "changes_requested"
+	case "REVIEW_REQUIRED":
+		return "required"
+	}
+	return "none"
+}
+
+// checksTerm is the word "checks:" accepts: passing, failing or pending.
+func (p pr) checksTerm() string {
+	pass, fail, run, total := p.checkCounts()
+	switch {
+	case total == 0 && p.ciState() == "":
+		return "none"
+	case fail > 0:
+		return "failing"
+	case run > 0:
+		return "pending"
+	case pass > 0:
+		return "passing"
+	}
+	return "none"
 }
 
 // linearRefRe matches a Linear issue identifier (team key + number), e.g.
@@ -2304,8 +2372,8 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 func (v *View) SetSize(listW, prevW, h int) {
 	was := v.listW
 	v.listW, v.prevW, v.height = listW, prevW, h
-	v.list.SetSize(listW, max(1, h-1)) // reserve a row for the header line
-	v.bodyKey = ""                     // width changed: invalidate the body cache
+	v.list.SetSize(listW, max(1, h-v.headerRows())) // reserve the header rows
+	v.bodyKey = ""                                  // width changed: invalidate the body cache
 	// The label column depends on the list's width, so a resize across the
 	// threshold has to re-decide it.
 	if was != listW && v.seeded {
@@ -2324,7 +2392,21 @@ func (v *View) ListView() string {
 	if header == "" {
 		header = ui.Faint.Render(v.statusText())
 	}
+	// The effective query goes on its own line under the status, so what is
+	// filtering the list is always visible rather than implied.
+	if q := v.queryLine(); q != "" {
+		header += "\n" + q
+	}
 	return header + "\n" + v.list.View()
+}
+
+// headerRows is how many rows ListView puts above the list, which SetSize
+// has to reserve or the last row falls off the bottom.
+func (v *View) headerRows() int {
+	if v.queryLine() != "" {
+		return 2
+	}
+	return 1
 }
 
 func (v *View) statusText() string {
