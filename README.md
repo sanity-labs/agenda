@@ -284,8 +284,9 @@ out of the box agenda looks and acts as it did before these options existed.
   widths and left-aligned, so they read as columns instead of shifting
   with their contents. Large counts switch unit (`+1.2k -567`) rather than
   widening the column.
-- **Settings tabs**: `ctrl+s` opens the settings in five tabbed sections
-  (appearance, lists, alerts, prs, linear) rather than one long scroll;
+- **Settings tabs**: `ctrl+s` opens the settings in six tabbed sections
+  (general, appearance, alerts, prs, linear, sessions) rather than one
+  long scroll;
   `tab`/`shift+tab` moves between them. A test asserts every section
   belongs to exactly one tab, so a setting cannot become unreachable.
 - **Keybinds**: every action remappable per scope.

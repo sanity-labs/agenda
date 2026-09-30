@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
 )
@@ -117,6 +118,9 @@ func TestViewShowsOnlyTheActiveTab(t *testing.T) {
 	cfg := config.Default()
 	o := newConfigOverlay()
 
+	for settingsTabs[o.tab].name != "appearance" {
+		o.Update(special(tea.KeyTab), cfg)
+	}
 	appearance := o.View(cfg)
 	if !strings.Contains(appearance, "palette") {
 		t.Error("the appearance tab does not show the palette row")
@@ -154,5 +158,64 @@ func TestTabSwitchCancelsEditing(t *testing.T) {
 	o.Update(special(tea.KeyTab), cfg)
 	if o.editing || o.buf != "" {
 		t.Errorf("editing survived a tab switch: editing=%v buf=%q", o.editing, o.buf)
+	}
+}
+
+// The panel must not resize as you move between tabs: a box that changes
+// size under the cursor reads as the whole panel jumping.
+func TestOverlayWidthIsConstantAcrossTabs(t *testing.T) {
+	cfg := config.Default()
+	o := newConfigOverlay()
+	want := 0
+	for i := range settingsTabs {
+		o.tab = i
+		o.cursor = o.firstSetting()
+		v := o.View(cfg)
+		w := lipgloss.Width(v)
+		if i == 0 {
+			want = w
+			continue
+		}
+		if w != want {
+			t.Errorf("tab %q renders %d wide, the first renders %d",
+				settingsTabs[i].name, w, want)
+		}
+	}
+	// And nothing inside wraps: a wrapped line means the content is wider
+	// than the box, which the rule and the hint have both done.
+	for i := range settingsTabs {
+		o.tab = i
+		o.cursor = o.firstSetting()
+		for _, line := range strings.Split(o.View(cfg), "\n") {
+			if lipgloss.Width(line) != want {
+				t.Errorf("tab %q has a line %d wide in a %d box: %q",
+					settingsTabs[i].name, lipgloss.Width(line), want, line)
+			}
+		}
+	}
+}
+
+// Sections render in the order the tab lists them, not the table's.
+func TestSectionsFollowTheTabOrder(t *testing.T) {
+	o := newConfigOverlay()
+	for i, tb := range settingsTabs {
+		o.tab = i
+		o.cursor = o.firstSetting()
+		var seen []string
+		for _, idx := range o.visible() {
+			if o.rows[idx].kind == kindHeader {
+				seen = append(seen, o.rows[idx].label)
+			}
+		}
+		if len(seen) != len(tb.sections) {
+			t.Errorf("tab %q shows %v, wants %v", tb.name, seen, tb.sections)
+			continue
+		}
+		for j := range seen {
+			if seen[j] != tb.sections[j] {
+				t.Errorf("tab %q section %d is %q, want %q",
+					tb.name, j, seen[j], tb.sections[j])
+			}
+		}
 	}
 }

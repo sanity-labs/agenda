@@ -174,7 +174,7 @@ func settingsTable() []setting {
 			get: func(config.Config) string { return "" },
 			set: func(*config.Config, string) {},
 		},
-		header("Lists"),
+		header("Behavior"),
 		boolSetting("mark new items", "unread", "",
 			func(c config.Config) bool { return c.UnreadEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.Unread, v) }),
@@ -343,12 +343,25 @@ var settingsTabs = []struct {
 	name     string
 	sections []string
 }{
-	{"appearance", []string{"Theme", "Keybinds"}},
-	{"lists", []string{"Lists", "Views"}},
+	{"general", []string{"Behavior", "Views", "Keybinds"}},
+	{"appearance", []string{"Theme"}},
 	{"alerts", []string{"Auto-refresh", "Notifications"}},
 	{"prs", []string{"PRs"}},
-	{"linear", []string{"Linear", "Sessions", "Linear filter"}},
+	{"linear", []string{"Linear", "Linear filter"}},
+	{"sessions", []string{"Sessions"}},
 }
+
+// overlayWidth fixes the panel's inner width so it does not resize as you
+// move between tabs: a box that changes size under the cursor reads as the
+// whole panel jumping. Wide enough for the longest row (the config path)
+// and every tab's labels and values.
+const (
+	overlayWidth = 72
+	// The border (2) and horizontal padding (4) that Width() counts, so the
+	// rule and the hint can be sized to the actual text area.
+	overlayChrome  = 6
+	overlayContent = overlayWidth - overlayChrome
+)
 
 // tabBar renders the section tabs, the active one highlighted.
 func (o *configOverlay) tabBar() string {
@@ -394,13 +407,17 @@ func (o *configOverlay) firstSetting() int {
 // the table, and assuming they were left one section unreachable.
 func (o *configOverlay) visible() []int {
 	var out []int
-	show := false
-	for i, s := range o.rows {
-		if s.kind == kindHeader {
-			show = o.inTab(s.label)
-		}
-		if show {
-			out = append(out, i)
+	// Section order follows the tab's own list, not the table's: the tab
+	// decides what reads first, and the table's order is incidental.
+	for _, want := range settingsTabs[o.tab].sections {
+		show := false
+		for i, s := range o.rows {
+			if s.kind == kindHeader {
+				show = s.label == want
+			}
+			if show {
+				out = append(out, i)
+			}
 		}
 	}
 	return out
@@ -561,6 +578,11 @@ func (o *configOverlay) View(cfg config.Config) string {
 	b.WriteString(ui.Bold.Render("settings"))
 	b.WriteString("\n\n")
 	b.WriteString(o.tabBar())
+	b.WriteString("\n")
+	// A rule under the tabs, full width: it separates the sections from the
+	// rows, and the fixed width stops the box resizing per tab, which made
+	// switching tabs feel like the panel jumped.
+	b.WriteString(ui.Dim.Render(strings.Repeat("─", overlayContent)))
 	b.WriteString("\n\n")
 	// A tab holding one section needs no header: the tab name already says
 	// it, and repeating it costs a row for nothing.
@@ -615,11 +637,12 @@ func (o *configOverlay) View(cfg config.Config) string {
 	path, _ := config.Path()
 	b.WriteString(ui.Faint.Render(path))
 	b.WriteByte('\n')
-	b.WriteString(ui.Dim.Render("↑↓ move · tab section · space/←→ change · enter edit · esc close"))
+	b.WriteString(ui.Dim.Render("↑↓ move · tab section · ←→ change · enter edit · esc close"))
 
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(ui.Pal().Accent)).
 		Padding(0, 2).
+		Width(overlayWidth).
 		Render(b.String())
 }
