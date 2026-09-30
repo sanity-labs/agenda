@@ -553,6 +553,11 @@ type View struct {
 	// from a pane that stays open and shows the row you arrive at.
 	floatReveal bool
 
+	// rowRefresh re-reads the selected PR once the cursor settles; rowGen
+	// supersedes earlier ticks so cycling a list costs one request.
+	rowRefresh bool
+	rowGen     int
+
 	// unread is the set of URLs that arrived since the last fetch, by URL so
 	// it survives re-sorts and re-fetches. Selecting a row removes it.
 	unread   map[string]bool
@@ -734,6 +739,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			Expand:     bind("expand", "expand", "e"),
 		},
 	}
+	v.rowRefresh = cfg.RefreshRowEnabled()
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
 
@@ -1114,6 +1120,20 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil // superseded by further navigation
 		}
 		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments())
+	case rowSettleMsg:
+		// Superseded, or the cursor moved on: the row that asked for this
+		// is no longer the one in front of you.
+		if msg.gen != v.rowGen || msg.url != v.list.Selected().URL {
+			return nil
+		}
+		return v.refreshRow(msg.url)
+	case rowFreshMsg:
+		if !msg.ok || !v.applyFresh(msg.pr) {
+			return nil
+		}
+		v.applySort()
+		v.bodyKey = "" // checks and review state render in the preview
+		return nil
 	case mergeDoneMsg:
 		v.review = nil
 		if msg.err != nil {
@@ -1248,7 +1268,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 						v.clearUnread()
 					}
 				}
-				return tea.Batch(cmd, v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
+				return tea.Batch(cmd, v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
 			}
 			return tea.Batch(cmd, v.scheduleSettle(), more)
 		}
@@ -1403,6 +1423,9 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 		case "y":
 			what := r.confirm
 			r.confirm, r.warn = "", ""
+			if what == "approve" {
+				return v.submitReview("approve")
+			}
 			return v.submitMerge(what == "auto")
 		default:
 			r.confirm, r.warn = "", ""
@@ -1459,6 +1482,12 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 	r := v.review
 	switch label {
 	case "Approve":
+		// Already reviewed this one: say so rather than silently stacking a
+		// second approval on top of the first.
+		if p, ok := v.prByURL(r.url); ok && p.reviewedByMe() {
+			r.confirm, r.warn = "approve", reviewedNote(p.ViewerLatestReview.State)
+			return nil
+		}
 		return v.submitReview("approve")
 	case "Comment":
 		r.verdict = "comment"
@@ -1480,6 +1509,20 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 		v.review = nil
 	}
 	return nil
+}
+
+// reviewedNote says what the viewer's standing review on a PR is, for the
+// confirmation that catches a second one.
+func reviewedNote(state string) string {
+	switch state {
+	case "APPROVED":
+		return "you have already approved this"
+	case "CHANGES_REQUESTED":
+		return "you requested changes on this"
+	case "COMMENTED":
+		return "you have already commented on this"
+	}
+	return "you have already reviewed this"
 }
 
 // mergeTitle is the selected PR's title, so the confirmation names what is
@@ -1539,7 +1582,7 @@ func (v *View) Overlay() string {
 	var b strings.Builder
 	// The heading follows the step: "Review" is wrong above a merge.
 	heading := "Review"
-	if r.confirm != "" {
+	if r.confirm == "merge" || r.confirm == "auto" {
 		heading = "Merge"
 	}
 	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s %s#%d", heading, r.repo, r.num)))
@@ -1549,19 +1592,23 @@ func (v *View) Overlay() string {
 		b.WriteString(ui.Faint.Render("submitting review…"))
 	case r.confirm != "":
 		what := "Merge this PR?"
-		if r.confirm == "auto" {
+		switch r.confirm {
+		case "auto":
 			what = "Merge this PR once its checks pass?"
+		case "approve":
+			what = "Approve it again?"
 		}
 		b.WriteString(what + "\n")
 		if title := v.mergeTitle(r.url); title != "" {
 			b.WriteString(ui.Dim.Render("  "+title) + "\n")
 		}
-		method := v.cfg.ResolvedMergeMethod()
-		detail := "  " + method
-		if v.cfg.MergeDeleteBranch {
-			detail += ", then delete the branch"
+		if r.confirm != "approve" {
+			detail := "  " + v.cfg.ResolvedMergeMethod()
+			if v.cfg.MergeDeleteBranch {
+				detail += ", then delete the branch"
+			}
+			b.WriteString(ui.Faint.Render(detail) + "\n")
 		}
-		b.WriteString(ui.Faint.Render(detail) + "\n")
 		if r.warn != "" {
 			b.WriteString("\n" + ui.Yellow.Render("! "+r.warn) + "\n")
 		}
@@ -2085,7 +2132,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 			v.clearUnread()
 		}
 	}
-	return tea.Batch(v.scheduleSettle(), ui.ConcealPreview, more, v.drainSync())
+	return tea.Batch(v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
 }
 
 func (v *View) SetSize(listW, prevW, h int) {

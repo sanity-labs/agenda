@@ -173,6 +173,12 @@ type GitHubConfig struct {
 	// reviewed and tags them "reviewed", so the eye can skip them. Off by
 	// default.
 	MarkReviewed bool `yaml:"mark_reviewed"`
+	// RefreshRow re-reads the selected PR once the cursor stops moving, so
+	// check state and review decisions are current on the row you are
+	// about to act on rather than as of the last full refresh. On by
+	// default: it is one request for a single PR, debounced, so cycling a
+	// list costs nothing until you stop.
+	RefreshRow *bool `yaml:"refresh_row"`
 	// Merge adds merge entries to the review popup ('r'). Off by default:
 	// merging is the one irreversible action in that popup, so it is opt-in
 	// rather than a keypress away for everyone.
@@ -184,6 +190,9 @@ type GitHubConfig struct {
 	// for repos that do not do it themselves. Off by default.
 	MergeDeleteBranch bool `yaml:"merge_delete_branch"`
 }
+
+// RefreshRowEnabled reports whether the selected PR is re-read on settle.
+func (g GitHubConfig) RefreshRowEnabled() bool { return g.RefreshRow == nil || *g.RefreshRow }
 
 // ResolvedMergeMethod is the gh flag for the configured merge method,
 // defaulting to squash. An unrecognised value falls back rather than

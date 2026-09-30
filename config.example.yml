@@ -152,6 +152,11 @@ github:
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
+  # Re-read the selected PR once the cursor stops moving, so check state and
+  # review decisions are current on the row you are about to act on rather
+  # than as of the last full refresh. On by default: one request for a single
+  # PR, debounced, so cycling a list costs nothing until you stop.
+  refresh_row: true
   # Add merge entries to the review popup ('r'): 'm' merges, 'M' enables
   # auto-merge so a PR lands once its checks pass. Off by default, because
   # merging is the one thing in that popup you cannot undo with another

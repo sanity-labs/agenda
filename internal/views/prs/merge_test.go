@@ -168,3 +168,41 @@ func TestMergeEntriesDoNotDisplaceTheVerdicts(t *testing.T) {
 		}
 	}
 }
+
+// Approving a PR you already approved asks first: the whole point is
+// catching the case where you forgot you had.
+func TestSecondApprovalAsksFirst(t *testing.T) {
+	p := mergeable(7)
+	p.ViewerLatestReview.State = "APPROVED"
+	v := mergeView(t, p)
+	v.Update(tea.KeyPressMsg{Code: 'r'})
+	v.Update(tea.KeyPressMsg{Code: 'a'})
+
+	if v.review.confirm != "approve" {
+		t.Fatalf("confirm = %q, want the second approval staged", v.review.confirm)
+	}
+	if v.review.submitting {
+		t.Error("it approved again without asking")
+	}
+	if !strings.Contains(v.review.warn, "already approved") {
+		t.Errorf("warn = %q, want it to say the PR is already approved", v.review.warn)
+	}
+	// The merge method is meaningless here and must not appear.
+	if overlay := v.Overlay(); strings.Contains(overlay, "squash") {
+		t.Errorf("the approval confirmation mentions a merge method:\n%s", overlay)
+	}
+}
+
+// A first approval is not second-guessed: the guard must not add a
+// keystroke to the common case.
+func TestFirstApprovalDoesNotAsk(t *testing.T) {
+	v := mergeView(t, mergeable(7)) // no viewer review
+	v.Update(tea.KeyPressMsg{Code: 'r'})
+	v.Update(tea.KeyPressMsg{Code: 'a'})
+	if v.review.confirm != "" {
+		t.Errorf("confirm = %q, want a first approval to go straight through", v.review.confirm)
+	}
+	if !v.review.submitting {
+		t.Error("the first approval did not submit")
+	}
+}

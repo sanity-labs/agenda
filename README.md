@@ -249,6 +249,13 @@ out of the box agenda looks and acts as it did before these options existed.
 - **Floating detail**: with the preview pane off, `v` opens the detail as a
   centered window over the list rather than splitting the pane, and moving
   to another row closes it. `z` still zooms the pane when one is in view.
+- **Fresher rows**: the selected PR is re-read once the cursor stops
+  moving, so checks that finished on GitHub and reviews left since the
+  last refresh show up without waiting for the refresh timer. Debounced,
+  and one PR rather than the whole search, so cycling a list fires
+  nothing until you stop. `github.refresh_row: false` turns it off.
+  Approving a PR you have already reviewed asks first, rather than
+  stacking a second approval on the first.
 - **Merge from the popup**: with `github.merge: true`, the review popup
   ('r') gains `m` to merge and `M` to enable auto-merge. It always
   confirms first, naming the PR and the method, and refuses a draft, a
