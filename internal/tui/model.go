@@ -889,6 +889,10 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "unread_sync":
 		on := m.cfg.UnreadSync
 		return func() tea.Msg { return ui.UnreadSyncMsg(on) }
+	case path == "footer":
+		m.invalidateFrame()
+		m.layout()
+		return nil
 	case path == "hide_preview":
 		m.previewPeeked = false
 		return m.setPreview(m.cfg.HidePreview, false)
@@ -1048,16 +1052,55 @@ const statusLogMax = 50
 
 // statusLine renders the newest message, or nothing when the log is empty or
 // the newest has been read (any message is cleared by opening the log).
-func (m Model) statusLine() string {
-	if len(m.status) == 0 || m.statusOpen {
+// statusLine is gone: the toast announces a message when it arrives, and
+// the footer says one is waiting, so a permanent row repeating it was the
+// same warning three times over. Kept as a stub returning "" so the height
+// arithmetic has one place to change if it ever comes back.
+func (m Model) statusLine() string { return "" }
+
+// unreadIssues counts messages worth pointing at: warnings and errors. A
+// success notice needs no footer marker.
+func (m Model) unreadIssues() int {
+	n := 0
+	for _, s := range m.status {
+		if s.Severity == ui.SeverityWarn || s.Severity == ui.SeverityError {
+			n++
+		}
+	}
+	return n
+}
+
+// issuesHint is the footer's pointer to the message log, or "" when there
+// is nothing to read.
+func (m Model) issuesHint() string {
+	n := m.unreadIssues()
+	if n == 0 {
 		return ""
 	}
-	latest := m.status[len(m.status)-1]
-	hint := ""
-	if bindings := m.keys.Messages.Keys(); len(bindings) > 0 {
-		hint = bindings[0]
+	keys := m.keys.Messages.Keys()
+	if len(keys) == 0 {
+		return ""
 	}
-	return latest.Line(m.width, hint)
+	label := "errors"
+	sev := ui.Red
+	if !m.hasError() {
+		sev = ui.Yellow
+	}
+	// The glyph carries its own trailing space; adding another leaves a gap
+	// that reads as an empty field between it and the key.
+	return sev.Render(ui.Glyph(ui.IconIssue, "!")) + " " +
+		m.theme.footerKey.Render(keys[0]) + " " +
+		m.theme.footerDesc.Render(label)
+}
+
+// hasError reports whether any message is an error rather than a warning.
+func (m Model) hasError() bool {
+	for _, s := range m.status {
+		if s.Severity == ui.SeverityError {
+			return true
+		}
+	}
+	return false
 }
 
 // layout recomputes per-view sizes after a resize.
@@ -1519,6 +1562,32 @@ func (m Model) renderFooter() string {
 		m.keys.Config, m.keys.Help, m.keys.Quit)
 
 	status := m.views[m.current].Status()
+
+	// Hidden: only what you cannot do without, on the right. The hotkeys
+	// are learnable; a waiting error and the way to the help are not.
+	if !m.cfg.FooterEnabled() {
+		parts := []string{}
+		if hint := m.issuesHint(); hint != "" {
+			parts = append(parts, hint)
+		}
+		if status != "" {
+			parts = append(parts, status)
+		}
+		parts = append(parts, m.theme.footerKey.Render(m.keys.Help.Keys()[0])+" "+
+			m.theme.footerDesc.Render("help"))
+		right := strings.Join(parts, m.theme.footerSep.Render())
+		gap := max(1, m.width-lipgloss.Width(right))
+		return m.theme.footer.Width(m.width).Render(
+			strings.Repeat(" ", gap) + right)
+	}
+
+	if hint := m.issuesHint(); hint != "" {
+		if status != "" {
+			status = hint + m.theme.footerSep.Render() + status
+		} else {
+			status = hint
+		}
+	}
 	left := mode + m.footerLine(full)
 	if lipgloss.Width(left)+lipgloss.Width(status)+1 > m.width {
 		compact := view

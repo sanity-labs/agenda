@@ -22,6 +22,10 @@ const (
 // IconSection heads a preview section (Description, Checks, Comments).
 const IconSection = "\uf0c9" //  list
 
+// IconIssue marks a problem worth reading: warnings and errors in the
+// message log, and the footer's pointer to it.
+const IconIssue = "\uea6c" // 
+
 // IconSearch heads the effective-query line.
 const IconSearch = "\uf422" //  search
 

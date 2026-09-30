@@ -23,6 +23,11 @@ update_check: true
 # select the row. Catches what a missed notification would have told you.
 unread: true
 
+# Show the hotkey bar along the bottom. On by default; with it off only a
+# waiting-errors marker and the help key remain, on the right, since those
+# are the two you cannot work around by memory.
+footer: true
+
 # Keep unread marks and GitHub notifications in step, both ways: reading a
 # row here marks its notification read, and a notification read on
 # github.com (or any other client) clears the mark here. Review-requested

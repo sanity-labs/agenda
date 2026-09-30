@@ -52,6 +52,11 @@ type Config struct {
 	// clear your real inbox.
 	UnreadSync bool `yaml:"unread_sync"`
 
+	// Footer shows the hotkey bar along the bottom. On by default; with it
+	// off only the waiting-errors marker and the help key remain, on the
+	// right, since those are the two you cannot work around by memory.
+	Footer *bool `yaml:"footer"`
+
 	// Grouping renders lists as swimlanes derived from the active sort
 	// (status lanes for Linear's status sort, time buckets for date sorts,
 	// and so on). Off by default: flat lists, the original behavior. Sorts
@@ -102,6 +107,9 @@ func (c Config) TogglesPersist() bool { return c.Toggles == "persist" }
 
 // UnreadEnabled reports whether new rows are marked unread.
 func (c Config) UnreadEnabled() bool { return c.Unread == nil || *c.Unread }
+
+// FooterEnabled reports whether the hotkey bar shows.
+func (c Config) FooterEnabled() bool { return c.Footer == nil || *c.Footer }
 
 // GlyphsEnabled reports whether decorative Nerd Font icons render.
 func (c Config) GlyphsEnabled() bool { return c.Theme.Glyphs == nil || *c.Theme.Glyphs }

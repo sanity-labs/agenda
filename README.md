@@ -314,6 +314,10 @@ out of the box agenda looks and acts as it did before these options existed.
   imply), so a missing PR can be explained from the screen. At the bottom
   deliberately: always visible, but out of the way at the top where the
   eye starts on the list.
+- **Hotkey bar**: `footer: false` hides it, leaving a waiting-errors
+  marker and the help key on the right. Warnings and errors no longer
+  hold a permanent row: the toast announces one and the footer says it is
+  waiting, so `!` opens the log when you want it.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.
