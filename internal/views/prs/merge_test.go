@@ -1,6 +1,7 @@
 package prs
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -207,52 +208,70 @@ func TestFirstApprovalDoesNotAsk(t *testing.T) {
 	}
 }
 
-// A PR you approved is waiting on its author, so hide_approved drops it
-// from the review list.
+// hide_approved is about PRs approved by anyone and still open: an
+// approval from someone else does not mean you are done with it.
 func TestHideApprovedFiltersTheReviewList(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.GitHubConfig{HideApproved: true, ShowReviewRequested: boolPtr(true)}, nil, nil, nil)
 	v.SetSize(80, 60, 40)
 
-	approved := mergeable(1)
-	approved.URL = "u1"
-	approved.ViewerLatestReview.State = "APPROVED"
-	pending := mergeable(2)
-	pending.URL = "u2"
-	commented := mergeable(3)
-	commented.URL = "u3"
+	rows := []pr{
+		reviewRow("u1", 1, "APPROVED", "OPEN"),          // hidden
+		reviewRow("u2", 2, "REVIEW_REQUIRED", "OPEN"),   // needs a review
+		reviewRow("u3", 3, "CHANGES_REQUESTED", "OPEN"), // needs work
+		reviewRow("u4", 4, "", "OPEN"),                  // no decision yet
+	}
+	v.Update(reviewListMsg{page: searchPage{prs: rows}})
+
+	shown := listedURLs(v)
+	if shown["u1"] {
+		t.Errorf("an approved, open PR is still listed: %v", keys(shown))
+	}
+	for _, want := range []string{"u2", "u3", "u4"} {
+		if !shown[want] {
+			t.Errorf("%s was hidden but is not approved: %v", want, keys(shown))
+		}
+	}
+
+	// Hiding is a view filter, not a fetch filter, so toggling it back on
+	// needs no refetch.
+	if len(v.reviewRaw) != len(rows) {
+		t.Errorf("reviewRaw = %d rows, want all %d kept", len(v.reviewRaw), len(rows))
+	}
+}
+
+// The viewer's own review is not what decides it: a PR someone else
+// approved is hidden too, and one the viewer merely commented on is not.
+func TestHideApprovedIgnoresWhoApproved(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{HideApproved: true, ShowReviewRequested: boolPtr(true)}, nil, nil, nil)
+	v.SetSize(80, 60, 40)
+
+	byOther := reviewRow("u1", 1, "APPROVED", "OPEN") // no viewer review at all
+	commented := reviewRow("u2", 2, "REVIEW_REQUIRED", "OPEN")
 	commented.ViewerLatestReview.State = "COMMENTED"
+	v.Update(reviewListMsg{page: searchPage{prs: []pr{byOther, commented}}})
 
-	v.Update(reviewListMsg{page: searchPage{prs: []pr{approved, pending, commented}}})
+	shown := listedURLs(v)
+	if shown["u1"] {
+		t.Error("a PR approved by someone else was left visible")
+	}
+	if !shown["u2"] {
+		t.Error("a PR the viewer only commented on was hidden")
+	}
+}
 
-	var urls []string
-	for _, p := range v.list.Items() {
-		if p.URL != "" {
-			urls = append(urls, p.URL)
-		}
-	}
-	for _, url := range urls {
-		if url == "u1" {
-			t.Errorf("an approved PR is still listed: %v", urls)
-		}
-	}
-	// Only approval hides it: a comment is not a verdict that ends your turn.
-	for _, want := range []string{"u2", "u3"} {
-		found := false
-		for _, url := range urls {
-			if url == want {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("%s was hidden but is not approved: %v", want, urls)
-		}
-	}
+// A merged PR is not what this toggle resurrects: the default filter is
+// is:open, and widening it should not bring merged work back.
+func TestHideApprovedLeavesMergedPRsToTheFilter(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{HideApproved: true, ShowReviewRequested: boolPtr(true)}, nil, nil, nil)
+	v.SetSize(80, 60, 40)
 
-	// v.reviewRaw keeps every row: hiding is a view filter, not a fetch
-	// filter, or toggling it off would need a refetch.
-	if len(v.reviewRaw) != 3 {
-		t.Errorf("reviewRaw = %d rows, want all 3 kept", len(v.reviewRaw))
+	merged := reviewRow("u1", 1, "APPROVED", "MERGED")
+	v.Update(reviewListMsg{page: searchPage{prs: []pr{merged}}})
+	if !listedURLs(v)["u1"] {
+		t.Error("hide_approved hid a merged PR; that is the search filter's job")
 	}
 }
 
@@ -261,17 +280,36 @@ func TestApprovedShownByDefault(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.GitHubConfig{ShowReviewRequested: boolPtr(true)}, nil, nil, nil)
 	v.SetSize(80, 60, 40)
-	approved := mergeable(1)
-	approved.URL = "u1"
-	approved.ViewerLatestReview.State = "APPROVED"
-	v.Update(reviewListMsg{page: searchPage{prs: []pr{approved}}})
+	v.Update(reviewListMsg{page: searchPage{prs: []pr{reviewRow("u1", 1, "APPROVED", "OPEN")}}})
+	if !listedURLs(v)["u1"] {
+		t.Error("an approved PR was hidden with hide_approved off")
+	}
+}
 
+func reviewRow(url string, num int, decision, state string) pr {
+	p := pr{Number: num, URL: url, Title: "t", Mergeable: "MERGEABLE",
+		ReviewDecision: decision, State: state}
+	p.Repository.NameWithOwner = "o/r"
+	return p
+}
+
+func listedURLs(v *View) map[string]bool {
+	out := map[string]bool{}
 	for _, p := range v.list.Items() {
-		if p.URL == "u1" {
-			return
+		if p.URL != "" {
+			out[p.URL] = true
 		}
 	}
-	t.Error("an approved PR was hidden with hide_approved off")
+	return out
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func boolPtr(b bool) *bool { return &b }

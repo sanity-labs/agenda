@@ -139,6 +139,13 @@ func (p pr) checkCounts() (passed, failed, running, total int) {
 // reviewedByMe reports whether the viewer's latest review still counts as
 // "handled": approved, changes requested, or commented. DISMISSED and PENDING
 // mean the ball is back with the viewer.
+// approvedAndOpen reports a PR that is approved and still open: the case
+// hide_approved is about. reviewDecision is the PR's overall decision, so
+// an approval by anyone counts, not just the viewer's own.
+func (p pr) approvedAndOpen() bool {
+	return p.ReviewDecision == "APPROVED" && p.State == "OPEN"
+}
+
 func (p pr) reviewedByMe() bool {
 	switch p.ViewerLatestReview.State {
 	case "APPROVED", "CHANGES_REQUESTED", "COMMENTED":
@@ -1949,12 +1956,17 @@ func (v *View) maybeFetchDiff() tea.Cmd {
 func (v *View) applySort() {
 	mine := sortPRs(v.raw, v.sort, v.rev)
 	rev := sortPRs(v.reviewRaw, v.sort, v.rev)
-	// A PR you approved is waiting on its author, not on you. Only the
-	// review list: your own approved PRs are still yours to land.
+	// An approved PR is waiting on its author, so hide it by default and
+	// let the toggle bring it back: an approval from someone else does not
+	// mean you are done with it, you may still want to comment.
+	//
+	// Approved-and-open only. A merged PR is gone from the list either way
+	// with the default is:open filter, and a merged one is not something
+	// this toggle should resurrect if that filter is widened.
 	if v.hideApproved {
 		kept := rev[:0]
 		for _, p := range rev {
-			if p.ViewerLatestReview.State != "APPROVED" {
+			if !p.approvedAndOpen() {
 				kept = append(kept, p)
 			}
 		}

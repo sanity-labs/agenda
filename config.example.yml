@@ -158,9 +158,11 @@ github:
   sort: ""
   # Start with that sort reversed, as if you had pressed 'S'.
   reverse: false
-  # Drop PRs you have already approved from the review-requested list: the
-  # ball is with the author, not you. Off by default. A PR you only
-  # commented on stays, since that is not a verdict that ends your turn.
+  # Drop approved, still-open PRs from the review-requested list: the ball
+  # is with the author. Off by default, so you can still open one you want
+  # to comment on. An approval by anyone counts, not just yours: someone
+  # else approving is no reason for you to stop looking. Merged PRs are
+  # handled by review_filter's is:open, not by this.
   hide_approved: false
   # Re-read the selected PR once the cursor stops moving, so check state and
   # review decisions are current on the row you are about to act on rather

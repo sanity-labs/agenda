@@ -249,9 +249,11 @@ out of the box agenda looks and acts as it did before these options existed.
 - **Floating detail**: with the preview pane off, `v` opens the detail as a
   centered window over the list rather than splitting the pane, and moving
   to another row closes it. `z` still zooms the pane when one is in view.
-- **Hide approved**: `github.hide_approved: true` drops PRs you have
-  already approved from the review-requested list, since the ball is with
-  the author. A PR you only commented on stays.
+- **Hide approved**: `github.hide_approved: true` drops approved,
+  still-open PRs from the review-requested list, since the ball is with
+  the author. An approval by anyone counts, not just yours, and the
+  toggle is there for when you still want to look (to comment, say).
+  Merged PRs are `review_filter`'s business (`is:open`), not this.
 - **Fresher rows**: the selected PR is re-read once the cursor stops
   moving, so checks that finished on GitHub and reviews left since the
   last refresh show up without waiting for the refresh timer. Debounced,
