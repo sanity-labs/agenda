@@ -2218,24 +2218,39 @@ func (v *View) reviewLabel(rev []pr) string {
 // is for, so the query is the part that gives way on a narrow terminal.
 func (v *View) bandWithQuery(label, query string) string {
 	q := strings.TrimSpace(query)
+	// Editing this section's filter: the band shows what is being typed,
+	// so the change appears on the row whose list it will change rather
+	// than in a header far from it.
+	if v.filterEd != nil && v.filterEd.label == bandSection(label) {
+		q = v.filterEd.query + "█"
+	}
 	if q == "" || v.listW <= 0 {
 		return label
 	}
 	// Glyph carries its own trailing space; adding another leaves the icon
 	// with a gap after it and none before.
 	icon := ui.Glyph(ui.IconSearch, "?")
-	// The query goes hard right, so the band's own colour does the
-	// separating and the two halves read as two things rather than one
-	// run of text. SectionSeparator pads a space each side, and needs one
-	// spare column or it clips the band it just built.
-	avail := v.listW - 2 - lipgloss.Width(label) - lipgloss.Width(icon) - bandGap
+	// The query starts at the band's midpoint: far enough from the counts
+	// that the two read as separate things, close enough that a wide
+	// terminal does not strand it at the far edge. SectionSeparator pads a
+	// space each side, so the band stops one column short of the pane.
+	inner := v.listW - 2
+	avail := inner - lipgloss.Width(label) - lipgloss.Width(icon) - bandGap
 	if avail < bandQueryMin {
 		return label // too little room to say anything useful
 	}
-	shown := ansi.Truncate(q, avail, "…")
-	gap := v.listW - 2 - lipgloss.Width(label) - lipgloss.Width(icon) -
-		lipgloss.Width(shown)
-	return label + strings.Repeat(" ", max(bandGap, gap)) + icon + shown
+	gap := max(bandGap, inner/2-lipgloss.Width(label))
+	shown := ansi.Truncate(q, inner-lipgloss.Width(label)-gap-lipgloss.Width(icon), "…")
+	return label + strings.Repeat(" ", gap) + icon + shown
+}
+
+// bandSection names which search a band belongs to, matching the editor's
+// own label so the two can be paired.
+func bandSection(label string) string {
+	if strings.HasPrefix(label, "REVIEW REQUESTED") {
+		return "review requests"
+	}
+	return "my PRs"
 }
 
 const (
@@ -2434,8 +2449,6 @@ func (v *View) SetSize(listW, prevW, h int) {
 func (v *View) ListView() string {
 	header := ""
 	switch {
-	case v.filterEd != nil:
-		header = v.filterPromptLine()
 	case v.input != nil:
 		header = v.threadPromptLine()
 	default:

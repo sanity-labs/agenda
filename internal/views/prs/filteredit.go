@@ -29,6 +29,7 @@ func (v *View) editFilter() tea.Cmd {
 		path, label, q = "github.review_filter", "review requests", v.cfg.ReviewFilter
 	}
 	v.filterEd = &filterEdit{path: path, label: label, query: q}
+	v.applySort() // the band shows the editor, so it has to be rebuilt
 	return nil
 }
 
@@ -83,6 +84,8 @@ func (v *View) updateFilterEdit(msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 	}
+	// The band carries the text being typed, so every key rebuilds it.
+	v.applySort()
 	return nil
 }
 

@@ -118,9 +118,9 @@ func TestFilterLinePrefixFollowsTheStyle(t *testing.T) {
 	}
 }
 
-// The query sits hard right, so the band's own colour separates it from
-// the counts rather than a dot that reads as another field.
-func TestBandQueryIsRightAligned(t *testing.T) {
+// The query starts near the band's midpoint: away from the counts, but
+// not stranded at the far edge of a wide terminal.
+func TestBandQueryIsCentred(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.Default().GitHub, nil, nil, nil)
 	label := "REVIEW REQUESTED  ·  1 of 83"
@@ -129,10 +129,10 @@ func TestBandQueryIsRightAligned(t *testing.T) {
 	for _, w := range []int{140, 100, 70, 50} {
 		v.SetSize(w, 0, 30)
 		band := ansi.Strip(v.bandWithQuery(label, q))
-		// SectionSeparator pads a space each side, so the band has to stop
-		// one column short or it clips what it just built.
-		if got := lipgloss.Width(band); got != w-2 {
-			t.Errorf("width %d: band is %d wide, want %d", w, got, w-2)
+		// SectionSeparator pads a space each side, so the band must never
+		// exceed one column short of the pane.
+		if got := lipgloss.Width(band); got > w-2 {
+			t.Errorf("width %d: band is %d wide, want at most %d", w, got, w-2)
 		}
 		if !strings.HasPrefix(band, label) {
 			t.Errorf("width %d: the label is not first: %q", w, band)
@@ -141,6 +141,13 @@ func TestBandQueryIsRightAligned(t *testing.T) {
 		rest := strings.TrimPrefix(band, label)
 		if !strings.HasPrefix(rest, strings.Repeat(" ", bandGap)) {
 			t.Errorf("width %d: the halves are not spaced apart: %q", w, rest)
+		}
+		// The query starts at the midpoint, or straight after the label
+		// plus its gap when the label is longer than half the band.
+		at := lipgloss.Width(band) - lipgloss.Width(strings.TrimLeft(rest, " "))
+		want := max(lipgloss.Width(label)+bandGap, (w-2)/2)
+		if at != want {
+			t.Errorf("width %d: query starts at %d, want %d", w, at, want)
 		}
 	}
 }

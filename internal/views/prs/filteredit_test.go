@@ -135,8 +135,15 @@ func TestEditorCapturesInput(t *testing.T) {
 	if !v.InputActive() {
 		t.Error("the open editor does not capture input; global keys would fire")
 	}
-	if line := ansi.Strip(v.ListView()); !strings.Contains(line, "my PRs") {
-		t.Errorf("the header does not show the editor: %q",
-			strings.Split(line, "\n")[0])
+	// The editor shows on the band it is editing, not in the header: the
+	// change belongs with the list it will change.
+	var banded bool
+	for _, it := range v.list.Items() {
+		if it.Separator != "" && strings.Contains(ansi.Strip(it.Separator), "█") {
+			banded = true
+		}
+	}
+	if !banded {
+		t.Error("the open editor does not show on any section band")
 	}
 }
