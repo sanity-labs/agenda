@@ -128,22 +128,17 @@ func (v *View) effectiveQuery() string {
 	return strings.TrimSpace(q)
 }
 
-// queryLine renders the effective query in a bordered box spanning the
-// list, the way gh-dash shows its search: the border is what makes it read
-// as the query in force rather than another status line.
-func (v *View) queryLine() string {
-	q := v.effectiveQuery()
-	if q == "" || v.listW < queryBoxMin {
-		return ""
-	}
-	// The box is listW-2 wide (leaving the list's own gutter), and Width()
-	// counts the border and padding inside that, so the text area is what
-	// is left after both. Measure the icon rather than assuming it is one
-	// column: the Nerd Font glyph is two, and guessing made the query one
-	// column too wide, wrapping the box to four rows.
+// queryBox renders a query in a bordered box of the given width, the way
+// gh-dash shows its search: the border is what makes it read as the query
+// in force rather than another status line.
+func queryBox(q string, width int) string {
+	// Width() counts the border and padding inside the width it is given,
+	// and the Nerd Font magnifier is two columns, not one. Measure both
+	// rather than assume, or the query runs a column long and wraps the
+	// box to four rows.
 	icon := ui.Glyph(ui.IconSearch, "?")
 	lead := icon + " "
-	boxW := v.listW - 2
+	boxW := width - 2
 	text := max(1, boxW-queryBoxChrome-lipgloss.Width(lead))
 	body := ui.Faint.Render(lead) + ui.Faint.Italic(true).Render(
 		ansi.Truncate(q, text, "…"))

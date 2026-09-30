@@ -1941,6 +1941,17 @@ func (v *View) submitReview(verdict string) tea.Cmd {
 	}
 }
 
+// QueryBar implements tui.queryBarer: the effective search, rendered at the
+// bottom of the frame so it says what is filtering the list without taking
+// space at the top, where the eye starts.
+func (v *View) QueryBar(width int) string {
+	q := v.effectiveQuery()
+	if q == "" || width < queryBoxMin {
+		return ""
+	}
+	return queryBox(q, width)
+}
+
 // Refs implements ui.Referencer: the Linear issues this PR points at, plus the
 // agent sessions that mention this PR (sourced from the shared store).
 func (v *View) Refs() []ui.Ref {
@@ -2372,8 +2383,8 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 func (v *View) SetSize(listW, prevW, h int) {
 	was := v.listW
 	v.listW, v.prevW, v.height = listW, prevW, h
-	v.list.SetSize(listW, max(1, h-v.headerRows())) // reserve the header rows
-	v.bodyKey = ""                                  // width changed: invalidate the body cache
+	v.list.SetSize(listW, max(1, h-1)) // reserve a row for the header line
+	v.bodyKey = ""                     // width changed: invalidate the body cache
 	// The label column depends on the list's width, so a resize across the
 	// threshold has to re-decide it.
 	if was != listW && v.seeded {
@@ -2392,21 +2403,7 @@ func (v *View) ListView() string {
 	if header == "" {
 		header = ui.Faint.Render(v.statusText())
 	}
-	// The effective query goes on its own line under the status, so what is
-	// filtering the list is always visible rather than implied.
-	if q := v.queryLine(); q != "" {
-		header += "\n" + q
-	}
 	return header + "\n" + v.list.View()
-}
-
-// headerRows is how many rows ListView puts above the list, which SetSize
-// has to reserve or the last row falls off the bottom.
-func (v *View) headerRows() int {
-	if q := v.queryLine(); q != "" {
-		return 1 + lipgloss.Height(q) // status, then the boxed query
-	}
-	return 1
 }
 
 func (v *View) statusText() string {

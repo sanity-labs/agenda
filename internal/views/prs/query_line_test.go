@@ -60,35 +60,57 @@ func TestEffectiveQueryOmitsTheTypedFilter(t *testing.T) {
 	}
 }
 
-// The query line is its own row under the status, and the list must be
-// sized to leave room or the last row falls off the bottom.
-func TestQueryLineGetsItsOwnRow(t *testing.T) {
+// The bar spans the frame and never overflows it, at any width: Width() is
+// the outer box, so sizing it to the full width pushes the border past the
+// screen.
+func TestQueryBarFitsTheWidth(t *testing.T) {
+	for _, w := range []int{200, 120, 100, 60, 40, 31, 30, 29, 10} {
+		v := queryView(t, nil)
+		bar := v.QueryBar(w)
+		if bar == "" {
+			continue // too narrow for a box, which is allowed
+		}
+		for i, line := range strings.Split(bar, "\n") {
+			if got := lipgloss.Width(line); got > w {
+				t.Errorf("width %d: bar line %d is %d wide", w, i, got)
+			}
+		}
+		// Three rows: two borders and the query. A wrapped query would be
+		// more, and would silently eat a list row.
+		if h := lipgloss.Height(bar); h != 3 {
+			t.Errorf("width %d: bar is %d rows, want 3 (a wrapped query)", w, h)
+		}
+	}
+}
+
+// A query longer than the bar is truncated, not wrapped.
+func TestLongQueryIsTruncated(t *testing.T) {
+	v := queryView(t, func(c *config.GitHubConfig) {
+		c.Filter = strings.Repeat("author:someone-with-a-long-name ", 12)
+	})
+	bar := v.QueryBar(80)
+	if h := lipgloss.Height(bar); h != 3 {
+		t.Fatalf("a long query made the bar %d rows, want 3", h)
+	}
+	if !strings.Contains(ansi.Strip(bar), "…") {
+		t.Error("a truncated query has no ellipsis to say so")
+	}
+}
+
+// Below a usable width the bar is dropped rather than rendering a border
+// with no room for the query inside it.
+func TestNoBarWhenTooNarrow(t *testing.T) {
 	v := queryView(t, nil)
-	// The box is three rows (two borders and the query), so the status plus
-	// the box is four.
-	if got := v.headerRows(); got != 4 {
-		t.Errorf("headerRows = %d with a boxed query line, want 4", got)
+	if bar := v.QueryBar(20); bar != "" {
+		t.Errorf("a 20-column frame rendered a bar:\n%s", bar)
 	}
+}
 
-	lines := strings.Split(v.ListView(), "\n")
-	if len(lines) < 4 {
-		t.Fatalf("ListView has %d lines, want a status and a 3-row box", len(lines))
-	}
-	// Line 1 is the status, 2 the box's top border, 3 the query itself.
-	if !strings.Contains(ansi.Strip(lines[2]), "author:@me") {
-		t.Errorf("line 3 is not the query: %q", ansi.Strip(lines[2]))
-	}
-	if !strings.Contains(lines[1], "╭") {
-		t.Errorf("line 2 is not the box's top border: %q", ansi.Strip(lines[1]))
-	}
-
-	// No configured filter: no line, and the row is given back.
-	v = queryView(t, func(c *config.GitHubConfig) { c.Filter = "" })
-	if v.queryLine() != "" {
-		t.Errorf("a blank filter still rendered a query line: %q", v.queryLine())
-	}
-	if got := v.headerRows(); got != 1 {
-		t.Errorf("headerRows = %d with no query line, want 1", got)
+// No configured filter, no bar: there is nothing to report.
+func TestNoBarWithoutAFilter(t *testing.T) {
+	v := queryView(t, func(c *config.GitHubConfig) { c.Filter = "" })
+	if bar := v.QueryBar(120); bar != "" {
+		t.Errorf("a blank filter still rendered a bar: %q", ansi.Strip(bar))
 	}
 }
 
@@ -109,62 +131,5 @@ func TestFilterLinePrefixFollowsTheStyle(t *testing.T) {
 	got := ansi.Strip(v.list.FilterLine())
 	if !strings.HasPrefix(got, ui.Glyph(ui.IconSearch, "?")) {
 		t.Errorf("a qualified filter shows %q, want the magnifier prefix", got)
-	}
-}
-
-// The box spans the list and never overflows it, at any width: Width() is
-// the outer box, so sizing it to the full list width pushes the border a
-// column past the pane.
-func TestQueryBoxFitsTheList(t *testing.T) {
-	for _, w := range []int{200, 120, 100, 60, 40, 31, 30, 29, 10} {
-		v := queryView(t, nil)
-		v.SetSize(w, 0, 30)
-		q := v.queryLine()
-		if q == "" {
-			continue // too narrow for a box, which is allowed
-		}
-		for i, line := range strings.Split(q, "\n") {
-			if got := lipgloss.Width(line); got > w {
-				t.Errorf("list %d: box line %d is %d wide", w, i, got)
-			}
-		}
-		// Three rows: two borders and the query. A long query that wrapped
-		// would make it more.
-		if h := lipgloss.Height(q); h != 3 {
-			t.Errorf("list %d: box is %d rows, want 3 (a wrapped query)", w, h)
-		}
-		// And the list is sized to leave room for all of them.
-		if got, want := v.headerRows(), 1+lipgloss.Height(q); got != want {
-			t.Errorf("list %d: headerRows = %d, want %d", w, got, want)
-		}
-	}
-}
-
-// A query longer than the box is truncated, not wrapped: wrapping grows the
-// box and eats list rows.
-func TestLongQueryIsTruncated(t *testing.T) {
-	v := queryView(t, func(c *config.GitHubConfig) {
-		c.Filter = strings.Repeat("author:someone-with-a-long-name ", 12)
-	})
-	v.SetSize(80, 0, 30)
-	q := v.queryLine()
-	if h := lipgloss.Height(q); h != 3 {
-		t.Fatalf("a long query made the box %d rows, want 3", h)
-	}
-	if !strings.Contains(ansi.Strip(q), "…") {
-		t.Error("a truncated query has no ellipsis to say so")
-	}
-}
-
-// Below a usable width the box is dropped rather than rendering a border
-// with no room for the query inside it.
-func TestNoBoxOnANarrowList(t *testing.T) {
-	v := queryView(t, nil)
-	v.SetSize(20, 0, 30)
-	if q := v.queryLine(); q != "" {
-		t.Errorf("a 20-column list rendered a box:\n%s", q)
-	}
-	if got := v.headerRows(); got != 1 {
-		t.Errorf("headerRows = %d with no box, want 1", got)
 	}
 }

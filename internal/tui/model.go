@@ -992,11 +992,38 @@ func (m Model) pickerItems(refs []ui.Ref) ([]ui.PickerItem, []ui.Ref) {
 	return items, aligned
 }
 
+// queryBarer is implemented by views that show their effective search at
+// the bottom of the frame.
+type queryBarer interface {
+	QueryBar(width int) string
+}
+
+// queryBar is the active view's search bar, or "" when it has none.
+func (m Model) queryBar() string {
+	if len(m.views) == 0 {
+		return ""
+	}
+	qb, ok := m.views[m.current].(queryBarer)
+	if !ok {
+		return ""
+	}
+	return qb.QueryBar(m.width)
+}
+
+// queryBarHeight is how many rows the search bar takes, which the content
+// height has to give up or the footer is pushed off the screen.
+func (m Model) queryBarHeight() int {
+	if bar := m.queryBar(); bar != "" {
+		return lipgloss.Height(bar)
+	}
+	return 0
+}
+
 // dims computes the pane sizes. previewContentW leaves room for the preview's
 // border + padding (3) and its scrollbar gutter (2). When zoomed the preview
 // takes the whole width and the list drops out.
 func (m Model) dims() (listW, previewContentW, contentH int) {
-	contentH = max(1, m.height-tabBarHeight-footerHeight-m.statusHeight())
+	contentH = max(1, m.height-tabBarHeight-footerHeight-m.statusHeight()-m.queryBarHeight())
 	previewPane := m.width * previewRatio / 100
 	if m.zoomed {
 		previewPane = m.width
@@ -1094,6 +1121,12 @@ func (m Model) View() tea.View {
 	rows := []string{m.renderTabs(), body}
 	if line := m.statusLine(); line != "" {
 		rows = append(rows, line)
+	}
+	// The effective search sits just above the footer: always visible, so a
+	// missing row can be explained, but out of the way at the top where the
+	// eye starts on the list itself.
+	if bar := m.queryBar(); bar != "" {
+		rows = append(rows, bar)
 	}
 	rows = append(rows, m.renderFooter())
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
