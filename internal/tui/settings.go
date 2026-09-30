@@ -363,6 +363,28 @@ const (
 	overlayContent = overlayWidth - overlayChrome
 )
 
+// TopY is the overlay's top row: where the tallest tab would sit if it
+// were centered, so the panel holds still and grows downward instead of
+// re-centering itself every time you switch tabs.
+func (o *configOverlay) TopY(cfg config.Config, screenH int) int {
+	// Measure the real render rather than recomputing its arithmetic: a
+	// duplicate formula was off by one on the single-section tabs, which
+	// print no header.
+	saved := o.tab
+	tallest := 0
+	for i := range settingsTabs {
+		o.tab = i
+		if h := lipgloss.Height(o.View(cfg)); h > tallest {
+			tallest = h
+		}
+	}
+	o.tab = saved
+	if tallest >= screenH {
+		return 0 // taller than the screen: start at the top, not above it
+	}
+	return max(0, (screenH-tallest)/2)
+}
+
 // tabBar renders the section tabs, the active one highlighted.
 func (o *configOverlay) tabBar() string {
 	var parts []string

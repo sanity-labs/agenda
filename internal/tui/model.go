@@ -1054,9 +1054,16 @@ func (m Model) View() tea.View {
 		content = m.overlayCentered(content, m.keysEd.View(m.cfg.Keys, m.contentHeight()-10))
 	}
 
-	// Composite the config overlay centered over the content, if open.
+	// Composite the config overlay, if open. Its top edge is pinned rather
+	// than centered: tabs differ in height, and centering each one moved
+	// the whole panel up and down as you switched.
 	if m.settings != nil {
-		content = m.overlayCentered(content, m.settings.View(m.cfg))
+		box := m.settings.View(m.cfg)
+		x, _ := m.centerOf(box)
+		content = lipgloss.NewCompositor(
+			lipgloss.NewLayer(content),
+			lipgloss.NewLayer(box).X(x).Y(m.settings.TopY(m.cfg, m.height)).Z(1),
+		).Render()
 	}
 
 	// The notification toast sits top-right, above everything.

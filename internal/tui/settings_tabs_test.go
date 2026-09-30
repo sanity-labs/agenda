@@ -219,3 +219,39 @@ func TestSectionsFollowTheTabOrder(t *testing.T) {
 		}
 	}
 }
+
+// The panel's top edge must not move between tabs: tabs differ in height,
+// and centering each one made the whole thing drift up and down.
+func TestOverlayTopEdgeIsStable(t *testing.T) {
+	cfg := config.Default()
+	o := newConfigOverlay()
+	for _, screenH := range []int{40, 50, 24} {
+		want := -1
+		for i := range settingsTabs {
+			o.tab = i
+			o.cursor = o.firstSetting()
+			got := o.TopY(cfg, screenH)
+			if want < 0 {
+				want = got
+				continue
+			}
+			if got != want {
+				t.Errorf("screen %d, tab %q: top row %d, first tab %d",
+					screenH, settingsTabs[i].name, got, want)
+			}
+		}
+		// And the tallest tab has to fit below it, or the panel runs off.
+		tallest := 0
+		for i := range settingsTabs {
+			o.tab = i
+			o.cursor = o.firstSetting()
+			if h := lipgloss.Height(o.View(cfg)); h > tallest {
+				tallest = h
+			}
+		}
+		if want+tallest > screenH && want != 0 {
+			t.Errorf("screen %d: top %d + tallest %d overflows",
+				screenH, want, tallest)
+		}
+	}
+}
