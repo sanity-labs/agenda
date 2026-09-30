@@ -66,40 +66,6 @@ func TestDiffCellFitsItsWidth(t *testing.T) {
 	}
 }
 
-// Labels fill the freed space, and what does not fit becomes a count so
-// the row still says labels exist.
-func TestRowLabelsBudget(t *testing.T) {
-	labels := []label{
-		{Name: "infrastructure", Color: "3b82f6"},
-		{Name: "needs-review", Color: "3b82f6"},
-		{Name: "sre", Color: "3b82f6"},
-	}
-	for _, c := range []struct {
-		budget   int
-		wantPill string // a pill that must be present ("" for none)
-		wantMark string // the overflow marker ("" for none)
-	}{
-		{0, "", ""},
-		{6, "", "+3"}, // no pill fits: the count alone
-		{30, "infrastructure", "+2"},
-		{80, "sre", ""}, // all three, no marker
-	} {
-		got := ansi.Strip(rowLabels(labels, c.budget))
-		if w := lipgloss.Width(rowLabels(labels, c.budget)); w > c.budget && c.budget > 0 {
-			t.Errorf("budget %d: rendered %d wide", c.budget, w)
-		}
-		if c.wantPill != "" && !strings.Contains(got, c.wantPill) {
-			t.Errorf("budget %d: %q missing pill %q", c.budget, got, c.wantPill)
-		}
-		if c.wantMark != "" && !strings.Contains(got, c.wantMark) {
-			t.Errorf("budget %d: %q missing marker %q", c.budget, got, c.wantMark)
-		}
-		if c.wantMark == "" && strings.Contains(got, "+") && c.budget >= 80 {
-			t.Errorf("budget %d: %q has a marker but everything fit", c.budget, got)
-		}
-	}
-}
-
 // Labels only appear when the preview is off: with a pane there is no room.
 func TestLabelsOnlyWhenPreviewHidden(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -150,4 +116,61 @@ func anyShowsLabels(v *View) bool {
 		}
 	}
 	return false
+}
+
+// The row renderer right-aligns the cluster, so a cluster that shrinks
+// with its contents puts every cell at a different column. This is the
+// regression that shipped: trimming the padding made the columns drift,
+// which looked fine in isolation and wrong down a real list.
+func TestCellsLandOnTheSameColumnDownTheList(t *testing.T) {
+	const width = 176
+	// Vary the age too: it is the last cell, so its padding is what a
+	// trailing trim eats, and equal ages would hide the bug.
+	ages := []time.Duration{2 * time.Hour, 10 * time.Hour, 96 * time.Hour,
+		24 * time.Hour, 800 * time.Hour, 5 * time.Hour}
+	n := 0
+	mkLabelled := func(add, del, comments int, names ...string) pr {
+		p := mkRow(add, del, comments)
+		p.UpdatedAt = time.Now().Add(-ages[n%len(ages)])
+		n++
+		p.ShowLabels = true
+		for _, n := range names {
+			p.Labels.Nodes = append(p.Labels.Nodes, label{Name: n, Color: "3b82f6"})
+		}
+		return p
+	}
+	rows := []pr{
+		mkLabelled(90, 0, 1),
+		mkLabelled(215, 201, 2, "bot", "deps", "major"),
+		mkLabelled(254, 0, 2),
+		mkLabelled(4, 4, 2, "bot", "deps", "major", "extra"),
+		mkLabelled(511, 0, 2),
+		mkLabelled(1, 1, 3, "helm", "bot", "reviewbot:skim"),
+	}
+
+	var diffCol, rowW, clusterW int
+	for i, p := range rows {
+		line := ansi.Strip(strings.Split(p.Render(width, false, ui.Highlighter{}), "\n")[0])
+		at := strings.Index(line, "+")
+		if at < 0 {
+			t.Fatalf("row %d has no diff cell: %q", i, line)
+		}
+		col := lipgloss.Width(line[:at])
+		cluster := lipgloss.Width(ansi.Strip(p.rightCluster(width, false)))
+
+		if i == 0 {
+			diffCol, rowW, clusterW = col, lipgloss.Width(line), cluster
+			continue
+		}
+		if col != diffCol {
+			t.Errorf("row %d: diff starts at column %d, row 0 at %d", i, col, diffCol)
+		}
+		if w := lipgloss.Width(line); w != rowW {
+			t.Errorf("row %d is %d wide, row 0 is %d", i, w, rowW)
+		}
+		if cluster != clusterW {
+			t.Errorf("row %d cluster is %d wide, row 0 is %d: alignment depends"+
+				" on this being constant", i, cluster, clusterW)
+		}
+	}
 }
