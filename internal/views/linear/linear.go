@@ -367,6 +367,26 @@ var priorityBucket = map[int]string{
 // groupLabelFn returns the swimlane label for a sort mode, or nil for sorts
 // with no feasible grouping. Every label follows the sort's primary key, so
 // equal labels are contiguous in the sorted slice.
+// sortByName resolves a configured sort name to its mode; an unknown name
+// falls back to the default rather than stopping the view opening.
+func sortByName(name string) (sortMode, bool) {
+	for mode, n := range sortName {
+		if n == name {
+			return mode, true
+		}
+	}
+	return sortRecent, false
+}
+
+// SortNames lists the sorts this view accepts, for the settings overlay.
+func SortNames() []string {
+	out := make([]string, 0, len(sortOrder))
+	for _, mode := range sortOrder {
+		out = append(out, sortName[mode])
+	}
+	return out
+}
+
 func groupLabelFn(mode sortMode) func(issue) string {
 	switch mode {
 	case sortRecent:
@@ -511,6 +531,10 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 	v.rebuildNav()
 	v.list.SetRowHeight(2) // two-line rows: state/identifier + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
+	if mode, ok := sortByName(cfg.Sort); ok {
+		v.sort = mode
+	}
+	v.rev = cfg.Reverse
 
 	// Paint last run's issues immediately; the live fetch refreshes them.
 	if v.token != "" {

@@ -267,6 +267,13 @@ out of the box agenda looks and acts as it did before these options existed.
   own rules are what gate the merge. `github.merge_method` picks squash
   (default), merge or rebase, and `github.merge_delete_branch` cleans up
   the head branch.
+- **Startup sort**: each view's opening sort is configurable, since `s`
+  cycling back to the default on every launch meant re-pressing it every
+  time. `github.sort` (date, review, checks, repo, size, author),
+  `linear.sort` (date, status, project, priority) and `sessions.sort`
+  (recent, cwd, tool, msgs, cost), each with a `reverse` companion. Omit
+  for the view's own default; `s` and `S` behave exactly as before at
+  runtime.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

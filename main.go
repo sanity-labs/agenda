@@ -67,7 +67,7 @@ func main() {
 		case "prs":
 			views = append(views, prs.New(cfg.GitHub, cfg.Keys, notifier, st))
 		case "sessions":
-			views = append(views, sessions.New(cfg.Keys, st))
+			views = append(views, sessions.New(cfg.Sessions, cfg.Keys, st))
 		case "linear":
 			views = append(views, linear.New(cfg.Linear, cfg.Keys, notifier, st))
 		}

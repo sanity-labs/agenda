@@ -152,6 +152,12 @@ github:
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
+  # The sort the PR list opens on: date, review, checks, repo, size or
+  # author. Omit (or leave empty) for the view's default, date. 's' still
+  # cycles sorts at runtime; this is only the starting point.
+  sort: ""
+  # Start with that sort reversed, as if you had pressed 'S'.
+  reverse: false
   # Drop PRs you have already approved from the review-requested list: the
   # ball is with the author, not you. Off by default. A PR you only
   # commented on stays, since that is not a verdict that ends your turn.
@@ -195,6 +201,10 @@ linear:
   #   linear.app -> Settings -> Security & access -> API keys
   # Without it, the Linear view shows a setup hint instead of issues.
   token: ""
+  # The sort the issue list opens on: date, status, project or priority.
+  # Omit for the view's default, date.
+  sort: ""
+  reverse: false
   # Which issues to fetch (server-side). The default is your assigned issues
   # that aren't completed or canceled, the same as Linear's "assigned" view.
   filter:
@@ -218,3 +228,7 @@ linear:
 sessions:
   # Set to false to hide the agent-sessions view.
   enabled: true
+  # The sort the session list opens on: recent, cwd, tool, msgs or cost.
+  # Omit for the view's default, recent.
+  sort: ""
+  reverse: false

@@ -173,6 +173,11 @@ type GitHubConfig struct {
 	// reviewed and tags them "reviewed", so the eye can skip them. Off by
 	// default.
 	MarkReviewed bool `yaml:"mark_reviewed"`
+	// Sort is the sort the view opens on: date, review, checks, repo, size
+	// or author. Empty means the view's own default (date). Reverse flips
+	// it, the same as pressing the reverse key at startup.
+	Sort    string `yaml:"sort"`
+	Reverse bool   `yaml:"reverse"`
 	// HideApproved drops PRs the viewer has already approved from the
 	// review-requested list: the ball is with the author, not you. Off by
 	// default, so the list still shows everything it did before.
@@ -232,6 +237,10 @@ type LinearConfig struct {
 	// Token is a Linear personal API key (lin_api_...). Required for the
 	// Linear view; when empty the view renders a setup hint instead.
 	Token string `yaml:"token"`
+	// Sort is the sort the view opens on: date, status, project or
+	// priority. Empty means the view's own default (date).
+	Sort    string `yaml:"sort"`
+	Reverse bool   `yaml:"reverse"`
 	// Filter narrows which issues are fetched. The default matches the
 	// previous hardcoded behavior: your assigned issues that aren't
 	// completed or canceled.
@@ -282,7 +291,22 @@ func (f *LinearFilter) UnmarshalYAML(n *yaml.Node) error {
 type SessionsConfig struct {
 	// Enabled toggles the sessions view. Defaults to true.
 	Enabled *bool `yaml:"enabled"`
+	// Sort is the sort the view opens on: recent, cwd, tool, msgs or cost.
+	// Empty means the view's own default (recent).
+	Sort    string `yaml:"sort"`
+	Reverse bool   `yaml:"reverse"`
 }
+
+// Sort vocabularies, one per view. Declared here because both the views
+// (resolving a name to a mode) and the settings overlay (offering the
+// choices) need them, and an empty value always means the view's default.
+// The views own the meanings; a name dropped from one of these lists stops
+// being selectable, and a name that no view knows falls back to default.
+var (
+	PRSortNames       = []string{"date", "review", "checks", "repo", "size", "author"}
+	LinearSortNames   = []string{"date", "status", "project", "priority"}
+	SessionsSortNames = []string{"recent", "cwd", "tool", "msgs", "cost"}
+)
 
 // Default returns the built-in configuration used when no file exists or to
 // fill gaps in a partial file.

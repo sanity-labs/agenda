@@ -130,6 +130,26 @@ var sortName = map[sortMode]string{
 
 // groupLabelFn returns the swimlane label for a sort mode. msgs has no
 // sensible buckets, so it stays flat (nil) even with grouping on.
+// sortByName resolves a configured sort name to its mode; an unknown name
+// falls back to the default rather than stopping the view opening.
+func sortByName(name string) (sortMode, bool) {
+	for mode, n := range sortName {
+		if n == name {
+			return mode, true
+		}
+	}
+	return sortRecent, false
+}
+
+// SortNames lists the sorts this view accepts, for the settings overlay.
+func SortNames() []string {
+	out := make([]string, 0, len(sortOrder))
+	for _, mode := range sortOrder {
+		out = append(out, sortName[mode])
+	}
+	return out
+}
+
 func groupLabelFn(mode sortMode) func(session) string {
 	switch mode {
 	case sortRecent:
@@ -232,7 +252,7 @@ type viewKeys struct {
 	Expand key.Binding
 }
 
-func New(km config.Keymap, st *store.Store) *View {
+func New(cfg config.SessionsConfig, km config.Keymap, st *store.Store) *View {
 	bind := func(action, desc string, def ...string) key.Binding {
 		return ui.Bind(km.Of("sessions", action, def...), "", desc)
 	}
@@ -254,6 +274,10 @@ func New(km config.Keymap, st *store.Store) *View {
 	// Default filter scope excludes the "text" body field; the user enables it in
 	// the filter modal (f) to search inside conversations.
 	v.list.SetEnabledFields(defaultFields)
+	if mode, ok := sortByName(cfg.Sort); ok {
+		v.sort = mode
+	}
+	v.rev = cfg.Reverse
 	return v
 }
 

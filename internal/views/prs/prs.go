@@ -350,6 +350,27 @@ var sortName = map[sortMode]string{
 
 // groupLabelFn returns the swimlane label for a sort mode (nil = flat). The
 // label follows each sort's primary key, so equal labels are contiguous.
+// sortByName resolves a configured sort name to its mode. An unknown name
+// falls back to the default rather than failing: a typo in the config
+// should not stop the view opening.
+func sortByName(name string) (sortMode, bool) {
+	for mode, n := range sortName {
+		if n == name {
+			return mode, true
+		}
+	}
+	return sortRecent, false
+}
+
+// SortNames lists the sorts this view accepts, for the settings overlay.
+func SortNames() []string {
+	out := make([]string, 0, len(sortOrder))
+	for _, mode := range sortOrder {
+		out = append(out, sortName[mode])
+	}
+	return out
+}
+
 func groupLabelFn(mode sortMode) func(pr) string {
 	switch mode {
 	case sortRecent:
@@ -744,6 +765,10 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			Expand:     bind("expand", "expand", "e"),
 		},
 	}
+	if mode, ok := sortByName(cfg.Sort); ok {
+		v.sort = mode
+	}
+	v.rev = cfg.Reverse
 	v.rowRefresh = cfg.RefreshRowEnabled()
 	v.hideApproved = cfg.HideApproved
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
