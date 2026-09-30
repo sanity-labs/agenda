@@ -152,6 +152,18 @@ github:
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
+  # Add merge entries to the review popup ('r'): 'm' merges, 'M' enables
+  # auto-merge so a PR lands once its checks pass. Off by default, because
+  # merging is the one thing in that popup you cannot undo with another
+  # keypress. It always asks before merging, and refuses outright for a
+  # draft, a conflict, or while GitHub is still checking mergeability.
+  merge: false
+  # How 'm' merges: squash (default), merge, or rebase. A repo that forbids
+  # the method you pick says so when the merge runs.
+  merge_method: squash
+  # Delete the head branch after a successful merge, for repos that do not
+  # do it themselves. Off by default.
+  merge_delete_branch: false
   # Render diffs in the right pane on 'd'. Off by default: 'd' pages the
   # diff through less, the original behavior. The comments pane ('c') and
   # inline-thread annotations need this on to show threads in the diff.

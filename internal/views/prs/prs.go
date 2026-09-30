@@ -11,6 +11,7 @@ package prs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/color"
 	"os/exec"
@@ -621,22 +622,59 @@ const (
 type reviewFlow struct {
 	url, repo  string
 	num        int
-	sel        int    // cursor over reviewOptions while picking
+	sel        int    // cursor over the options while picking
 	verdict    string // "", then "approve" | "comment" | "request-changes"
 	body       string
 	submitting bool
+	// confirm names the merge awaiting a yes ("merge" or "auto"), and why
+	// it is a bad idea when it is: merging cannot be undone by another
+	// keypress, so it never happens on the first one.
+	confirm, warn string
+	// blocked explains why a merge is not offered at all (a draft, a
+	// conflict, changes requested), so the popup says so rather than
+	// failing after the fact.
+	blocked string
 }
 
-// reviewOptions are the popup's entries: a hotkey, a label, and the gh
-// verdict ("" for the non-submit entries).
-var reviewOptions = []struct {
+// reviewOption is one popup entry: a hotkey, a label, and the gh verdict
+// ("" for entries that are not a review submission).
+type reviewOption struct {
 	key, label, verdict string
-}{
+}
+
+// reviewOptions are the popup's entries. The review verdicts are always
+// there; the merge entries appear only when github.merge is on, since
+// merging is irreversible and not everyone wants it a keypress away.
+var reviewOptions = []reviewOption{
 	{"a", "Approve", "approve"},
 	{"c", "Comment", "comment"},
 	{"x", "Request changes", "request-changes"},
 	{"d", "View diff", ""},
 	{"", "Cancel", ""},
+}
+
+// mergeLabel and autoLabel are the merge entries' labels, kept as
+// constants because the flow matches on them.
+const (
+	mergeLabel = "Merge"
+	autoLabel  = "Enable auto-merge"
+)
+
+// options are the popup's entries for this view: the review verdicts, plus
+// the merge entries when they are configured on.
+func (v *View) options() []reviewOption {
+	if !v.cfg.Merge {
+		return reviewOptions
+	}
+	opts := make([]reviewOption, 0, len(reviewOptions)+2)
+	// Merge sits after the verdicts and before the read-only entries, so a
+	// fat-fingered 'd' or Cancel cannot land on it.
+	opts = append(opts, reviewOptions[:3]...)
+	opts = append(opts,
+		reviewOption{"m", mergeLabel, ""},
+		reviewOption{"M", autoLabel, ""},
+	)
+	return append(opts, reviewOptions[3:]...)
 }
 
 type viewKeys struct {
@@ -1076,6 +1114,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil // superseded by further navigation
 		}
 		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments())
+	case mergeDoneMsg:
+		v.review = nil
+		if msg.err != nil {
+			v.flash = ui.Red.Render("merge failed: " + msg.err.Error())
+			return statusCmd(ui.SeverityError, msg.err)
+		}
+		v.flash = ui.Green.Render("✓ " + msg.what)
+		// A merged PR leaves the search on the next fetch; auto-merge
+		// leaves it open, so only refetch and let the row speak for itself.
+		v.resetToggles()
+		return tea.Batch(ui.ConcealPreview, v.fetch())
 	case reviewDoneMsg:
 		v.review = nil
 		if msg.err != nil {
@@ -1347,21 +1396,35 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 	if r.submitting {
 		return nil // ignore keys while gh runs
 	}
+	// A merge waits on an explicit yes. Only "y" proceeds: enter is what
+	// selected the entry, so accepting it here would merge on one keypress.
+	if r.confirm != "" {
+		switch msg.String() {
+		case "y":
+			what := r.confirm
+			r.confirm, r.warn = "", ""
+			return v.submitMerge(what == "auto")
+		default:
+			r.confirm, r.warn = "", ""
+			return nil
+		}
+	}
 	if r.verdict == "" {
+		opts := v.options()
 		switch msg.String() {
 		case "up", "k":
-			r.sel = (r.sel - 1 + len(reviewOptions)) % len(reviewOptions)
+			r.sel, r.blocked = (r.sel-1+len(opts))%len(opts), ""
 			return nil
 		case "down", "j":
-			r.sel = (r.sel + 1) % len(reviewOptions)
+			r.sel, r.blocked = (r.sel+1)%len(opts), ""
 			return nil
 		case "enter":
-			return v.activateReviewOption(reviewOptions[r.sel].label)
+			return v.activateReviewOption(opts[r.sel].label)
 		case "esc", "q", "ctrl+c":
 			v.review = nil
 			return nil
 		default:
-			for _, opt := range reviewOptions {
+			for _, opt := range opts {
 				if opt.key != "" && msg.String() == opt.key {
 					return v.activateReviewOption(opt.label)
 				}
@@ -1409,10 +1472,61 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 			return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments())
 		}
 		return v.diffInPager()
+	case mergeLabel:
+		v.askMerge("merge")
+	case autoLabel:
+		v.askMerge("auto")
 	case "Cancel":
 		v.review = nil
 	}
 	return nil
+}
+
+// mergeTitle is the selected PR's title, so the confirmation names what is
+// about to land rather than a bare number.
+func (v *View) mergeTitle(url string) string {
+	if p, ok := v.prByURL(url); ok {
+		return p.Title
+	}
+	return ""
+}
+
+// askMerge stages a merge for confirmation, or refuses it outright when
+// GitHub already says it cannot land. A plain merge needs the PR to be
+// mergeable now; auto-merge is for the ones that are not yet, so it only
+// refuses on the states waiting will not fix.
+func (v *View) askMerge(kind string) {
+	r := v.review
+	p, ok := v.prByURL(r.url)
+	if !ok {
+		r.blocked = "this PR is no longer loaded; refresh and try again"
+		return
+	}
+	switch {
+	case p.IsDraft:
+		r.blocked = "it is a draft: mark it ready first"
+		return
+	case p.Mergeable == "CONFLICTING":
+		r.blocked = "it has conflicts to resolve first"
+		return
+	case kind == "merge" && p.Mergeable == "UNKNOWN":
+		r.blocked = "GitHub has not finished checking mergeability; try again shortly"
+		return
+	}
+	r.blocked = ""
+	r.confirm = kind
+	// Say what is off about it rather than refusing: these are judgement
+	// calls, and the repo's own rules are what actually gate the merge.
+	switch {
+	case p.ReviewDecision == "CHANGES_REQUESTED":
+		r.warn = "changes have been requested"
+	case p.ReviewDecision == "REVIEW_REQUIRED":
+		r.warn = "it has not been approved yet"
+	default:
+		if _, fail, _, _ := p.checkCounts(); fail > 0 {
+			r.warn = "checks are failing"
+		}
+	}
 }
 
 // Overlay implements the root model's view-modal hook: the review popup.
@@ -1423,13 +1537,42 @@ func (v *View) Overlay() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(ui.Bold.Render(fmt.Sprintf("Review %s#%d", r.repo, r.num)))
+	// The heading follows the step: "Review" is wrong above a merge.
+	heading := "Review"
+	if r.confirm != "" {
+		heading = "Merge"
+	}
+	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s %s#%d", heading, r.repo, r.num)))
 	b.WriteString("\n\n")
 	switch {
 	case r.submitting:
 		b.WriteString(ui.Faint.Render("submitting review…"))
+	case r.confirm != "":
+		what := "Merge this PR?"
+		if r.confirm == "auto" {
+			what = "Merge this PR once its checks pass?"
+		}
+		b.WriteString(what + "\n")
+		if title := v.mergeTitle(r.url); title != "" {
+			b.WriteString(ui.Dim.Render("  "+title) + "\n")
+		}
+		method := v.cfg.ResolvedMergeMethod()
+		detail := "  " + method
+		if v.cfg.MergeDeleteBranch {
+			detail += ", then delete the branch"
+		}
+		b.WriteString(ui.Faint.Render(detail) + "\n")
+		if r.warn != "" {
+			b.WriteString("\n" + ui.Yellow.Render("! "+r.warn) + "\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(ui.Dim.Render("y to confirm · any other key cancels"))
 	case r.verdict == "":
-		for i, opt := range reviewOptions {
+		if r.blocked != "" {
+			b.WriteString(ui.Yellow.Render("! Cannot merge: ") +
+				r.blocked + "\n\n")
+		}
+		for i, opt := range v.options() {
 			cursor := "  "
 			label := opt.label
 			if i == r.sel {
@@ -1461,6 +1604,55 @@ func (v *View) Overlay() string {
 		BorderForeground(lipgloss.Color(ui.Pal().Accent)).
 		Padding(0, 2).
 		Render(b.String())
+}
+
+// mergeDoneMsg reports the outcome of a merge.
+type mergeDoneMsg struct {
+	what string
+	url  string
+	// auto is set when this enabled auto-merge rather than merging now, so
+	// the row is not struck through for a PR that is still open.
+	auto bool
+	err  error
+}
+
+// submitMerge shells out to gh pr merge. The method comes from config, and
+// gh reports a repo that forbids it rather than agenda guessing.
+func (v *View) submitMerge(auto bool) tea.Cmd {
+	r := v.review
+	r.submitting = true
+	args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo,
+		"--" + v.cfg.ResolvedMergeMethod()}
+	if auto {
+		args = append(args, "--auto")
+	}
+	if v.cfg.MergeDeleteBranch {
+		args = append(args, "--delete-branch")
+	}
+	what := fmt.Sprintf("merged %s#%d", r.repo, r.num)
+	if auto {
+		what = fmt.Sprintf("auto-merge enabled on %s#%d", r.repo, r.num)
+	}
+	url := r.url
+	return func() tea.Msg {
+		if out, err := exec.Command("gh", args...).CombinedOutput(); err != nil {
+			return mergeDoneMsg{err: ghErr(err, out), auto: auto}
+		}
+		return mergeDoneMsg{what: what, url: url, auto: auto}
+	}
+}
+
+// ghErr prefers gh's own message over the bare exit status: "not
+// mergeable" or a forbidden method is the useful part, and cmdErr would
+// reduce it to "exit status 1".
+func ghErr(err error, out []byte) error {
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "X"))
+		if line != "" && !strings.HasPrefix(line, "!") {
+			return errors.New(line)
+		}
+	}
+	return cmdErr(err)
 }
 
 // submitReview shells out to gh pr review with the flow's verdict and body.

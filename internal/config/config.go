@@ -173,6 +173,28 @@ type GitHubConfig struct {
 	// reviewed and tags them "reviewed", so the eye can skip them. Off by
 	// default.
 	MarkReviewed bool `yaml:"mark_reviewed"`
+	// Merge adds merge entries to the review popup ('r'). Off by default:
+	// merging is the one irreversible action in that popup, so it is opt-in
+	// rather than a keypress away for everyone.
+	Merge bool `yaml:"merge"`
+	// MergeMethod is how Merge merges: "squash" (default), "merge" or
+	// "rebase". A repo may forbid the one you pick, which gh reports.
+	MergeMethod string `yaml:"merge_method"`
+	// MergeDeleteBranch deletes the head branch after a successful merge,
+	// for repos that do not do it themselves. Off by default.
+	MergeDeleteBranch bool `yaml:"merge_delete_branch"`
+}
+
+// ResolvedMergeMethod is the gh flag for the configured merge method,
+// defaulting to squash. An unrecognised value falls back rather than
+// failing: gh would reject a bad flag well after the confirmation.
+func (g GitHubConfig) ResolvedMergeMethod() string {
+	switch g.MergeMethod {
+	case "merge", "rebase":
+		return g.MergeMethod
+	default:
+		return "squash"
+	}
 }
 
 // LazyPagingEnabled reports whether the PR search pages lazily.

@@ -249,6 +249,14 @@ out of the box agenda looks and acts as it did before these options existed.
 - **Floating detail**: with the preview pane off, `v` opens the detail as a
   centered window over the list rather than splitting the pane, and moving
   to another row closes it. `z` still zooms the pane when one is in view.
+- **Merge from the popup**: with `github.merge: true`, the review popup
+  ('r') gains `m` to merge and `M` to enable auto-merge. It always
+  confirms first, naming the PR and the method, and refuses a draft, a
+  conflict or a pending mergeability check rather than failing at the
+  `gh` call. An unapproved or failing PR warns but still asks: the repo's
+  own rules are what gate the merge. `github.merge_method` picks squash
+  (default), merge or rebase, and `github.merge_delete_branch` cleans up
+  the head branch.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.
