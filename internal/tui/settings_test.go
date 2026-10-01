@@ -62,7 +62,12 @@ func TestOverlayToggleAndCycle(t *testing.T) {
 	cfg := config.Default()
 	o := newConfigOverlay()
 
-	// First selectable row is the theme enum; cycling right moves off default.
+	// The theme enum lives on the appearance tab, which is no longer the
+	// one the overlay opens on: go there rather than assuming a position.
+	if !seekPath(o, cfg, "theme.name") {
+		t.Fatal("theme.name is not reachable from any tab")
+	}
+	// Cycling right moves off default.
 	change, closed := o.Update(press(' '), cfg)
 	if closed || change == nil {
 		t.Fatal("space on the enum row should commit a cycle")
@@ -93,9 +98,11 @@ func TestOverlayToggleAndCycle(t *testing.T) {
 func TestOverlayTextEditValidation(t *testing.T) {
 	cfg := config.Default()
 	o := newConfigOverlay()
-	// Move to the first text row (refresh every).
-	for o.rows[o.cursor].kind != kindText {
-		o.Update(press('j'), cfg)
+	// Move to the first text row (refresh every). It is not in the tab the
+	// overlay opens on, so walk tabs as well as rows, and bound both: an
+	// unbounded walk hangs the suite rather than failing it.
+	if !seekKind(o, cfg, kindText) {
+		t.Fatal("no text row reachable from any tab")
 	}
 	o.Update(special(tea.KeyEnter), cfg) // start editing
 	if !o.editing {
@@ -165,4 +172,43 @@ func TestEveryConfigKeyHasASettingRow(t *testing.T) {
 			t.Errorf("config key %q has no row in the ctrl+s overlay; add one or list it as file-only", key)
 		}
 	}
+}
+
+// seekKind moves the cursor to the first row of kind k, across tabs.
+// Bounded so a row that has become unreachable fails the test instead of
+// hanging it.
+func seekKind(o *configOverlay, cfg config.Config, k settingKind) bool {
+	for tab := 0; tab < len(settingsTabs); tab++ {
+		for i := 0; i < len(o.rows); i++ {
+			if o.rows[o.cursor].kind == k {
+				return true
+			}
+			before := o.cursor
+			o.Update(press('j'), cfg)
+			if o.cursor == before {
+				break // hit the end of this tab
+			}
+		}
+		o.Update(special(tea.KeyTab), cfg)
+	}
+	return o.rows[o.cursor].kind == k
+}
+
+// seekPath moves the cursor to the row with this config path, across tabs.
+// Bounded, so a path that has become unreachable fails rather than hangs.
+func seekPath(o *configOverlay, cfg config.Config, path string) bool {
+	for tab := 0; tab < len(settingsTabs); tab++ {
+		for i := 0; i < len(o.rows); i++ {
+			if o.rows[o.cursor].path == path {
+				return true
+			}
+			before := o.cursor
+			o.Update(press('j'), cfg)
+			if o.cursor == before {
+				break
+			}
+		}
+		o.Update(special(tea.KeyTab), cfg)
+	}
+	return o.rows[o.cursor].path == path
 }

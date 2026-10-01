@@ -174,7 +174,7 @@ func settingsTable() []setting {
 			get: func(config.Config) string { return "" },
 			set: func(*config.Config, string) {},
 		},
-		header("Lists"),
+		header("Behavior"),
 		boolSetting("mark new items", "unread", "",
 			func(c config.Config) bool { return c.UnreadEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.Unread, v) }),
@@ -335,10 +335,161 @@ func (sc settingChange) fileValue() any {
 	return sc.val
 }
 
-// configOverlay is the ctrl+s modal: a cursor over the settings table.
+// settingsTabs groups the table's sections into tabs, so the overlay is a
+// few screenfuls to page between rather than one long scroll. Each entry
+// lists the section headers it holds, in table order; a section missing
+// from every tab would be unreachable, which a test checks.
+var settingsTabs = []struct {
+	name     string
+	sections []string
+}{
+	{"general", []string{"Behavior", "Views", "Keybinds"}},
+	{"appearance", []string{"Theme"}},
+	{"alerts", []string{"Auto-refresh", "Notifications"}},
+	{"prs", []string{"PRs"}},
+	{"linear", []string{"Linear", "Linear filter"}},
+	{"sessions", []string{"Sessions"}},
+}
+
+// overlayWidth fixes the panel's inner width so it does not resize as you
+// move between tabs: a box that changes size under the cursor reads as the
+// whole panel jumping. Wide enough for the longest row (the config path)
+// and every tab's labels and values.
+const (
+	overlayWidth = 72
+	// The border (2) and horizontal padding (4) that Width() counts, so the
+	// rule and the hint can be sized to the actual text area.
+	overlayChrome  = 6
+	overlayContent = overlayWidth - overlayChrome
+)
+
+// TopY is the overlay's top row: where the tallest tab would sit if it
+// were centered, so the panel holds still and grows downward instead of
+// re-centering itself every time you switch tabs.
+func (o *configOverlay) TopY(cfg config.Config, screenH int) int {
+	// Measure the real render rather than recomputing its arithmetic: a
+	// duplicate formula was off by one on the single-section tabs, which
+	// print no header.
+	saved := o.tab
+	tallest := 0
+	for i := range settingsTabs {
+		o.tab = i
+		if h := lipgloss.Height(o.View(cfg)); h > tallest {
+			tallest = h
+		}
+	}
+	o.tab = saved
+	if tallest >= screenH {
+		return 0 // taller than the screen: start at the top, not above it
+	}
+	return max(0, (screenH-tallest)/2)
+}
+
+// Rows above the first setting inside the box: the border, the title, a
+// blank, the tab bar, the rule, and a blank. Derived from View's own
+// preamble, and a test renders the overlay to confirm they agree.
+const settingsPreamble = 6
+
+// RowAt maps a click inside the overlay to a settings row, given the box's
+// top-left corner. Returns -1 for a click on the chrome, a header, or a
+// blank line between sections.
+func (o *configOverlay) RowAt(boxX, boxY, x, y int) int {
+	line := y - boxY - settingsPreamble
+	if line < 0 {
+		return -1
+	}
+	// Walk the visible rows the way View prints them, counting the blank
+	// line a section header puts before it (bar the first).
+	vis := o.visible()
+	sections := 0
+	for _, idx := range vis {
+		if o.rows[idx].kind == kindHeader {
+			sections++
+		}
+	}
+	printHeaders := sections >= 2
+
+	at := 0
+	for n, idx := range vis {
+		if o.rows[idx].kind == kindHeader {
+			if !printHeaders {
+				continue
+			}
+			if n > 0 {
+				at++ // the blank line before the header
+			}
+			at++ // the header itself
+			continue
+		}
+		if at == line {
+			return idx
+		}
+		at++
+	}
+	return -1
+}
+
+// TabAt maps a click on the tab bar to a tab index, or -1. The tab bar is
+// the fourth row inside the box (border, title, blank, tabs).
+func (o *configOverlay) TabAt(boxX, boxY, x, y int) int {
+	if y-boxY != 3 {
+		return -1
+	}
+	// The bar starts after the border and the left padding.
+	col := x - boxX - 3
+	at := 0
+	for i, t := range settingsTabs {
+		w := lipgloss.Width(t.name)
+		if col >= at && col < at+w {
+			return i
+		}
+		at += w + 2 // the two spaces between tabs
+	}
+	return -1
+}
+
+// SetCursor moves to a row, ignoring headers and anything out of range.
+func (o *configOverlay) SetCursor(i int) {
+	if i < 0 || i >= len(o.rows) || o.rows[i].kind == kindHeader {
+		return
+	}
+	o.cursor, o.errMsg = i, ""
+}
+
+// SetTabIndex switches to a tab by index.
+func (o *configOverlay) SetTabIndex(i int) {
+	if i < 0 || i >= len(settingsTabs) || i == o.tab {
+		return
+	}
+	o.tab = i
+	o.editing, o.buf, o.errMsg = false, "", ""
+	o.cursor = o.firstSetting()
+}
+
+// Size is the overlay's rendered width and height, for hit-testing.
+func (o *configOverlay) Size(cfg config.Config) (w, h int) {
+	v := o.View(cfg)
+	return lipgloss.Width(v), lipgloss.Height(v)
+}
+
+// tabBar renders the section tabs, the active one highlighted.
+func (o *configOverlay) tabBar() string {
+	var parts []string
+	for i, t := range settingsTabs {
+		if i == o.tab {
+			parts = append(parts, ui.Accent.Bold(true).Render(t.name))
+			continue
+		}
+		parts = append(parts, ui.Dim.Render(t.name))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// configOverlay is the ctrl+s modal: a cursor over one tab's rows.
 type configOverlay struct {
 	rows    []setting
-	cursor  int
+	tab     int
+	cursor  int // an index into o.rows, always within the active tab
 	editing bool
 	buf     string
 	errMsg  string
@@ -346,19 +497,85 @@ type configOverlay struct {
 
 func newConfigOverlay() *configOverlay {
 	o := &configOverlay{rows: settingsTable()}
-	o.cursor = o.next(-1, +1) // first selectable row
+	o.cursor = o.firstSetting()
 	return o
+}
+
+// firstSetting is the active tab's first non-header row.
+func (o *configOverlay) firstSetting() int {
+	for _, idx := range o.visible() {
+		if o.rows[idx].kind != kindHeader {
+			return idx
+		}
+	}
+	return 0
+}
+
+// visible lists the table indices the active tab shows, in table order.
+// Collected rather than sliced: a tab's sections need not be adjacent in
+// the table, and assuming they were left one section unreachable.
+func (o *configOverlay) visible() []int {
+	var out []int
+	// Section order follows the tab's own list, not the table's: the tab
+	// decides what reads first, and the table's order is incidental.
+	for _, want := range settingsTabs[o.tab].sections {
+		show := false
+		for i, s := range o.rows {
+			if s.kind == kindHeader {
+				show = s.label == want
+			}
+			if show {
+				out = append(out, i)
+			}
+		}
+	}
+	return out
+}
+
+// inTab reports whether a section header belongs to the active tab.
+func (o *configOverlay) inTab(section string) bool {
+	for _, want := range settingsTabs[o.tab].sections {
+		if want == section {
+			return true
+		}
+	}
+	return false
+}
+
+// setTab switches tabs and puts the cursor on that tab's first setting.
+func (o *configOverlay) setTab(d int) {
+	o.tab = (o.tab + d + len(settingsTabs)) % len(settingsTabs)
+	o.editing, o.buf, o.errMsg = false, "", ""
+	o.cursor = o.firstSetting()
 }
 
 // next returns the nearest selectable (non-header) row from i in direction d,
 // or i's clamp when there is none.
 func (o *configOverlay) next(i, d int) int {
-	for j := i + d; j >= 0 && j < len(o.rows); j += d {
-		if o.rows[j].kind != kindHeader {
-			return j
+	vis := o.visible()
+	// Walk the visible indices, not the table: the tab's rows may not be
+	// one contiguous run.
+	at := -1
+	for k, idx := range vis {
+		if idx == i {
+			at = k
+			break
 		}
 	}
-	return max(0, min(i, len(o.rows)-1))
+	for k := at + d; k >= 0 && k < len(vis); k += d {
+		if o.rows[vis[k]].kind != kindHeader {
+			return vis[k]
+		}
+	}
+	if at >= 0 {
+		return i // no further setting this way: stay put
+	}
+	for _, idx := range vis {
+		if o.rows[idx].kind != kindHeader {
+			return idx
+		}
+	}
+	return 0
 }
 
 // Update handles one key. It returns a committed change (nil for pure
@@ -370,6 +587,14 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 		switch msg.String() {
 		case "esc":
 			o.editing, o.buf, o.errMsg = false, "", ""
+		case "tab", "shift+tab":
+			// Leave the edit behind rather than typing the key into it: a
+			// half-typed value must not follow the cursor to another tab.
+			d := +1
+			if msg.String() == "shift+tab" {
+				d = -1
+			}
+			o.setTab(d)
 		case "enter":
 			if _, err := parseDur(o.buf); err != nil {
 				o.errMsg = err.Error()
@@ -398,6 +623,10 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 	switch msg.String() {
 	case "esc", "q", "ctrl+s":
 		return nil, true
+	case "tab":
+		o.setTab(+1)
+	case "shift+tab":
+		o.setTab(-1)
 	case "up", "k":
 		o.cursor, o.errMsg = o.next(o.cursor, -1), ""
 	case "down", "j":
@@ -446,19 +675,39 @@ func cycle(opts []string, cur string, d int) string {
 
 // View renders the overlay box.
 func (o *configOverlay) View(cfg config.Config) string {
+	vis := o.visible()
 	labelW := 0
-	for _, s := range o.rows {
-		if s.kind != kindHeader && len(s.label) > labelW {
+	for _, idx := range vis {
+		if s := o.rows[idx]; s.kind != kindHeader && len(s.label) > labelW {
 			labelW = len(s.label)
 		}
 	}
 
 	var b strings.Builder
-	b.WriteString(ui.Bold.Render("Config"))
+	b.WriteString(ui.Bold.Render("settings"))
 	b.WriteString("\n\n")
-	for i, s := range o.rows {
+	b.WriteString(o.tabBar())
+	b.WriteString("\n")
+	// A rule under the tabs, full width: it separates the sections from the
+	// rows, and the fixed width stops the box resizing per tab, which made
+	// switching tabs feel like the panel jumped.
+	b.WriteString(ui.Dim.Render(strings.Repeat("─", overlayContent)))
+	b.WriteString("\n\n")
+	// A tab holding one section needs no header: the tab name already says
+	// it, and repeating it costs a row for nothing.
+	sections := 0
+	for _, idx := range vis {
+		if o.rows[idx].kind == kindHeader {
+			sections++
+		}
+	}
+	for n, idx := range vis {
+		i, s := idx, o.rows[idx]
 		if s.kind == kindHeader {
-			if i > 0 {
+			if sections < 2 {
+				continue
+			}
+			if n > 0 {
 				b.WriteByte('\n')
 			}
 			b.WriteString(ui.Dim.Render(s.label))
@@ -497,11 +746,12 @@ func (o *configOverlay) View(cfg config.Config) string {
 	path, _ := config.Path()
 	b.WriteString(ui.Faint.Render(path))
 	b.WriteByte('\n')
-	b.WriteString(ui.Dim.Render("↑↓ move · space/←→ change · enter edit · esc close"))
+	b.WriteString(ui.Dim.Render("↑↓ move · tab section · ←→ change · enter edit · esc close"))
 
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(ui.Pal().Accent)).
 		Padding(0, 2).
+		Width(overlayWidth).
 		Render(b.String())
 }

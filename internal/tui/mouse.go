@@ -174,8 +174,10 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	case m.helpOpen:
 		m.helpOpen = false
 		return m, nil
-	case m.keysEd != nil, m.settings != nil:
+	case m.keysEd != nil:
 		return m, nil
+	case m.settings != nil:
+		return m.clickSettings(x, y)
 	case m.picker != nil:
 		if !m.inCenteredBox(m.picker.View(), x, y) {
 			m.picker, m.pickerRefs = nil, nil
@@ -256,6 +258,46 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	}
 	m.lastClick = hit
 	return m, cmd
+}
+
+// clickSettings routes a click in the config overlay: a tab switches, a
+// row selects and toggles, outside closes. Toggling on the first click
+// rather than selecting then toggling: the row under the pointer is the
+// one you meant, and a second click to act on it is a step for nothing.
+func (m Model) clickSettings(x, y int) (tea.Model, tea.Cmd) {
+	w, h := m.settings.Size(m.cfg)
+	bx := max(0, (m.width-w)/2)
+	by := m.settings.TopY(m.cfg, m.height)
+	if x < bx || x >= bx+w || y < by || y >= by+h {
+		m.settings = nil // a click outside closes, like the other modals
+		return m, nil
+	}
+	if t := m.settings.TabAt(bx, by, x, y); t >= 0 {
+		m.settings.SetTabIndex(t)
+		return m, nil
+	}
+	row := m.settings.RowAt(bx, by, x, y)
+	if row < 0 {
+		return m, nil // the chrome, a header, or a blank line
+	}
+	m.settings.SetCursor(row)
+	// An editable row needs the keyboard, so a click selects it and waits
+	// rather than opening an edit the pointer cannot finish.
+	s := &m.settings.rows[row]
+	switch s.kind {
+	case kindBool:
+		val := "on"
+		if s.get(m.cfg) == "on" {
+			val = "off"
+		}
+		return m, m.commitSetting(&settingChange{s: s, val: val})
+	case kindEnum:
+		return m, m.commitSetting(&settingChange{
+			s: s, val: cycle(s.options(), s.get(m.cfg), +1)})
+	case kindAction:
+		return m, m.commitSetting(&settingChange{s: s})
+	}
+	return m, nil
 }
 
 // modalOpen reports whether an overlay is capturing input, so the mouse

@@ -627,6 +627,20 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// commitSetting writes a change to the live config, the file, and whatever
+// live re-apply its path warrants. Shared by the keyboard and the mouse so
+// the two cannot drift.
+func (m *Model) commitSetting(change *settingChange) tea.Cmd {
+	if change.s.kind == kindAction {
+		return m.runAction(change.s.path)
+	}
+	change.s.set(&m.cfg, change.val)
+	if err := config.Set(change.s.path, change.fileValue()); err != nil {
+		m.settings.errMsg = err.Error()
+	}
+	return m.applyConfigChange(change.s.path)
+}
+
 // concealTransient ends a transient reveal (see ui.ConcealPreviewMsg), and
 // its mirror: a pane peeked away with the toggle comes back, since the
 // pane is what the config asks for.
@@ -1131,9 +1145,16 @@ func (m Model) View() tea.View {
 		content = m.overlayCentered(content, m.keysEd.View(m.cfg.Keys, m.contentHeight()-10))
 	}
 
-	// Composite the config overlay centered over the content, if open.
+	// Composite the config overlay, if open. Its top edge is pinned rather
+	// than centered: tabs differ in height, and centering each one moved
+	// the whole panel up and down as you switched.
 	if m.settings != nil {
-		content = m.overlayCentered(content, m.settings.View(m.cfg))
+		box := m.settings.View(m.cfg)
+		x, _ := m.centerOf(box)
+		content = lipgloss.NewCompositor(
+			lipgloss.NewLayer(content),
+			lipgloss.NewLayer(box).X(x).Y(m.settings.TopY(m.cfg, m.height)).Z(1),
+		).Render()
 	}
 
 	// The notification toast sits top-right, above everything.
