@@ -327,9 +327,15 @@ out of the box agenda looks and acts as it did before these options existed.
   marker and the help key on the right. Warnings and errors no longer
   hold a permanent row: the toast announces one and the footer says it is
   waiting, so `!` opens the log when you want it.
+- **Pane focus**: right arrow puts the keys in the preview pane, left
+  gives them back to the list, and the list dims while they are away so
+  only one cursor is lit. Works for every pane that has something to
+  navigate or scroll: jobs, diffs, comments, and Linear's comments. In
+  Linear the nav tree keeps the left arrow, so the preview takes the
+  right. Arrows and page keys move within the focused pane.
 - **esc closes things**: one rule across the app, innermost first. A job
-  log, then the jobs pane, then a diff or comments pane, then a floating
-  detail, then zoom. It never closes agenda; that is `q` alone, and a
+  log, then the jobs pane, then pane focus, then the pane itself, then a
+  floating detail, then zoom. It never closes agenda; that is `q` alone, and a
   preview pane you configured on stays, since esc only undoes what was
   opened over it.
 - **Keybinds**: every action remappable per scope.

@@ -702,6 +702,10 @@ type View struct {
 	// jobSel and jobsOpen are its cursor and expanded jobs, belonging to
 	// the PR jobsFor; nav is the list's movement keys, reused there.
 	jobsFocus bool
+	// paneFocus is focus for the panes that scroll (a diff, comments)
+	// rather than holding their own cursor. jobsFocus is the jobs pane's
+	// own, since it tracks a row as well.
+	paneFocus bool
 	jobSel    jobCursor
 	jobsOpen  map[string]bool
 	jobsFor   string
@@ -1458,6 +1462,19 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				return ui.RevealPreview
 			}
 		}
+		// Every other pane takes focus the same way: right arrow in, left
+		// arrow back to the list. These scroll rather than holding a
+		// cursor, so the root model routes the arrows to the preview.
+		if v.pane == paneDiff || v.pane == paneComments {
+			switch {
+			case !v.paneFocus && msg.String() == "right":
+				v.paneFocus = true
+				return ui.RevealPreview
+			case v.paneFocus && msg.String() == "left":
+				v.paneFocus = false
+				return nil
+			}
+		}
 		if v.filterEd != nil {
 			return v.updateFilterEdit(msg)
 		}
@@ -1616,6 +1633,7 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	// Opening the jobs pane is asking to look through the jobs, so it takes
 	// the keys straight away; esc hands them back to the PR list.
 	v.jobsFocus = mode == paneJobs
+	v.paneFocus = false // a new pane starts unfocused, beside a lit list
 	// The pane is about to show a diff, comments or jobs; a hidden preview
 	// would swallow it silently.
 	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs())
@@ -2476,7 +2494,7 @@ func (v *View) SetSize(listW, prevW, h int) {
 func (v *View) ListView() string {
 	// The list dims while a pane has the keys, so the only lit cursor on
 	// screen is the one the arrows will move.
-	v.list.SetBlurred(v.jobsFocus && v.pane == paneJobs)
+	v.list.SetBlurred(v.PaneFocused())
 	header := ""
 	switch {
 	case v.input != nil:
@@ -2862,6 +2880,32 @@ func (v *View) restoreFilter(path, prev string) {
 	v.cfg.ReviewFilter = prev
 }
 
+// PaneFocused reports whether the preview pane has the keys.
+func (v *View) PaneFocused() bool {
+	return (v.jobsFocus && v.pane == paneJobs) || v.paneFocus
+}
+
+// FocusPane gives the pane the keys or takes them back, reporting whether
+// anything changed so a no-op key does not redraw.
+func (v *View) FocusPane(on bool) bool {
+	if v.PaneFocused() == on {
+		return false
+	}
+	switch v.pane {
+	case paneJobs:
+		v.jobsFocus = on
+	case paneBody:
+		return false // nothing to focus: the description just scrolls
+	default:
+		v.paneFocus = on
+	}
+	return true
+}
+
+// PaneScrolls reports a pane that scrolls rather than holding its own
+// cursor, so the arrows should move the preview.
+func (v *View) PaneScrolls() bool { return v.paneFocus && v.pane != paneJobs }
+
 // Dismiss closes the innermost pane this view has open, reporting whether
 // it closed anything so the root model knows if esc still has work to do.
 // Order matters: the log sits inside the jobs pane, which sits inside the
@@ -2873,9 +2917,9 @@ func (v *View) Dismiss() bool {
 		// Back to the jobs list, which is what the log's own hint says.
 		v.logView = nil
 		return true
-	case v.jobsFocus:
+	case v.PaneFocused():
 		// Focus back to the list: the pane stays open beside it.
-		v.jobsFocus = false
+		v.jobsFocus, v.paneFocus = false, false
 		return true
 	case v.pane != paneBody:
 		v.pane = paneBody
