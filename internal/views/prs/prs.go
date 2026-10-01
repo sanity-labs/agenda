@@ -2979,7 +2979,10 @@ func (v *View) Bindings() []key.Binding {
 		}
 		return v.jobsBindings()
 	}
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
+	if v.PaneFocused() && v.pane == paneFiles {
+		return v.filesBindings()
+	}
+	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Files, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
 }
 
 // Status is the footer's right-hand slot. The list header already carries
@@ -3021,6 +3024,17 @@ func (v *View) restoreFilter(path, prev string) {
 		return
 	}
 	v.cfg.ReviewFilter = prev
+}
+
+// filesBindings are the footer's keys while the file list has focus: its
+// own, since the list's keys do nothing there.
+func (v *View) filesBindings() []key.Binding {
+	return []key.Binding{
+		ui.Bind([]string{"+"}, "", "expand"),
+		ui.Bind([]string{"-"}, "", "collapse"),
+		ui.Bind([]string{"space"}, "", "reviewed"),
+		ui.Bind([]string{"esc"}, "", "back"),
+	}
 }
 
 // PaneFocused reports whether the preview pane has the keys.

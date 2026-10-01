@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"regexp"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -110,5 +112,40 @@ func TestDigitsCollideWithViewJump(t *testing.T) {
 	target := keyEntry{scope: "prs", action: "diff", label: "diff", def: []string{"d"}}
 	if other, clash := findCollision(config.Keymap{}, target, "2"); !clash || other.action != "view_jump" {
 		t.Errorf("digit capture should collide with the view jump, got %+v %v", other, clash)
+	}
+}
+
+// Every action a view binds has to be in the registry, or it cannot be
+// remapped and does not appear in the keybind editor. The binding still
+// works, so the gap is invisible until someone tries to change it: that
+// is how edit_filter shipped unremappable.
+//
+// The actions are read out of the view sources rather than listed here,
+// so a new bind() call is covered without anyone remembering to add it.
+func TestEveryViewActionIsRegistered(t *testing.T) {
+	registered := map[string]bool{}
+	for _, b := range keyRegistry() {
+		registered[b.scope+"."+b.action] = true
+	}
+
+	bindCall := regexp.MustCompile(`bind\("([a-z_]+)"`)
+	for scope, file := range map[string]string{
+		"prs":      "../views/prs/prs.go",
+		"linear":   "../views/linear/linear.go",
+		"sessions": "../views/sessions/sessions.go",
+	} {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+		for _, m := range bindCall.FindAllStringSubmatch(string(src), -1) {
+			action := m[1]
+			if registered[scope+"."+action] || registered["list."+action] ||
+				registered["global."+action] {
+				continue
+			}
+			t.Errorf("%s binds %q but it is not in keyRegistry, so it cannot"+
+				" be remapped", scope, action)
+		}
 	}
 }
