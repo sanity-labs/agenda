@@ -184,7 +184,75 @@ func (p pr) Fields() []ui.Field {
 		{Name: "title", Text: p.Title},
 		{Name: "description", Text: p.Body},
 		{Name: "author", Text: p.Author.Login},
+		// Qualifier-only, so the in-app filter can say "-label:deps" or
+		// "is:draft" the way a GitHub search does. Qualified keeps them out
+		// of the bare-word match: searching "open" should not return every
+		// open PR.
+		{Name: "label", Text: p.labelText(), Qualified: true},
+		{Name: "is", Text: p.stateTerms(), Qualified: true},
+		{Name: "review", Text: p.reviewTerm(), Qualified: true},
+		{Name: "checks", Text: p.checksTerm(), Qualified: true},
 	}
+}
+
+// labelText joins the PR's label names, for the "label:" qualifier.
+func (p pr) labelText() string {
+	names := make([]string, 0, len(p.Labels.Nodes))
+	for _, l := range p.Labels.Nodes {
+		names = append(names, l.Name)
+	}
+	return strings.Join(names, " ")
+}
+
+// stateTerms are the words "is:" accepts for this PR. Several can apply at
+// once (an open draft), so the field holds them all.
+func (p pr) stateTerms() string {
+	var terms []string
+	switch strings.ToUpper(p.State) {
+	case "OPEN":
+		terms = append(terms, "open")
+	case "MERGED":
+		terms = append(terms, "merged")
+	case "CLOSED":
+		terms = append(terms, "closed")
+	}
+	if p.IsDraft {
+		terms = append(terms, "draft")
+	}
+	if p.Mergeable == "CONFLICTING" {
+		terms = append(terms, "conflicting")
+	}
+	return strings.Join(terms, " ")
+}
+
+// reviewTerm is the word "review:" accepts, mirroring GitHub's own
+// review:approved / review:required / review:changes_requested.
+func (p pr) reviewTerm() string {
+	switch p.ReviewDecision {
+	case "APPROVED":
+		return "approved"
+	case "CHANGES_REQUESTED":
+		return "changes_requested"
+	case "REVIEW_REQUIRED":
+		return "required"
+	}
+	return "none"
+}
+
+// checksTerm is the word "checks:" accepts: passing, failing or pending.
+func (p pr) checksTerm() string {
+	pass, fail, run, total := p.checkCounts()
+	switch {
+	case total == 0 && p.ciState() == "":
+		return "none"
+	case fail > 0:
+		return "failing"
+	case run > 0:
+		return "pending"
+	case pass > 0:
+		return "passing"
+	}
+	return "none"
 }
 
 // linearRefRe matches a Linear issue identifier (team key + number), e.g.
@@ -582,6 +650,9 @@ type View struct {
 	// hideApproved drops already-approved PRs from the review list.
 	hideApproved bool
 
+	// filterEd is the open search-filter editor ('F'), nil when closed.
+	filterEd *filterEdit
+
 	// unread is the set of URLs that arrived since the last fetch, by URL so
 	// it survives re-sorts and re-fetches. Selecting a row removes it.
 	unread   map[string]bool
@@ -747,6 +818,7 @@ type viewKeys struct {
 	OpenJob    key.Binding
 	JobLog     key.Binding
 	Rerun      key.Binding
+	EditFilter key.Binding
 }
 
 // binding looks a binding up by its action name, for prompts that name the
@@ -803,6 +875,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			OpenJob:    bind("open_job", "", "o"),
 			JobLog:     bind("job_log", "", "p"),
 			Rerun:      bind("rerun", "", "x"),
+			EditFilter: bind("edit_filter", "search", "F"),
 		},
 	}
 	if mode, ok := sortByName(cfg.Sort); ok {
@@ -1317,6 +1390,32 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.grouping = bool(msg)
 		v.applySort()
 		return nil
+	case filterTriedMsg:
+		if msg.badAuthor() {
+			// Put the filter back and say why, rather than persisting a
+			// query that empties the list: the editor would then be the
+			// only way out, and a restart would bring it back.
+			v.restoreFilter(msg.path, msg.prev)
+			v.loading = false
+			v.applySort()
+			return statusCmd(ui.SeverityWarn, fmt.Errorf(
+				"filter not saved: %s matches nothing, but does without its "+
+					"author terms. GitHub resolves author: against real "+
+					"accounts, and a name it cannot find voids the whole "+
+					"query (bots are app/<name>, e.g. app/renovate)",
+				msg.query))
+		}
+		if msg.err != nil {
+			v.restoreFilter(msg.path, msg.prev)
+			v.loading = false
+			v.applySort()
+			return statusCmd(ui.SeverityError, msg.err)
+		}
+		// It works: keep it, and load it properly.
+		return tea.Batch(
+			func() tea.Msg { return ui.ConfigSetMsg{Path: msg.path, Value: msg.query} },
+			v.fetch(),
+		)
 	case threadDoneMsg:
 		v.input = nil
 		if msg.err != nil {
@@ -1358,6 +1457,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				v.jobsFocus = true
 				return ui.RevealPreview
 			}
+		}
+		if v.filterEd != nil {
+			return v.updateFilterEdit(msg)
 		}
 		before := v.list.Selected().URL
 		if consumed, cmd := v.list.Update(msg); consumed {
@@ -1414,6 +1516,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				v.bodyKey = "" // the body is cached per expansion state
 			}
 			return nil
+		case key.Matches(msg, v.keys.EditFilter):
+			return v.editFilter()
 		case key.Matches(msg, v.keys.Comments):
 			return v.setPane(paneComments)
 		case key.Matches(msg, v.keys.Jobs):
@@ -2089,6 +2193,9 @@ func (v *View) applySort() {
 		}
 	}
 
+	// A lone section stays bandless, as it always has: a header costs two
+	// rows to say what the whole screen already is. The query goes with a
+	// band, so a single-section list simply has none.
 	if !v.showReview || (len(rev) == 0 && v.reviewErr == nil) {
 		v.list.SetItems(v.groupSection(mine))
 		return
@@ -2100,10 +2207,13 @@ func (v *View) applySort() {
 
 	var items []pr
 	if len(mine) > 0 {
-		items = append(items, pr{Separator: sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total)})
+		items = append(items, pr{Separator: v.bandWithQuery(
+			sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total),
+			v.cfg.Filter)})
 		items = append(items, v.groupSection(mine)...)
 	}
-	items = append(items, pr{Separator: v.reviewLabel(rev)})
+	items = append(items, pr{Separator: v.bandWithQuery(
+		v.reviewLabel(rev), v.cfg.ReviewFilter)})
 	items = append(items, v.groupSection(rev)...)
 	v.list.SetItems(items)
 }
@@ -2129,6 +2239,56 @@ func (v *View) reviewLabel(rev []pr) string {
 // sectionLabel names a section and counts it. total is what the search
 // matched: when more rows are still unpaged it reads "20 of 79", so a
 // partially loaded list never looks like the whole set.
+// bandWithQuery appends a section's search to its band. The label keeps
+// its room and the query takes what is left: the counts are what the band
+// is for, so the query is the part that gives way on a narrow terminal.
+func (v *View) bandWithQuery(label, query string) string {
+	q := strings.TrimSpace(query)
+	// Editing this section's filter: the band shows what is being typed,
+	// so the change appears on the row whose list it will change rather
+	// than in a header far from it.
+	if v.filterEd != nil && v.filterEd.label == bandSection(label) {
+		q = v.filterEd.query + "█"
+	}
+	if q == "" || v.listW <= 0 {
+		return label
+	}
+	// Glyph carries its own trailing space; adding another leaves the icon
+	// with a gap after it and none before.
+	icon := ui.Glyph(ui.IconSearch, "?")
+	// The query sits right after the counts, so it reads as belonging to
+	// this section rather than floating somewhere in the band. Faint and
+	// italic sets it apart from the label without a second colour: the
+	// band is reverse video, so the terminal blends the text toward the
+	// accent behind it and that works whatever the theme's accent is.
+	inner := v.listW - 2
+	avail := inner - lipgloss.Width(label) - lipgloss.Width(icon) - bandGap
+	if avail < bandQueryMin {
+		return label // too little room to say anything useful
+	}
+	shown := ansi.Truncate(q, avail, "…")
+	return label + strings.Repeat(" ", bandGap) +
+		ui.Faint.Italic(true).Render(icon+shown)
+}
+
+// bandSection names which search a band belongs to, matching the editor's
+// own label so the two can be paired.
+func bandSection(label string) string {
+	if strings.HasPrefix(label, "REVIEW REQUESTED") {
+		return "review requests"
+	}
+	return "my PRs"
+}
+
+const (
+	// bandQueryMin is the least room worth showing a query in: below it the
+	// ellipsis says more than the text does.
+	bandQueryMin = 12
+	// bandGap is the least space between the counts and the query, so they
+	// never run together when the query happens to fill the row.
+	bandGap = 4
+)
+
 func sectionLabel(name string, n, reviewed, total int) string {
 	label := fmt.Sprintf("%s  ·  %d", name, n)
 	if total > n {
@@ -2655,7 +2815,7 @@ func (v *View) Bindings() []key.Binding {
 		}
 		return v.jobsBindings()
 	}
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review}
+	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
 }
 
 // Status is the footer's right-hand slot. The list header already carries
@@ -2689,8 +2849,41 @@ func (v *View) FocusKeepLines() (first, n int, ok bool) {
 	return first + 1, n, ok
 }
 
+// restoreFilter puts a rejected filter back, so the list is still the one
+// the user had and the editor still opens on something that works.
+func (v *View) restoreFilter(path, prev string) {
+	if path == "github.filter" {
+		v.cfg.Filter = prev
+		return
+	}
+	v.cfg.ReviewFilter = prev
+}
+
+// Dismiss closes the innermost pane this view has open, reporting whether
+// it closed anything so the root model knows if esc still has work to do.
+// Order matters: the log sits inside the jobs pane, which sits inside the
+// preview, so esc walks out one layer at a time rather than collapsing
+// everything at once.
+func (v *View) Dismiss() bool {
+	switch {
+	case v.logView != nil:
+		// Back to the jobs list, which is what the log's own hint says.
+		v.logView = nil
+		return true
+	case v.jobsFocus:
+		// Focus back to the list: the pane stays open beside it.
+		v.jobsFocus = false
+		return true
+	case v.pane != paneBody:
+		v.pane = paneBody
+		return true
+	}
+	return false
+}
+
 func (v *View) InputActive() bool {
-	return v.list.Filtering() || v.review != nil || v.rerun != nil || v.input != nil
+	return v.list.Filtering() || v.review != nil || v.rerun != nil ||
+		v.input != nil || v.filterEd != nil
 }
 
 func (v *View) Fields() []string { return v.list.FieldNames() }

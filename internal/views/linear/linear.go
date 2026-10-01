@@ -1309,6 +1309,16 @@ func (v *View) Bindings() []key.Binding {
 // footer slot would only repeat them.
 func (v *View) Status() string { return "" }
 
+// Dismiss closes the comments pane, reporting whether it closed anything
+// so esc can fall through to a floated preview when it did not.
+func (v *View) Dismiss() bool {
+	if v.showComments {
+		v.showComments, v.commentsJumped = false, false
+		return true
+	}
+	return false
+}
+
 func (v *View) InputActive() bool { return v.list.Filtering() }
 
 func (v *View) Fields() []string { return v.list.FieldNames() }

@@ -301,6 +301,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setPreview(false, false)
 		}
 		return m, nil
+	case ui.ConfigSetMsg:
+		// A view applied this to its own config already; persist it so it
+		// survives the next run, and mirror it into the live config.
+		if err := config.Set(msg.Path, msg.Value); err != nil {
+			return m, func() tea.Msg {
+				return ui.Status(ui.SeverityError, "config", err.Error(), "")
+			}
+		}
+		switch msg.Path {
+		case "github.filter":
+			m.cfg.GitHub.Filter = msg.Value
+		case "github.review_filter":
+			m.cfg.GitHub.ReviewFilter = msg.Value
+		}
+		m.invalidateFrame()
+		return m, nil
 	case ui.ToastMsg:
 		m.toast = &msg
 		m.toastGen++
@@ -423,6 +439,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCurrent(msg)
 		}
 		switch {
+		case msg.String() == "esc":
+			// One rule for esc: step back one layer, and never close the
+			// app. The focused view gets it first, so a pane can unwind its
+			// own state (a log back to its jobs, focus back to the list)
+			// before the root model closes anything.
+			if len(m.views) > 0 {
+				if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
+					m.invalidateFrame()
+					return m, nil
+				}
+			}
+			return m.dismiss()
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.NextView):
@@ -852,6 +880,22 @@ func (m *Model) runAction(path string) tea.Cmd {
 		m.settings = nil
 		m.keysEd = newKeybindEditor()
 		return nil
+	case "action:reset_filters":
+		// Back to what a fresh install would use, both searches, written
+		// through so the file matches what the list is doing.
+		def := config.Default().GitHub
+		for path, val := range map[string]string{
+			"github.filter":        def.Filter,
+			"github.review_filter": def.ReviewFilter,
+		} {
+			if err := config.Set(path, val); err != nil {
+				m.settings.errMsg = err.Error()
+				return nil
+			}
+		}
+		m.cfg.GitHub.Filter, m.cfg.GitHub.ReviewFilter = def.Filter, def.ReviewFilter
+		m.settings.errMsg = ""
+		return nil
 	case "action:test_notification":
 		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.Sound == nil || *m.cfg.Notify.Sound, m.cfg.Notify.ClickAction())
 		if n == nil {
@@ -889,6 +933,10 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "unread_sync":
 		on := m.cfg.UnreadSync
 		return func() tea.Msg { return ui.UnreadSyncMsg(on) }
+	case path == "footer":
+		m.invalidateFrame()
+		m.layout()
+		return nil
 	case path == "hide_preview":
 		m.previewPeeked = false
 		return m.setPreview(m.cfg.HidePreview, false)
@@ -911,6 +959,27 @@ type filterable interface {
 	Fields() []string
 	FilterState() (string, []string, bool)
 	SetFilter(query string, enabled []string, caseSensitive bool)
+}
+
+// dismisser is optionally implemented by views with their own closable
+// panes (a diff, comments, a jobs list). Reports whether it closed
+// something, so esc can fall through to the preview when it did not.
+type dismisser interface {
+	Dismiss() bool
+}
+
+// dismiss closes the innermost open thing: a view's own pane first, then a
+// floated detail. Never the app, which is 'q' alone.
+func (m Model) dismiss() (tea.Model, tea.Cmd) {
+	if m.zoomed {
+		m.zoomed = false
+		m.layout()
+		return m, nil
+	}
+	if m.floating() {
+		return m, m.setPreview(true, false)
+	}
+	return m, nil
 }
 
 // overlayProvider is optionally implemented by views that render their own
@@ -1021,16 +1090,55 @@ const statusLogMax = 50
 
 // statusLine renders the newest message, or nothing when the log is empty or
 // the newest has been read (any message is cleared by opening the log).
-func (m Model) statusLine() string {
-	if len(m.status) == 0 || m.statusOpen {
+// statusLine is gone: the toast announces a message when it arrives, and
+// the footer says one is waiting, so a permanent row repeating it was the
+// same warning three times over. Kept as a stub returning "" so the height
+// arithmetic has one place to change if it ever comes back.
+func (m Model) statusLine() string { return "" }
+
+// unreadIssues counts messages worth pointing at: warnings and errors. A
+// success notice needs no footer marker.
+func (m Model) unreadIssues() int {
+	n := 0
+	for _, s := range m.status {
+		if s.Severity == ui.SeverityWarn || s.Severity == ui.SeverityError {
+			n++
+		}
+	}
+	return n
+}
+
+// issuesHint is the footer's pointer to the message log, or "" when there
+// is nothing to read.
+func (m Model) issuesHint() string {
+	n := m.unreadIssues()
+	if n == 0 {
 		return ""
 	}
-	latest := m.status[len(m.status)-1]
-	hint := ""
-	if bindings := m.keys.Messages.Keys(); len(bindings) > 0 {
-		hint = bindings[0]
+	keys := m.keys.Messages.Keys()
+	if len(keys) == 0 {
+		return ""
 	}
-	return latest.Line(m.width, hint)
+	label := "errors"
+	sev := ui.Red
+	if !m.hasError() {
+		sev = ui.Yellow
+	}
+	// The glyph carries its own trailing space; adding another leaves a gap
+	// that reads as an empty field between it and the key.
+	return sev.Render(ui.Glyph(ui.IconIssue, "!")) + " " +
+		m.theme.footerKey.Render(keys[0]) + " " +
+		m.theme.footerDesc.Render(label)
+}
+
+// hasError reports whether any message is an error rather than a warning.
+func (m Model) hasError() bool {
+	for _, s := range m.status {
+		if s.Severity == ui.SeverityError {
+			return true
+		}
+	}
+	return false
 }
 
 // layout recomputes per-view sizes after a resize.
@@ -1486,6 +1594,32 @@ func (m Model) renderFooter() string {
 		m.keys.Config, m.keys.Help, m.keys.Quit)
 
 	status := m.views[m.current].Status()
+
+	// Hidden: only what you cannot do without, on the right. The hotkeys
+	// are learnable; a waiting error and the way to the help are not.
+	if !m.cfg.FooterEnabled() {
+		parts := []string{}
+		if hint := m.issuesHint(); hint != "" {
+			parts = append(parts, hint)
+		}
+		if status != "" {
+			parts = append(parts, status)
+		}
+		parts = append(parts, m.theme.footerKey.Render(m.keys.Help.Keys()[0])+" "+
+			m.theme.footerDesc.Render("help"))
+		right := strings.Join(parts, m.theme.footerSep.Render())
+		gap := max(1, m.width-lipgloss.Width(right))
+		return m.theme.footer.Width(m.width).Render(
+			strings.Repeat(" ", gap) + right)
+	}
+
+	if hint := m.issuesHint(); hint != "" {
+		if status != "" {
+			status = hint + m.theme.footerSep.Render() + status
+		} else {
+			status = hint
+		}
+	}
 	left := mode + m.footerLine(full)
 	if lipgloss.Width(left)+lipgloss.Width(status)+1 > m.width {
 		compact := view

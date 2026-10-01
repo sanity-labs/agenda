@@ -34,8 +34,15 @@ func TestPRFields(t *testing.T) {
 			t.Errorf("Fields()[%q] = %q, want %q", name, got[name], text)
 		}
 	}
-	if len(got) != len(want) {
-		t.Errorf("Fields() returned %d fields, want %d", len(got), len(want))
+	// The qualifier-only fields are extra, so count the searchable ones.
+	searchable := 0
+	for _, f := range p.Fields() {
+		if !f.Qualified {
+			searchable++
+		}
+	}
+	if searchable != len(want) {
+		t.Errorf("Fields() has %d searchable fields, want %d", searchable, len(want))
 	}
 }
 

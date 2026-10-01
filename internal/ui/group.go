@@ -120,3 +120,11 @@ type UnreadSyncMsg bool
 // float, which ends when the selection moves, or a pane that stays open
 // and so shows the row you arrive at.
 type PreviewFloatingMsg bool
+
+// ConfigSetMsg asks the root model to persist a config value a view has
+// already applied to its own copy. Views cannot write the file themselves,
+// and the root model owns the live config.
+type ConfigSetMsg struct {
+	Path  string
+	Value string
+}

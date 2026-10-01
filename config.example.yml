@@ -23,6 +23,11 @@ update_check: true
 # select the row. Catches what a missed notification would have told you.
 unread: true
 
+# Show the hotkey bar along the bottom. On by default; with it off only a
+# waiting-errors marker and the help key remain, on the right, since those
+# are the two you cannot work around by memory.
+footer: true
+
 # Keep unread marks and GitHub notifications in step, both ways: reading a
 # row here marks its notification read, and a notification read on
 # github.com (or any other client) clears the mark here. Review-requested
@@ -157,6 +162,10 @@ github:
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
+  # Both filters take GitHub search syntax and are the starting point for
+  # every fetch; the in-app filter ('/') narrows what they returned, and
+  # takes qualified terms too (-label:deps, is:draft, review:approved,
+  # checks:failing) matched locally against the loaded rows.
   # The sort the PR list opens on: date, review, checks, repo, size or
   # author. Omit (or leave empty) for the view's default, date. 's' still
   # cycles sorts at runtime; this is only the starting point.

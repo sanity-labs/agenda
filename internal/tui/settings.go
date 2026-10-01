@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -165,6 +166,9 @@ func settingsTable() []setting {
 			},
 			set: func(c *config.Config, v string) { c.Theme.Name = v },
 		},
+		boolSetting("hotkey bar", "footer", "",
+			func(c config.Config) bool { return c.FooterEnabled() },
+			func(c *config.Config, v bool) { setOptBool(&c.Footer, v) }),
 		boolSetting("nerd font glyphs", "theme.glyphs", "",
 			func(c config.Config) bool { return c.GlyphsEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.Theme.Glyphs, v) }),
@@ -251,6 +255,24 @@ func settingsTable() []setting {
 			func(c config.Config) bool { return optBool(c.Linear.Enabled) },
 			func(c *config.Config, v bool) { setOptBool(&c.Linear.Enabled, v) }),
 		header("PRs"),
+		{
+			label: "search filter", path: "github.filter", kind: kindText,
+			note: "restart",
+			get:  func(c config.Config) string { return c.GitHub.Filter },
+			set:  func(c *config.Config, v string) { c.GitHub.Filter = v },
+		},
+		{
+			label: "review search filter", path: "github.review_filter",
+			kind: kindText, note: "restart",
+			get: func(c config.Config) string { return c.GitHub.ReviewFilter },
+			set: func(c *config.Config, v string) { c.GitHub.ReviewFilter = v },
+		},
+		{
+			label: ui.Glyph(ui.IconReset, "") + " reset filters",
+			path:  "action:reset_filters", kind: kindAction,
+			get: func(config.Config) string { return "" },
+			set: func(*config.Config, string) {},
+		},
 		sortSetting("github.sort", config.PRSortNames,
 			func(c config.Config) string { return c.GitHub.Sort },
 			func(c *config.Config, v string) { c.GitHub.Sort = v }),
@@ -733,6 +755,12 @@ func (o *configOverlay) View(cfg config.Config) string {
 		line := fmt.Sprintf("%s%-*s  %s", cursor, labelW, s.label, val)
 		if s.note != "" {
 			line += ui.Faint.Render("  (" + s.note + ")")
+		}
+		// One row per setting: a value long enough to wrap (a search
+		// filter, say) would shift every row below it, and the mouse
+		// hit-test counts rows.
+		if w := lipgloss.Width(line); w > overlayContent {
+			line = ansi.Truncate(line, overlayContent, "…")
 		}
 		b.WriteString(line)
 		b.WriteByte('\n')

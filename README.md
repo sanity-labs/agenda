@@ -303,6 +303,35 @@ out of the box agenda looks and acts as it did before these options existed.
   on a tab switches, a click on a row toggles or cycles it, a click
   outside closes. A test asserts every section belongs to exactly one tab,
   so a setting cannot become unreachable.
+- **GitHub-style filtering**: the in-app filter takes qualified terms as
+  well as fuzzy words, matched against the rows already loaded, so no
+  refetch: `-label:dependencies`, `is:draft`, `review:approved`,
+  `checks:failing`, `author:x`, `repo:y`, quoted values for labels with
+  spaces. Terms are ANDed and a leading `-` excludes. A bare word still
+  matches fuzzily across the visible fields.
+- **Edit the search**: `F` opens the GitHub search query for the section
+  the cursor is in (your PRs, or review requests), prefilled. Enter tries
+  it and writes it to config only once it returns something; esc cancels.
+  A filter that matches nothing *only* because of an author term is
+  rejected with a warning and the previous one restored: GitHub resolves
+  `author:` against real accounts and answers a name it cannot find with
+  a clean zero, so a typo looks exactly like "nothing matches". Bots are
+  `app/<name>`, e.g. `app/renovate`. Both filters are also editable rows
+  in the prs settings tab, with a reset action that puts them back to the
+  defaults.
+- **Effective query**: each section's band names the search that produced
+  it, so a missing PR can be explained from the screen. The counts keep
+  their room and the query truncates, since the counts are what the band
+  is for.
+- **Hotkey bar**: `footer: false` hides it, leaving a waiting-errors
+  marker and the help key on the right. Warnings and errors no longer
+  hold a permanent row: the toast announces one and the footer says it is
+  waiting, so `!` opens the log when you want it.
+- **esc closes things**: one rule across the app, innermost first. A job
+  log, then the jobs pane, then a diff or comments pane, then a floating
+  detail, then zoom. It never closes agenda; that is `q` alone, and a
+  preview pane you configured on stays, since esc only undoes what was
+  opened over it.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

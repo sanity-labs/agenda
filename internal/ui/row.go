@@ -76,6 +76,16 @@ func twoLineRow(width int, selected bool, glyphs, metaPlain, metaStyled, right, 
 // brighter version of the same one, or the eye files the two lists as one
 // list with a line through it. A filled line is the one shape no row can
 // produce, so it survives peripheral vision.
+// bandOpen is the escape sequence Band emits before its content, so a
+// nested reset can be followed by it to restore the band.
+func bandOpen() string {
+	rendered := Band.Render("x")
+	if i := strings.Index(rendered, "x"); i > 0 {
+		return rendered[:i]
+	}
+	return ""
+}
+
 func SectionSeparator(label string, width int) string {
 	if width < 1 {
 		return "\n"
@@ -84,5 +94,12 @@ func SectionSeparator(label string, width int) string {
 	// band instead of overflowing it and breaking the two-line row height.
 	text := Truncate(" "+label+" ", width)
 	pad := max(0, width-lipgloss.Width(text))
-	return "\n" + Band.Render(text+strings.Repeat(" ", pad))
+	// A style nested inside the label (a faint query, say) ends with a
+	// reset, which would close the band and leave the padding unfilled.
+	// Re-open the band after every reset so the row stays whole.
+	body := text + strings.Repeat(" ", pad)
+	if open := bandOpen(); strings.Contains(body, "\x1b[m") {
+		body = strings.ReplaceAll(body, "\x1b[m", "\x1b[m"+open)
+	}
+	return "\n" + Band.Render(body)
 }

@@ -21,6 +21,11 @@ type Field struct {
 	Name  string
 	Text  string
 	Prose bool
+	// Qualified marks a field that only a "name:value" term may match, not
+	// a bare word. Status words like "open" or "passing" would otherwise
+	// make a plain search for them match every such row, which is never
+	// what someone typing a word means.
+	Qualified bool
 }
 
 // Item is anything a List can hold. Render returns the row text for the given
@@ -466,11 +471,62 @@ func (l *List[T]) applyFilter() {
 			continue
 		}
 		// Separators drop out of a filtered list; matches render flat.
-		if selectable(l.items[i]) && l.itemMatches(l.items[i], q) {
+		if selectable(l.items[i]) && l.matchesQuery(l.items[i], q) {
 			l.filtered = append(l.filtered, i)
 		}
 	}
 	l.clampCursor()
+}
+
+// matchesQuery applies every term in the query: qualifiers ("label:deps")
+// against the named field, bare words fuzzily across the enabled fields.
+// Terms are ANDed, and a negated term excludes, so a filter reads the way
+// a GitHub search does.
+func (l *List[T]) matchesQuery(it T, q string) bool {
+	terms := ParseQuery(q)
+	for _, t := range terms {
+		ok := l.termMatches(it, t)
+		if t.Negated {
+			ok = !ok
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// termMatches reports whether one term matches, ignoring negation.
+func (l *List[T]) termMatches(it T, t Term) bool {
+	if t.Bare() {
+		return l.itemMatches(it, t.Value)
+	}
+	// A qualifier names its field, so the field scope ('f') does not apply:
+	// asking for label:deps means that field regardless of what is scoped.
+	val := t.Value
+	if !l.caseSensitive {
+		val = strings.ToLower(val)
+	}
+	found := false
+	for _, f := range it.Fields() {
+		if !strings.EqualFold(f.Name, t.Key) {
+			continue
+		}
+		found = true
+		text := f.Text
+		if !l.caseSensitive {
+			text = strings.ToLower(text)
+		}
+		// Qualifiers match by substring, not subsequence: "label:deps"
+		// should not match "dependency-expires" the way fuzzy would.
+		if strings.Contains(text, val) {
+			return true
+		}
+	}
+	// An unknown qualifier matches nothing rather than everything, so a
+	// typo shows an empty list instead of silently doing nothing.
+	_ = found
+	return false
 }
 
 // itemMatches reports whether q (already case-folded if needed) matches any
@@ -480,7 +536,7 @@ func (l *List[T]) applyFilter() {
 // almost any query and is never what the user means.
 func (l *List[T]) itemMatches(it T, q string) bool {
 	for _, f := range it.Fields() {
-		if !l.fieldEnabled(f.Name) {
+		if f.Qualified || !l.fieldEnabled(f.Name) {
 			continue
 		}
 		text := f.Text
@@ -590,10 +646,16 @@ func (l *List[T]) FilterLine() string {
 	}
 	faintStyle := lipgloss.NewStyle().Faint(true)
 
+	// The prefix says which kind of filter this is: a magnifier for a
+	// GitHub-style query, the scoped field names, or "/" for the plain
+	// all-fields match. One line, one format, whichever style is in use.
 	var prefix string
-	if scoped := l.EnabledFields(); len(scoped) > 0 {
-		prefix = strings.Join(scoped, "+") + ": "
-	} else {
+	switch {
+	case HasQualifier(l.query):
+		prefix = Glyph(IconSearch, "?") + " "
+	case len(l.EnabledFields()) > 0:
+		prefix = strings.Join(l.EnabledFields(), "+") + ": "
+	default:
 		prefix = "/" // all-fields quick filter
 	}
 
