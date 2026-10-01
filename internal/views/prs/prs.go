@@ -702,6 +702,8 @@ type View struct {
 	// jobSel and jobsOpen are its cursor and expanded jobs, belonging to
 	// the PR jobsFor; nav is the list's movement keys, reused there.
 	jobsFocus bool
+	// files is the per-PR file list ('D'), keyed by URL like the diffs.
+	files map[string]*filesState
 	// paneFocus is focus for the panes that scroll (a diff, comments)
 	// rather than holding their own cursor. jobsFocus is the jobs pane's
 	// own, since it tracks a row as well.
@@ -741,6 +743,7 @@ const (
 	paneDiff
 	paneComments
 	paneJobs
+	paneFiles
 )
 
 // reviewFlow drives the review popup: pick an option, then (for comment /
@@ -823,6 +826,7 @@ type viewKeys struct {
 	JobLog     key.Binding
 	Rerun      key.Binding
 	EditFilter key.Binding
+	Files      key.Binding
 }
 
 // binding looks a binding up by its action name, for prompts that name the
@@ -880,6 +884,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			JobLog:     bind("job_log", "", "p"),
 			Rerun:      bind("rerun", "", "x"),
 			EditFilter: bind("edit_filter", "search", "F"),
+			Files:      bind("files", "files", "D"),
 		},
 	}
 	if mode, ok := sortByName(cfg.Sort); ok {
@@ -1266,6 +1271,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.publish(append(v.raw, next...))
 		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: next, Unread: v.unreadURLs()})
 		return cmd
+	case filesMsg:
+		st := v.files[msg.url]
+		if st == nil {
+			return nil
+		}
+		st.files, st.err, st.done = msg.files, msg.err, true
+		v.bodyKey = ""
+		if msg.err != nil {
+			return statusCmd(ui.SeverityWarn, msg.err)
+		}
+		return nil
 	case diffMsg:
 		v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
 		return nil
@@ -1273,7 +1289,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.gen != v.settleGen {
 			return nil // superseded by further navigation
 		}
-		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs())
+		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs(), v.maybeFetchFiles())
 	case logMsg:
 		return v.applyLog(msg)
 	case jobsMsg:
@@ -1462,6 +1478,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				return ui.RevealPreview
 			}
 		}
+		// The file list holds its own cursor, like the jobs pane.
+		if v.pane == paneFiles && !v.list.Filtering() {
+			if v.paneFocus {
+				if cmd, ok := v.updateFiles(msg); ok {
+					return cmd
+				}
+			} else if msg.String() == "right" {
+				v.paneFocus = true
+				return ui.RevealPreview
+			}
+		}
 		// Every other pane takes focus the same way: right arrow in, left
 		// arrow back to the list. These scroll rather than holding a
 		// cursor, so the root model routes the arrows to the preview.
@@ -1533,6 +1560,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				v.bodyKey = "" // the body is cached per expansion state
 			}
 			return nil
+		case key.Matches(msg, v.keys.Files):
+			return v.setPane(paneFiles)
 		case key.Matches(msg, v.keys.EditFilter):
 			return v.editFilter()
 		case key.Matches(msg, v.keys.Comments):
@@ -1636,7 +1665,7 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	v.paneFocus = false // a new pane starts unfocused, beside a lit list
 	// The pane is about to show a diff, comments or jobs; a hidden preview
 	// would swallow it silently.
-	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs())
+	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs(), v.maybeFetchFiles())
 }
 
 // jumpThread moves between inline-thread anchors in the current pane and
@@ -2142,6 +2171,117 @@ type diffMsg struct {
 
 // maybeFetchDiff starts a diff fetch for the selected PR when the diff pane
 // is showing and we have neither the diff nor a fetch in flight.
+// fileState is the file list for a PR, created empty on first use so the
+// pane can render "loading" before the fetch lands.
+func (v *View) fileState(p pr) *filesState {
+	if v.files == nil {
+		v.files = map[string]*filesState{}
+	}
+	st, ok := v.files[p.URL]
+	if !ok {
+		st = &filesState{open: map[string]bool{}, reviewed: map[string]bool{}}
+		v.files[p.URL] = st
+	}
+	return st
+}
+
+// filesHint names the keys the file list answers to, since they are not
+// the list's own.
+func (v *View) filesHint() string {
+	if !v.PaneFocused() {
+		return "→ to focus"
+	}
+	return "↑↓ move · +/→ expand · -/← collapse · space reviewed · esc back"
+}
+
+// maybeFetchFiles lists the selected PR's files once the pane is open.
+func (v *View) maybeFetchFiles() tea.Cmd {
+	if v.pane != paneFiles {
+		return nil
+	}
+	p := v.list.Selected()
+	if p.URL == "" {
+		return nil
+	}
+	st := v.fileState(p)
+	if st.done || st.err != nil {
+		return nil
+	}
+	return fetchFiles(p.URL, p.repo(), p.Number)
+}
+
+// updateFiles handles keys while the file list has the keys. Reports
+// whether it consumed the key, like the jobs pane.
+func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
+	st := v.fileState(v.list.Selected())
+	rows := st.rows()
+	if len(rows) == 0 {
+		return nil, false
+	}
+	// The cursor sits on file rows only: patch lines are not targets, so
+	// moving skips over whatever is expanded.
+	fileAt := func(i int) int {
+		for ; i >= 0 && i < len(rows); i++ {
+			if rows[i].patch == "" {
+				return i
+			}
+		}
+		return -1
+	}
+	move := func(d int) {
+		for i := st.sel + d; i >= 0 && i < len(rows); i += d {
+			if rows[i].patch == "" {
+				st.sel = i
+				return
+			}
+		}
+	}
+	cur := fileAt(st.sel)
+	if cur < 0 {
+		cur = fileAt(0)
+	}
+	name := ""
+	if cur >= 0 {
+		name = st.files[rows[cur].file].Filename
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		move(-1)
+	case "down", "j":
+		move(1)
+	case "+", "right", "l":
+		if name != "" && !st.open[name] {
+			st.open[name] = true
+			return nil, true
+		}
+		if msg.String() == "right" {
+			return nil, false // nothing to expand: let the pane keep focus
+		}
+	case "-", "left", "h":
+		if name != "" && st.open[name] {
+			st.open[name] = false
+			return nil, true
+		}
+		if msg.String() == "left" || msg.String() == "h" {
+			v.paneFocus = false // collapsed already: back to the list
+			return nil, true
+		}
+	case "space":
+		// The GitHub UI's "viewed" checkbox: mark a file read and move on,
+		// so working down a large PR is one key per file.
+		if name != "" {
+			st.reviewed[name] = !st.reviewed[name]
+			if st.reviewed[name] {
+				move(1)
+			}
+		}
+	default:
+		return nil, false
+	}
+	return nil, true
+}
+
 func (v *View) maybeFetchDiff() tea.Cmd {
 	if v.pane != paneDiff {
 		return nil
@@ -2580,6 +2720,9 @@ func (v *View) PreviewView() string {
 		b.WriteString(v.renderedComments(p))
 	case paneJobs:
 		b.WriteString(v.renderedJobs(p))
+	case paneFiles:
+		b.WriteString(renderFilesPane(v.fileState(p), v.prevW,
+			v.PaneFocused(), v.filesHint()))
 	default:
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
@@ -2894,6 +3037,8 @@ func (v *View) FocusPane(on bool) bool {
 	switch v.pane {
 	case paneJobs:
 		v.jobsFocus = on
+	case paneFiles:
+		v.paneFocus = on
 	case paneBody:
 		return false // nothing to focus: the description just scrolls
 	default:
@@ -2904,7 +3049,9 @@ func (v *View) FocusPane(on bool) bool {
 
 // PaneScrolls reports a pane that scrolls rather than holding its own
 // cursor, so the arrows should move the preview.
-func (v *View) PaneScrolls() bool { return v.paneFocus && v.pane != paneJobs }
+func (v *View) PaneScrolls() bool {
+	return v.paneFocus && v.pane != paneJobs && v.pane != paneFiles
+}
 
 // Dismiss closes the innermost pane this view has open, reporting whether
 // it closed anything so the root model knows if esc still has work to do.
