@@ -118,9 +118,9 @@ func TestFilterLinePrefixFollowsTheStyle(t *testing.T) {
 	}
 }
 
-// The query starts near the band's midpoint: away from the counts, but
-// not stranded at the far edge of a wide terminal.
-func TestBandQueryIsCentred(t *testing.T) {
+// The query sits right after the counts at every width, so it reads as
+// belonging to this section rather than floating in the band.
+func TestBandQuerySitsAfterTheCounts(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.Default().GitHub, nil, nil, nil)
 	label := "REVIEW REQUESTED  ·  1 of 83"
@@ -142,11 +142,10 @@ func TestBandQueryIsCentred(t *testing.T) {
 		if !strings.HasPrefix(rest, strings.Repeat(" ", bandGap)) {
 			t.Errorf("width %d: the halves are not spaced apart: %q", w, rest)
 		}
-		// The query starts at the midpoint, or straight after the label
-		// plus its gap when the label is longer than half the band.
+		// Straight after the label plus its gap, whatever the width: the
+		// position must not drift with the terminal.
 		at := lipgloss.Width(band) - lipgloss.Width(strings.TrimLeft(rest, " "))
-		want := max(lipgloss.Width(label)+bandGap, (w-2)/2)
-		if at != want {
+		if want := lipgloss.Width(label) + bandGap; at != want {
 			t.Errorf("width %d: query starts at %d, want %d", w, at, want)
 		}
 	}

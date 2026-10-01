@@ -2230,18 +2230,19 @@ func (v *View) bandWithQuery(label, query string) string {
 	// Glyph carries its own trailing space; adding another leaves the icon
 	// with a gap after it and none before.
 	icon := ui.Glyph(ui.IconSearch, "?")
-	// The query starts at the band's midpoint: far enough from the counts
-	// that the two read as separate things, close enough that a wide
-	// terminal does not strand it at the far edge. SectionSeparator pads a
-	// space each side, so the band stops one column short of the pane.
+	// The query sits right after the counts, so it reads as belonging to
+	// this section rather than floating somewhere in the band. Faint and
+	// italic sets it apart from the label without a second colour: the
+	// band is reverse video, so the terminal blends the text toward the
+	// accent behind it and that works whatever the theme's accent is.
 	inner := v.listW - 2
 	avail := inner - lipgloss.Width(label) - lipgloss.Width(icon) - bandGap
 	if avail < bandQueryMin {
 		return label // too little room to say anything useful
 	}
-	gap := max(bandGap, inner/2-lipgloss.Width(label))
-	shown := ansi.Truncate(q, inner-lipgloss.Width(label)-gap-lipgloss.Width(icon), "…")
-	return label + strings.Repeat(" ", gap) + icon + shown
+	shown := ansi.Truncate(q, avail, "…")
+	return label + strings.Repeat(" ", bandGap) +
+		ui.Faint.Italic(true).Render(icon+shown)
 }
 
 // bandSection names which search a band belongs to, matching the editor's
