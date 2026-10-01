@@ -440,10 +440,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case msg.String() == "esc":
-			// One rule for esc: close the innermost thing that is open, and
-			// never the app. Modals handle their own esc before reaching
-			// here, so this is the floating detail and the panes a view
-			// opened inside it.
+			// One rule for esc: step back one layer, and never close the
+			// app. The focused view gets it first, so a pane can unwind its
+			// own state (a log back to its jobs, focus back to the list)
+			// before the root model closes anything.
+			if len(m.views) > 0 {
+				if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
+					m.invalidateFrame()
+					return m, nil
+				}
+			}
 			return m.dismiss()
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -969,15 +975,6 @@ func (m Model) dismiss() (tea.Model, tea.Cmd) {
 		m.zoomed = false
 		m.layout()
 		return m, nil
-	}
-	// A view's own panes close first, one layer per press: esc walks back
-	// out the way you came in rather than collapsing everything at once.
-	// The float stays while any of them are open, since it is what they
-	// are being shown in.
-	if len(m.views) > 0 {
-		if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
-			return m, nil
-		}
 	}
 	if m.floating() {
 		return m, m.setPreview(true, false)

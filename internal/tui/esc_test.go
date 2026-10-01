@@ -119,3 +119,20 @@ func TestEscUnzooms(t *testing.T) {
 		t.Error("esc did not leave zoom")
 	}
 }
+
+// The focused view gets esc before the root model does, so a pane can
+// unwind its own state first. Intercepting it here meant the jobs pane
+// never saw esc at all: it closed outright instead of dropping focus.
+func TestEscReachesTheViewFirst(t *testing.T) {
+	v := &paneView{fatView: fatView{title: "PRs"}, open: 2}
+	m := escModel(t, false, v)
+
+	m = esc(m)
+	if v.open != 1 {
+		t.Fatalf("the view has %d layers open, want 1: esc did not reach it", v.open)
+	}
+	// And the root model did not also act on the same press.
+	if m.previewHidden {
+		t.Error("esc both unwound the view and hid the preview")
+	}
+}

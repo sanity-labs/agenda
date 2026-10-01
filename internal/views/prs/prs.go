@@ -2867,9 +2867,11 @@ func (v *View) restoreFilter(path, prev string) {
 func (v *View) Dismiss() bool {
 	switch {
 	case v.logView != nil:
+		// Back to the jobs list, which is what the log's own hint says.
 		v.logView = nil
 		return true
 	case v.jobsFocus:
+		// Focus back to the list: the pane stays open beside it.
 		v.jobsFocus = false
 		return true
 	case v.pane != paneBody:
