@@ -1,6 +1,7 @@
 package prs
 
 import (
+	"regexp"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -56,21 +57,23 @@ func (v *View) updateFilterEdit(msg tea.KeyMsg) tea.Cmd {
 		v.filterEd = nil
 	case "enter":
 		q := strings.TrimSpace(f.query)
-		path := f.path
+		path, prev := f.path, v.cfg.Filter
+		if path != "github.filter" {
+			prev = v.cfg.ReviewFilter
+		}
 		v.filterEd = nil
-		// Apply it to the live config so the refetch uses it, and tell the
-		// root model to persist it: a filter you had to retype every run
-		// would not be worth the keystroke.
+		// Try it before keeping it. GitHub answers a query naming an author
+		// it cannot resolve with a clean zero and no error, so a typo looks
+		// exactly like "nothing matches" — and persisting that would leave
+		// an empty list with the editor the only way back.
 		if path == "github.filter" {
 			v.cfg.Filter = q
 		} else {
 			v.cfg.ReviewFilter = q
 		}
 		v.loading = true
-		return tea.Batch(
-			func() tea.Msg { return ui.ConfigSetMsg{Path: path, Value: q} },
-			v.fetch(),
-		)
+		v.applySort()
+		return tryFilter(path, q, prev)
 	case "backspace":
 		if f.query != "" {
 			f.query = f.query[:len(f.query)-1]
@@ -95,4 +98,45 @@ func (v *View) filterPromptLine() string {
 	return ui.Yellow.Render(ui.Glyph(ui.IconSearch, "?")+" "+f.label+": ") +
 		f.query + "█" +
 		ui.Faint.Render("  (enter apply · ctrl+u clear · esc cancel)")
+}
+
+// filterTriedMsg reports whether an edited filter returned anything, and
+// what the same search returns without its author terms: a query that is
+// empty only because of an author is a name GitHub could not resolve.
+type filterTriedMsg struct {
+	path, query, prev string
+	got, without      int
+	err               error
+}
+
+// authorTermRe finds author qualifiers, the ones that silently void a
+// query when the name does not resolve.
+var authorTermRe = regexp.MustCompile(`(?i)-?author:\S+`)
+
+// tryFilter runs an edited query, and when it comes back empty runs it
+// again without its author terms to tell "nothing matches" apart from "no
+// such author". Only the first page, since the count is all this needs.
+func tryFilter(path, q, prev string) tea.Cmd {
+	return func() tea.Msg {
+		page, err, _ := searchPRs(ensurePR(q), 1, "")
+		msg := filterTriedMsg{path: path, query: q, prev: prev,
+			got: page.total, err: err}
+		if err != nil || page.total > 0 || !authorTermRe.MatchString(q) {
+			return msg
+		}
+		bare := strings.TrimSpace(authorTermRe.ReplaceAllString(q, ""))
+		if bare == "" {
+			return msg
+		}
+		if alt, err, _ := searchPRs(ensurePR(bare), 1, ""); err == nil {
+			msg.without = alt.total
+		}
+		return msg
+	}
+}
+
+// badAuthor reports a filter that matched nothing only because of an
+// author term: the same search without it finds rows.
+func (m filterTriedMsg) badAuthor() bool {
+	return m.err == nil && m.got == 0 && m.without > 0
 }

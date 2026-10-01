@@ -1390,6 +1390,32 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.grouping = bool(msg)
 		v.applySort()
 		return nil
+	case filterTriedMsg:
+		if msg.badAuthor() {
+			// Put the filter back and say why, rather than persisting a
+			// query that empties the list: the editor would then be the
+			// only way out, and a restart would bring it back.
+			v.restoreFilter(msg.path, msg.prev)
+			v.loading = false
+			v.applySort()
+			return statusCmd(ui.SeverityWarn, fmt.Errorf(
+				"filter not saved: %s matches nothing, but does without its "+
+					"author terms. GitHub resolves author: against real "+
+					"accounts, and a name it cannot find voids the whole "+
+					"query (bots are app/<name>, e.g. app/renovate)",
+				msg.query))
+		}
+		if msg.err != nil {
+			v.restoreFilter(msg.path, msg.prev)
+			v.loading = false
+			v.applySort()
+			return statusCmd(ui.SeverityError, msg.err)
+		}
+		// It works: keep it, and load it properly.
+		return tea.Batch(
+			func() tea.Msg { return ui.ConfigSetMsg{Path: msg.path, Value: msg.query} },
+			v.fetch(),
+		)
 	case threadDoneMsg:
 		v.input = nil
 		if msg.err != nil {
@@ -2821,6 +2847,16 @@ func (v *View) PreviewFocus() string {
 func (v *View) FocusKeepLines() (first, n int, ok bool) {
 	first, n, ok = v.list.SelectedLines()
 	return first + 1, n, ok
+}
+
+// restoreFilter puts a rejected filter back, so the list is still the one
+// the user had and the editor still opens on something that works.
+func (v *View) restoreFilter(path, prev string) {
+	if path == "github.filter" {
+		v.cfg.Filter = prev
+		return
+	}
+	v.cfg.ReviewFilter = prev
 }
 
 // Dismiss closes the innermost pane this view has open, reporting whether

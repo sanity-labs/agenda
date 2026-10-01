@@ -69,42 +69,96 @@ func TestEditFilterFollowsTheSection(t *testing.T) {
 	}
 }
 
-// Enter applies the edit: it refetches with the new query and asks the
-// root model to persist it, or a filter would need retyping every run.
-func TestEnterAppliesAndPersists(t *testing.T) {
+// Enter tries the filter before keeping it, and persists only once it is
+// known to return something.
+func TestEnterPersistsOnlyAfterItWorks(t *testing.T) {
 	v := editView(t)
 	v.Update(tea.KeyPressMsg{Code: 'F'})
-	v.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}) // clear
+	v.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "author:@me -org:x" {
 		v.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+		t.Fatal("enter produced no command: nothing was tried")
+	}
 	if v.filterEd != nil {
 		t.Error("enter left the editor open")
 	}
+	// Applied to the live config so the trial uses it, but not yet written.
 	if v.cfg.Filter != "author:@me -org:x" {
 		t.Errorf("live config is %q, want the edited query", v.cfg.Filter)
 	}
+
+	// A successful trial is what asks for the write.
+	cmd := v.Update(filterTriedMsg{path: "github.filter",
+		query: "author:@me -org:x", prev: "author:@me", got: 4})
 	if cmd == nil {
-		t.Fatal("enter produced no command: nothing refetched or persisted")
+		t.Fatal("a working filter produced no command")
 	}
-	// The batch carries a ConfigSetMsg so the root model writes it. Only
-	// the top level is inspected: running every command would shell out to
-	// gh for the refetch, which is not what this test is about.
 	batch, ok := cmd().(tea.BatchMsg)
 	if !ok {
-		t.Fatalf("enter returned %T, want a batch of persist + refetch", cmd())
+		t.Fatalf("got %T, want a batch of persist + refetch", cmd())
 	}
 	found := false
 	for _, sub := range batch {
 		if msg, ok := sub().(ui.ConfigSetMsg); ok &&
 			msg.Path == "github.filter" && msg.Value == "author:@me -org:x" {
 			found = true
-			break
 		}
 	}
 	if !found {
-		t.Error("enter did not ask the root model to persist the filter")
+		t.Error("a working filter was not persisted")
+	}
+}
+
+// A filter that matches nothing only because of its author terms is not
+// saved: GitHub answers an unresolvable author with a clean zero, so a
+// typo looks like "nothing matches" and persisting it would leave an
+// empty list with the editor the only way back.
+func TestBadAuthorFilterIsNotSaved(t *testing.T) {
+	v := editView(t)
+	before := v.cfg.Filter
+	v.cfg.Filter = "author:@me -author:renovate" // as the trial left it
+
+	cmd := v.Update(filterTriedMsg{
+		path:    "github.filter",
+		query:   "author:@me -author:renovate",
+		prev:    before,
+		got:     0,  // nothing with the author term
+		without: 12, // but plenty without it
+	})
+	if v.cfg.Filter != before {
+		t.Errorf("the rejected filter stuck: %q, want %q", v.cfg.Filter, before)
+	}
+	if cmd == nil {
+		t.Fatal("no warning was raised")
+	}
+	msg, ok := cmd().(ui.StatusMsg)
+	if !ok {
+		t.Fatalf("got %T, want a status message", cmd())
+	}
+	if msg.Severity != ui.SeverityWarn {
+		t.Errorf("severity = %v, want a warning", msg.Severity)
+	}
+	for _, want := range []string{"not saved", "author", "app/renovate"} {
+		if !strings.Contains(msg.Summary+msg.Detail, want) {
+			t.Errorf("the warning does not mention %q: %s", want, msg.Summary)
+		}
+	}
+}
+
+// A genuinely empty result is still saved: "no PRs match" is a valid
+// answer, and only the author case is a silent failure.
+func TestEmptyButValidFilterIsSaved(t *testing.T) {
+	v := editView(t)
+	cmd := v.Update(filterTriedMsg{path: "github.filter",
+		query: "author:@me label:nothing-has-this", prev: "author:@me",
+		got: 0, without: 0})
+	if cmd == nil {
+		t.Fatal("an empty but valid filter produced no command")
+	}
+	if _, ok := cmd().(ui.StatusMsg); ok {
+		t.Error("an empty but valid filter was warned about")
 	}
 }
 
@@ -145,5 +199,25 @@ func TestEditorCapturesInput(t *testing.T) {
 	}
 	if !banded {
 		t.Error("the open editor does not show on any section band")
+	}
+}
+
+// After a rejection the editor still opens on the filter that works, so
+// the way out is the same key that got you here: no restart, no settings.
+func TestEditorStillUsableAfterARejection(t *testing.T) {
+	v := editView(t)
+	good := v.cfg.Filter
+
+	v.cfg.Filter = "author:@me -author:renovate"
+	v.Update(filterTriedMsg{path: "github.filter",
+		query: v.cfg.Filter, prev: good, got: 0, without: 12})
+
+	v.Update(tea.KeyPressMsg{Code: 'F'})
+	if v.filterEd == nil {
+		t.Fatal("'F' does not reopen the editor after a rejection")
+	}
+	if v.filterEd.query != good {
+		t.Errorf("the editor opened on %q, want the filter that works (%q)",
+			v.filterEd.query, good)
 	}
 }
