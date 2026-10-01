@@ -10,6 +10,11 @@ permissions:
   contents: read
 
 jobs:
+  # Path labels and the title's type label, in one job and in that order.
+  # The labeler writes back the label set it read when it started plus its
+  # own matches, so as two parallel jobs the pair raced: a type label the
+  # autolabeler added a second earlier was overwritten (#40 lost "feature"
+  # that way). Steps in a job run in sequence, so the type label lands last.
   label:
     permissions:
       contents: read
@@ -17,3 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/labeler@v7
+      # v7 moved the autolabeler into its own action; its rules (the
+      # conventional-commit prefix on the title) live under autolabeler: in
+      # release-drafter.yml. It runs even if the path labeler failed: the
+      # type label is the one the version bump and changelog depend on.
+      - uses: release-drafter/release-drafter/autolabeler@v7
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
