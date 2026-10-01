@@ -322,6 +322,11 @@ out of the box agenda looks and acts as it did before these options existed.
   marker and the help key on the right. Warnings and errors no longer
   hold a permanent row: the toast announces one and the footer says it is
   waiting, so `!` opens the log when you want it.
+- **esc closes things**: one rule across the app, innermost first. A job
+  log, then the jobs pane, then a diff or comments pane, then a floating
+  detail, then zoom. It never closes agenda; that is `q` alone, and a
+  preview pane you configured on stays, since esc only undoes what was
+  opened over it.
 - **Keybinds**: every action remappable per scope.
 - **Update check**: `update_check` (default on) looks for a newer release at
   startup and flags it in the tab bar. Reports only, never self-updates.

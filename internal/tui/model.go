@@ -439,6 +439,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCurrent(msg)
 		}
 		switch {
+		case msg.String() == "esc":
+			// One rule for esc: close the innermost thing that is open, and
+			// never the app. Modals handle their own esc before reaching
+			// here, so this is the floating detail and the panes a view
+			// opened inside it.
+			return m.dismiss()
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.NextView):
@@ -947,6 +953,36 @@ type filterable interface {
 	Fields() []string
 	FilterState() (string, []string, bool)
 	SetFilter(query string, enabled []string, caseSensitive bool)
+}
+
+// dismisser is optionally implemented by views with their own closable
+// panes (a diff, comments, a jobs list). Reports whether it closed
+// something, so esc can fall through to the preview when it did not.
+type dismisser interface {
+	Dismiss() bool
+}
+
+// dismiss closes the innermost open thing: a view's own pane first, then a
+// floated detail. Never the app, which is 'q' alone.
+func (m Model) dismiss() (tea.Model, tea.Cmd) {
+	if m.zoomed {
+		m.zoomed = false
+		m.layout()
+		return m, nil
+	}
+	// A view's own panes close first, one layer per press: esc walks back
+	// out the way you came in rather than collapsing everything at once.
+	// The float stays while any of them are open, since it is what they
+	// are being shown in.
+	if len(m.views) > 0 {
+		if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
+			return m, nil
+		}
+	}
+	if m.floating() {
+		return m, m.setPreview(true, false)
+	}
+	return m, nil
 }
 
 // overlayProvider is optionally implemented by views that render their own

@@ -2822,6 +2822,26 @@ func (v *View) FocusKeepLines() (first, n int, ok bool) {
 	return first + 1, n, ok
 }
 
+// Dismiss closes the innermost pane this view has open, reporting whether
+// it closed anything so the root model knows if esc still has work to do.
+// Order matters: the log sits inside the jobs pane, which sits inside the
+// preview, so esc walks out one layer at a time rather than collapsing
+// everything at once.
+func (v *View) Dismiss() bool {
+	switch {
+	case v.logView != nil:
+		v.logView = nil
+		return true
+	case v.jobsFocus:
+		v.jobsFocus = false
+		return true
+	case v.pane != paneBody:
+		v.pane = paneBody
+		return true
+	}
+	return false
+}
+
 func (v *View) InputActive() bool {
 	return v.list.Filtering() || v.review != nil || v.rerun != nil ||
 		v.input != nil || v.filterEd != nil
