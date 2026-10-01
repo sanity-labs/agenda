@@ -2474,6 +2474,9 @@ func (v *View) SetSize(listW, prevW, h int) {
 }
 
 func (v *View) ListView() string {
+	// The list dims while a pane has the keys, so the only lit cursor on
+	// screen is the one the arrows will move.
+	v.list.SetBlurred(v.jobsFocus && v.pane == paneJobs)
 	header := ""
 	switch {
 	case v.input != nil:
