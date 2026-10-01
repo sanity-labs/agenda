@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/notify"
@@ -523,6 +524,55 @@ type previewJumper interface {
 	TakePreviewJump() (line int, ok bool)
 }
 
+// previewFocuser is optionally implemented by views whose right pane can
+// take the keys (the PR view's jobs pane). PreviewFocus names the pane while
+// it has them, "" otherwise: the list dims, the pane's border lights up, and
+// the footer says where the keys went.
+type previewFocuser interface {
+	PreviewFocus() string
+}
+
+// previewFocus is the name of the pane holding the keys, "" when the list
+// has them.
+func (m Model) previewFocus() string {
+	if len(m.views) == 0 {
+		return ""
+	}
+	if f, ok := m.views[m.current].(previewFocuser); ok {
+		return f.PreviewFocus()
+	}
+	return ""
+}
+
+// focusKeeper is optionally implemented by a previewFocuser that wants part
+// of its list left lit while the preview has the keys: the row the pane is
+// about. first and n are lines of the ListView output.
+type focusKeeper interface {
+	FocusKeepLines() (first, n int, ok bool)
+}
+
+// dimList greys the list out while the preview has the keys, stripped of its
+// colours so nothing in it reads as live, not merely darker. Lines from keep
+// for n are left alone: the row the preview is showing stays as it was.
+func dimList(s string, keep, n int) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if i >= keep && i < keep+n {
+			continue
+		}
+		lines[i] = ui.Dim.Render(ansi.Strip(l))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// previewScroller is optionally implemented by views that scroll the preview
+// by a relative amount (e.g. j/k through a log shown there). Relative, so the
+// offset stays the model's: the wheel may have moved it since the view last
+// looked. TakePreviewScroll returns each request once.
+type previewScroller interface {
+	TakePreviewScroll() (delta int, ok bool)
+}
+
 // isTextKey reports whether the key press would insert text if routed to an
 // input (a letter, digit, space; not a chord like ctrl+s).
 func isTextKey(msg tea.KeyMsg) bool {
@@ -537,15 +587,27 @@ func (m Model) updateCurrent(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	cmd := m.views[m.current].Update(msg)
 	m.syncPreviewKey(false) // a key may have moved the selection
-	if j, ok := m.views[m.current].(previewJumper); ok {
+	m.applyPreviewRequests()
+	return m, cmd
+}
+
+// applyPreviewRequests carries out a scroll the focused view asked for: a
+// jump to a line, or a relative scroll.
+func (m *Model) applyPreviewRequests() {
+	cur := m.views[m.current]
+	if j, ok := cur.(previewJumper); ok {
 		if line, jump := j.TakePreviewJump(); jump {
 			// Put the target line near the top of the viewport.
-			_, lines := m.renderedPreview(m.views[m.current])
+			_, lines := m.renderedPreview(cur)
 			maxOff := max(0, lines-m.contentHeight())
 			m.previewScroll = clamp(line-1, 0, maxOff)
 		}
 	}
-	return m, cmd
+	if s, ok := cur.(previewScroller); ok {
+		if d, scroll := s.TakePreviewScroll(); scroll {
+			m.scrollPreview(d)
+		}
+	}
 }
 
 // broadcast threads a message through every view, collecting their commands.
@@ -557,6 +619,11 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.syncPreviewKey(false) // a data load may have changed the selection
+	// A load can ask for a scroll too: a log that arrives positions itself
+	// at its first error.
+	if len(m.views) > 0 {
+		m.applyPreviewRequests()
+	}
 	return m, tea.Batch(cmds...)
 }
 
@@ -993,10 +1060,20 @@ func (m Model) View() tea.View {
 	} else if m.previewHidden || m.floating() {
 		body = clipFrom(cur.ListView(), 0, contentH)
 	} else {
+		list, pane := clipFrom(cur.ListView(), 0, contentH), m.theme.preview
+		if m.previewFocus() != "" {
+			keep, n := 0, 0
+			if k, ok := cur.(focusKeeper); ok {
+				if first, lines, shown := k.FocusKeepLines(); shown {
+					keep, n = first, lines
+				}
+			}
+			list, pane = dimList(list, keep, n), m.theme.previewActive
+		}
 		body = lipgloss.JoinHorizontal(
 			lipgloss.Top,
-			clipFrom(cur.ListView(), 0, contentH),
-			m.theme.preview.Height(contentH).Render(m.previewPane(cur, previewContentW, contentH)),
+			list,
+			pane.Height(contentH).Render(m.previewPane(cur, previewContentW, contentH)),
 		)
 	}
 
@@ -1359,9 +1436,21 @@ func (m Model) renderFooter() string {
 	// the footer always showed). When it no longer fits next to the status,
 	// fall back to a compact row and let '?' carry the rest.
 	view := m.views[m.current].Bindings()
+	// With the keys in the preview the list-scoped hints (follow a
+	// reference, filter) are about the pane you are not using, so they
+	// give way, and a pill names the pane that is listening.
+	focus := m.previewFocus()
+	mode := ""
+	if focus != "" {
+		mode = m.theme.footerMode.Render(strings.ToUpper(focus)) + " "
+	}
 	var follow []key.Binding
-	if len(m.currentRefs()) > 0 {
+	if len(m.currentRefs()) > 0 && focus == "" {
 		follow = append(follow, m.keys.Follow)
+	}
+	filter := []key.Binding{m.keys.Filter}
+	if focus != "" {
+		filter = nil
 	}
 
 	// Zooming an already-hidden preview makes no sense, so the zoom hint
@@ -1371,21 +1460,21 @@ func (m Model) renderFooter() string {
 		pane = append(pane, m.keys.Zoom)
 	}
 	full := append(append(append(append([]key.Binding{}, view...), follow...),
-		m.keys.Filter), pane...)
+		filter...), pane...)
 	full = append(full, m.keys.NextView, m.keys.PreviewUp, m.keys.Refresh,
 		m.keys.Config, m.keys.Help, m.keys.Quit)
 
 	status := m.views[m.current].Status()
-	left := m.footerLine(full)
+	left := mode + m.footerLine(full)
 	if lipgloss.Width(left)+lipgloss.Width(status)+1 > m.width {
 		compact := view
 		if len(compact) > 4 {
 			compact = compact[:4]
 		}
 		compact = append(append(append(append([]key.Binding{}, compact...), follow...),
-			m.keys.Filter), pane...)
+			filter...), pane...)
 		compact = append(compact, m.keys.Help, m.keys.Quit)
-		left = m.footerLine(compact)
+		left = mode + m.footerLine(compact)
 	}
 
 	gap := max(1, m.width-lipgloss.Width(left)-lipgloss.Width(status))

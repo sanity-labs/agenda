@@ -117,8 +117,13 @@ notifications:
 #     comment: C          # new top-level PR comment
 #     reply: R            # reply to the inline thread under the cursor
 #     resolve: X          # resolve/unresolve that thread
-#     next_thread: "]"
+#     next_thread: "]"   # also jumps between failed jobs in the jobs pane
 #     prev_thread: "["
+#     jobs: t             # jobs pane: the PR's CI jobs, grouped by workflow;
+#                         # it moves with the list keys below while focused
+#     open_job: o         # open the job under the cursor in the browser
+#     job_log: p          # page its log through less (GitHub Actions)
+#     rerun: x            # rerun popup: failed jobs, this job, or the workflow
 #     sort: s
 #     reverse: S
 #     toggle_review: w

@@ -621,6 +621,27 @@ type View struct {
 	input  *threadFlow
 	flash  string
 
+	// jobs caches each PR's check runs for the jobs pane ('t'), by URL;
+	// jobsGen supersedes pending watch ticks. rerun is the open rerun
+	// popup ('x'), nil when inactive.
+	jobs    map[string]*jobsState
+	jobsGen int
+	rerun   *rerunFlow
+	// jobsFocus puts the keys in the jobs pane rather than the PR list.
+	// jobSel and jobsOpen are its cursor and expanded jobs, belonging to
+	// the PR jobsFor; nav is the list's movement keys, reused there.
+	jobsFocus bool
+	jobSel    jobCursor
+	jobsOpen  map[string]bool
+	jobsFor   string
+	nav       navKeys
+	// logs caches job logs by job id; logView is the one open in the pane
+	// (enter on a step), and scrollBy a relative scroll it asks the root
+	// for.
+	logs     map[int64]*logState
+	logView  *logView
+	scrollBy int
+
 	keys viewKeys
 }
 
@@ -644,6 +665,7 @@ const (
 	paneBody paneMode = iota
 	paneDiff
 	paneComments
+	paneJobs
 )
 
 // reviewFlow drives the review popup: pick an option, then (for comment /
@@ -721,6 +743,10 @@ type viewKeys struct {
 	Resolve    key.Binding
 	TopComment key.Binding
 	Expand     key.Binding
+	Jobs       key.Binding
+	OpenJob    key.Binding
+	JobLog     key.Binding
+	Rerun      key.Binding
 }
 
 // binding looks a binding up by its action name, for prompts that name the
@@ -731,6 +757,18 @@ func (k viewKeys) binding(action string) key.Binding {
 		return k.Expand
 	case "comments":
 		return k.Comments
+	case "jobs":
+		return k.Jobs
+	case "next_thread":
+		return k.NextThread
+	case "prev_thread":
+		return k.PrevThread
+	case "open_job":
+		return k.OpenJob
+	case "job_log":
+		return k.JobLog
+	case "rerun":
+		return k.Rerun
 	}
 	return key.Binding{}
 }
@@ -761,6 +799,10 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			Resolve:    bind("resolve", "", "X"),
 			TopComment: bind("comment", "", "C"),
 			Expand:     bind("expand", "expand", "e"),
+			Jobs:       bind("jobs", "jobs", "t"),
+			OpenJob:    bind("open_job", "", "o"),
+			JobLog:     bind("job_log", "", "p"),
+			Rerun:      bind("rerun", "", "x"),
 		},
 	}
 	if mode, ok := sortByName(cfg.Sort); ok {
@@ -771,6 +813,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 	v.hideApproved = cfg.HideApproved
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
+	v.nav = newNavKeys(km)
 
 	// Paint last run's PRs immediately; the live fetch refreshes them.
 	if cached, ok := cache.Load[cachedPRs](cacheName); ok && len(cached.Mine)+len(cached.Review) > 0 {
@@ -817,7 +860,12 @@ func (v *View) Title() string { return "PRs" }
 
 func (v *View) Init() tea.Cmd {
 	v.loading = true
-	return v.fetch()
+	// A refresh covers the jobs pane too: it is the retry for a fetch that
+	// failed, and otherwise refetches what is on screen.
+	if st, ok := v.jobs[v.list.Selected().URL]; ok && !st.inFlight {
+		st.fetchedAt, st.failures = time.Time{}, 0
+	}
+	return tea.Batch(v.fetch(), v.maybeFetchJobs())
 }
 
 func (v *View) Loading() bool { return v.loading || v.reviewLoading }
@@ -1148,7 +1196,20 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.gen != v.settleGen {
 			return nil // superseded by further navigation
 		}
-		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments())
+		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs())
+	case logMsg:
+		return v.applyLog(msg)
+	case jobsMsg:
+		return v.applyJobs(msg)
+	case jobsTickMsg:
+		// Superseded, or the cursor moved on: the watch follows the PR in
+		// front of you and stops when you leave it.
+		if msg.gen != v.jobsGen || msg.url != v.list.Selected().URL {
+			return nil
+		}
+		return v.maybeFetchJobs()
+	case rerunDoneMsg:
+		return v.applyRerun(msg)
 	case rowSettleMsg:
 		// Superseded, or the cursor moved on: the row that asked for this
 		// is no longer the one in front of you.
@@ -1236,6 +1297,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
+		// A hidden pane cannot hold the keys: j/k would move a cursor you
+		// cannot see.
+		if !v.previewShown {
+			v.jobsFocus, v.logView = false, nil
+		}
 		// Revealing the detail shows whatever is selected, so that row is
 		// read.
 		if v.previewShown {
@@ -1270,8 +1336,28 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.review != nil {
 			return v.updateReview(msg)
 		}
+		if v.rerun != nil {
+			return v.updateRerun(msg)
+		}
 		if v.input != nil {
 			return v.updateThreadInput(msg)
+		}
+		// The jobs pane takes the movement keys while it has focus, and
+		// right arrow gives it focus: it is the pane on the right.
+		if v.pane == paneJobs && !v.list.Filtering() {
+			if v.logView != nil {
+				if cmd, ok := v.updateLogKeys(msg); ok {
+					return cmd
+				}
+			}
+			if v.jobsFocus {
+				if cmd, ok := v.updateJobsFocus(msg); ok {
+					return cmd
+				}
+			} else if msg.String() == "right" {
+				v.jobsFocus = true
+				return ui.RevealPreview
+			}
 		}
 		before := v.list.Selected().URL
 		if consumed, cmd := v.list.Update(msg); consumed {
@@ -1330,9 +1416,23 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		case key.Matches(msg, v.keys.Comments):
 			return v.setPane(paneComments)
+		case key.Matches(msg, v.keys.Jobs):
+			return v.setPane(paneJobs)
+		case key.Matches(msg, v.keys.OpenJob):
+			return v.openJob()
+		case key.Matches(msg, v.keys.JobLog):
+			return v.jobLogInPager()
+		case key.Matches(msg, v.keys.Rerun):
+			return v.openRerun()
 		case key.Matches(msg, v.keys.NextThread):
+			if v.pane == paneJobs {
+				return v.jumpFailed(1)
+			}
 			return v.jumpThread(1)
 		case key.Matches(msg, v.keys.PrevThread):
+			if v.pane == paneJobs {
+				return v.jumpFailed(-1)
+			}
 			return v.jumpThread(-1)
 		case key.Matches(msg, v.keys.Reply):
 			if t, ok := v.currentThread(); ok {
@@ -1396,6 +1496,7 @@ func (v *View) resetToggles() {
 // setPane toggles the right pane between the description and the given mode,
 // kicking off whatever fetch that pane needs.
 func (v *View) setPane(mode paneMode) tea.Cmd {
+	v.jobsFocus, v.logView = false, nil
 	if v.pane == mode {
 		v.pane = paneBody
 		// Back to the description, not away from the detail: concealing
@@ -1408,9 +1509,12 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	}
 	v.pane = mode
 	v.annIdx = 0
-	// The pane is about to show a diff or comments; a hidden preview would
-	// swallow it silently.
-	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments())
+	// Opening the jobs pane is asking to look through the jobs, so it takes
+	// the keys straight away; esc hands them back to the PR list.
+	v.jobsFocus = mode == paneJobs
+	// The pane is about to show a diff, comments or jobs; a hidden preview
+	// would swallow it silently.
+	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs())
 }
 
 // jumpThread moves between inline-thread anchors in the current pane and
@@ -1609,8 +1713,12 @@ func (v *View) askMerge(kind string) {
 	}
 }
 
-// Overlay implements the root model's view-modal hook: the review popup.
+// Overlay implements the root model's view-modal hook: the rerun or review
+// popup.
 func (v *View) Overlay() string {
+	if v.rerun != nil {
+		return v.rerunOverlay()
+	}
 	r := v.review
 	if r == nil {
 		return ""
@@ -2158,6 +2266,7 @@ func (v *View) ScrollList(n int) tea.Cmd {
 // ClickList selects the row under a click in the list column; y is relative
 // to the column top, whose first line is the header.
 func (v *View) ClickList(_, y int) (bool, tea.Cmd) {
+	v.jobsFocus = false // a click in the list is back in the list
 	before := v.list.Selected().URL
 	if !v.list.ClickAt(y - 1) {
 		return false, nil
@@ -2288,6 +2397,8 @@ func (v *View) PreviewView() string {
 		b.WriteString(v.renderedDiff(p))
 	case paneComments:
 		b.WriteString(v.renderedComments(p))
+	case paneJobs:
+		b.WriteString(v.renderedJobs(p))
 	default:
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
@@ -2300,6 +2411,10 @@ func (v *View) PreviewView() string {
 			b.WriteString(blockHeader("Checks"))
 			b.WriteString("\n")
 			b.WriteString(blk)
+			if _, _, _, total := p.checkCounts(); total > 0 {
+				b.WriteString("\n" + ui.Faint.Render(fmt.Sprintf("  %s or click %s",
+					v.keyHint("jobs"), jobsMarker)))
+			}
 		}
 		b.WriteString("\n\n")
 		b.WriteString(v.commentsBlock(p))
@@ -2461,6 +2576,7 @@ func (v *View) renderedBody(p pr) string {
 const (
 	expandMarker   = "to toggle the description"
 	commentsMarker = "to toggle comments"
+	jobsMarker     = "to show jobs"
 )
 
 // ClickPreview toggles whatever hint the click landed on. line is counted
@@ -2471,12 +2587,25 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 	if line < 0 || line >= len(lines) {
 		return nil
 	}
+	// The jobs pane is one you work in, so a click never puts it away. On
+	// a row it focuses the pane and moves the cursor there (a second click
+	// does what enter would, short of launching a pager from the mouse);
+	// anywhere else, including an open log, it just takes the keys.
+	if v.pane == paneJobs {
+		if v.logView == nil {
+			if cmd, ok := v.clickJobRow(line); ok {
+				return cmd
+			}
+		}
+		v.jobsFocus = true
+		return nil
+	}
 	text := ansi.Strip(lines[line])
 	switch {
 	// A click anywhere in a diff or comments pane puts it away, the same
 	// as pressing the key again: hunting for the hint to close what you
 	// opened is busywork.
-	case v.pane != paneBody:
+	case v.pane == paneDiff || v.pane == paneComments:
 		return v.setPane(v.pane)
 	case strings.Contains(text, expandMarker):
 		if sel := v.list.Selected(); sel.URL != "" {
@@ -2490,6 +2619,8 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 		return nil
 	case strings.Contains(text, commentsMarker):
 		return v.setPane(paneComments)
+	case strings.Contains(text, jobsMarker):
+		return v.setPane(paneJobs)
 	}
 	return nil
 }
@@ -2518,7 +2649,13 @@ func (v *View) keyHint(action string) string {
 }
 
 func (v *View) Bindings() []key.Binding {
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review}
+	if v.jobsFocus && v.pane == paneJobs {
+		if v.logView != nil {
+			return v.logBindings()
+		}
+		return v.jobsBindings()
+	}
+	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review}
 }
 
 // Status is the footer's right-hand slot. The list header already carries
@@ -2531,8 +2668,29 @@ func (v *View) Status() string {
 	return ""
 }
 
+// PreviewFocus implements the root model's focus hook: what the right pane
+// is called while it has the keys ("jobs", or "log" with one open), "" while
+// they are with the PR list.
+func (v *View) PreviewFocus() string {
+	switch {
+	case v.pane != paneJobs || !v.jobsFocus:
+		return ""
+	case v.logView != nil:
+		return "log"
+	}
+	return "jobs"
+}
+
+// FocusKeepLines implements the root model's focus hook: the list lines to
+// leave lit while the pane has the keys, which are the PR whose jobs it is
+// showing. The list sits under a one-line header in ListView.
+func (v *View) FocusKeepLines() (first, n int, ok bool) {
+	first, n, ok = v.list.SelectedLines()
+	return first + 1, n, ok
+}
+
 func (v *View) InputActive() bool {
-	return v.list.Filtering() || v.review != nil || v.input != nil
+	return v.list.Filtering() || v.review != nil || v.rerun != nil || v.input != nil
 }
 
 func (v *View) Fields() []string { return v.list.FieldNames() }
@@ -2556,6 +2714,8 @@ func (v *View) PreviewKey() string {
 		k += "#diff"
 	case paneComments:
 		k += "#comments"
+	case paneJobs:
+		k += "#jobs" + v.logKey()
 	}
 	return k
 }

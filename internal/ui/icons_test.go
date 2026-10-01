@@ -14,8 +14,9 @@ import (
 var allIcons = map[string]string{
 	"IconOpen": IconOpen, "IconDraft": IconDraft, "IconMerged": IconMerged,
 	"IconClosed": IconClosed, "IconCIOK": IconCIOK, "IconCIFail": IconCIFail,
-	"IconCIPending": IconCIPending, "IconApproved": IconApproved,
-	"IconChanges": IconChanges, "IconReviewReq": IconReviewReq,
+	"IconCIPending": IconCIPending, "IconCISkipped": IconCISkipped,
+	"IconApproved": IconApproved,
+	"IconChanges":  IconChanges, "IconReviewReq": IconReviewReq,
 	"IconComment": IconComment, "IconDot": IconDot,
 	"IconSection": IconSection, "IconUnread": IconUnread,
 	"IconPillLeft": IconPillLeft, "IconPillRight": IconPillRight,

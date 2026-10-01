@@ -91,7 +91,7 @@ const commentsQuery = `query($owner: String!, $name: String!, $number: Int!) {
 // maybeFetchComments starts a comment fetch for the selected PR when a pane
 // that needs them is showing and nothing is cached or in flight.
 func (v *View) maybeFetchComments() tea.Cmd {
-	if v.pane == paneBody {
+	if v.pane != paneDiff && v.pane != paneComments {
 		return nil
 	}
 	p := v.list.Selected()
@@ -366,7 +366,7 @@ func toggleResolve(url, threadID string, resolved bool) tea.Cmd {
 // currentThread resolves the thread the jump cursor sits on, for reply and
 // resolve.
 func (v *View) currentThread() (prThread, bool) {
-	if v.pane == paneBody || len(v.anchors) == 0 {
+	if (v.pane != paneDiff && v.pane != paneComments) || len(v.anchors) == 0 {
 		return prThread{}, false
 	}
 	idx := v.annIdx
