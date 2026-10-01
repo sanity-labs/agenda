@@ -310,10 +310,15 @@ out of the box agenda looks and acts as it did before these options existed.
   spaces. Terms are ANDed and a leading `-` excludes. A bare word still
   matches fuzzily across the visible fields.
 - **Edit the search**: `F` opens the GitHub search query for the section
-  the cursor is in (your PRs, or review requests), prefilled. Enter
-  refetches with it and writes it to config, so it persists; esc cancels.
-  Both filters are also editable rows in the prs settings tab, with a
-  reset action that puts them back to the defaults.
+  the cursor is in (your PRs, or review requests), prefilled. Enter tries
+  it and writes it to config only once it returns something; esc cancels.
+  A filter that matches nothing *only* because of an author term is
+  rejected with a warning and the previous one restored: GitHub resolves
+  `author:` against real accounts and answers a name it cannot find with
+  a clean zero, so a typo looks exactly like "nothing matches". Bots are
+  `app/<name>`, e.g. `app/renovate`. Both filters are also editable rows
+  in the prs settings tab, with a reset action that puts them back to the
+  defaults.
 - **Effective query**: each section's band names the search that produced
   it, so a missing PR can be explained from the screen. The counts keep
   their room and the query truncates, since the counts are what the band
