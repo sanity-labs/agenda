@@ -42,6 +42,12 @@ following are modeled on gh-dash:
 - **The status-glyph vocabulary** — the state / CI / review Nerd Font icons.
 - **Rendering issue/PR bodies with Glamour** in the preview pane.
 
+The PR view's jobs pane (`t`) is modeled on gh-dash's companion
+[gh-enhance](https://github.com/dlvhdr/gh-enhance) (also MIT), the same way:
+a PR's check runs read from the head commit's rollup and grouped by workflow
+run, with rerun through `gh`. gh-enhance goes further, with parsed and
+searchable logs in-app; agenda pages the log through `less` instead.
+
 If you work primarily inside a single repo and want the full-featured original,
 use gh-dash. agenda's niche is unifying PRs *plus* local agent sessions *plus*
 Linear in one switcher.
@@ -153,7 +159,13 @@ the full keymap in-app.
 | PRs | `w` | toggle the "Review Requested" section |
 | PRs | `e` | expand a truncated description |
 | PRs | `r` | review popup: approve / comment / request changes / view diff |
-| PRs | `]` / `[` | jump between inline review threads |
+| PRs | `]` / `[` | jump between inline review threads (between failed jobs in the jobs pane) |
+| PRs | `t` | toggle right pane to the PR's CI jobs, grouped by workflow, and focus it |
+| Jobs pane | `j`/`k`, `g`/`G`, `ctrl+d`/`ctrl+u` | move between jobs and their steps |
+| Jobs pane | `enter` · `→` / `←` | open a job into its steps, or a step's log in the pane · into / out of a job |
+| Jobs pane | `o` · `p` · `y` · `x` | open in browser · page the log through `less` · copy URL · rerun popup |
+| Jobs pane | `esc` | hand the keys back to the PR list (`→` or a click takes them again) |
+| Step log | `j`/`k`, `ctrl+d`/`ctrl+u`, `g`/`G` · `]` / `[` · `esc` | scroll · next / previous error · back to the jobs |
 | PRs | `R` · `X` · `C` | reply to thread · resolve thread · new PR comment |
 | Sessions | `enter` · `s`/`S` | resume · cycle sort / reverse it |
 | Linear | `enter` · `y` · `b` · `s`/`S` | open · copy URL · copy branch · cycle sort / reverse it |
@@ -315,6 +327,28 @@ out of the box agenda looks and acts as it did before these options existed.
   the right pane instead, with inline review threads pinned to the lines
   they discuss. `c` shows the full conversation. `r`/`a` review and approve
   via `gh`.
+  `t` shows the PR's CI jobs: every check run and commit status on the head
+  commit, grouped by workflow run with the worst first, failed steps listed
+  under each failed job, and durations. The pane takes the keys while it is
+  open, which the chrome shows: the PR list greys out except the PR the
+  pane is showing, the pane's border lights up, and the footer leads with
+  `JOBS` and the pane's own keys.
+  `j`/`k` walk jobs and steps, `enter` opens a job into all its steps (`←`
+  closes it again, `←` once more or `esc` goes back to the PR list), and
+  `]`/`[` jump between failures. A job's marker says what `enter` does: `▸`
+  opens it into steps, `↗` leaves for an external check's own page. Once a
+  job's steps are on screen its log is fetched, so each step says how many
+  lines it printed; a step that printed nothing, or was skipped, is faint.
+  `enter` on a step shows its log in the pane, cleaned of timestamps and
+  colour codes, grouped and coloured by GitHub's markers, and opened at the
+  first error; `]`/`[` move between errors and `esc` goes back. `p` pages
+  the same log through `less` instead, for searching. `o` opens a job or
+  step in the browser (a step at its own anchor) and `y` copies that URL.
+  `x` reruns: the failed jobs, the job under the cursor, or its whole
+  workflow, once the run has finished. A fetch GitHub answers with an error
+  page (a transient 5xx) is retried before it is reported; `ctrl+r` retries
+  from the pane. While anything is running the pane refetches every 10s, and
+  when the last job finishes the row's CI state is re-read.
 - **Sessions** — scans `~/.claude`, `~/.codex`, and `~/.gemini/antigravity-cli`,
   caching parsed metadata by file signature. Each agent is shown as a Nerd Font
   icon (claude = robot, codex = code, antigravity = rocket) rather than its

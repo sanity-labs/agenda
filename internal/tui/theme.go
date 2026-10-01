@@ -13,12 +13,14 @@ type theme struct {
 	tabInactive   lipgloss.Style
 	tabBar        lipgloss.Style
 	preview       lipgloss.Style
+	previewActive lipgloss.Style // the preview while it has the keys
 	previewZoomed lipgloss.Style
 	previewFloat  lipgloss.Style
 	footer        lipgloss.Style
 	footerKey     lipgloss.Style
 	footerDesc    lipgloss.Style
 	footerSep     lipgloss.Style
+	footerMode    lipgloss.Style // names the pane that has the keys
 }
 
 // defaultTheme derives the chrome styles from the active ui palette; rebuilt
@@ -49,6 +51,12 @@ func defaultTheme() theme {
 			BorderLeft(true).
 			BorderTop(false).BorderBottom(false).BorderRight(false).
 			PaddingLeft(2),
+		previewActive: lipgloss.NewStyle().
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(accent).
+			BorderLeft(true).
+			BorderTop(false).BorderBottom(false).BorderRight(false).
+			PaddingLeft(2),
 		previewZoomed: lipgloss.NewStyle().
 			PaddingLeft(2),
 		previewFloat: lipgloss.NewStyle().
@@ -65,5 +73,10 @@ func defaultTheme() theme {
 		footerSep: lipgloss.NewStyle().
 			Foreground(dim).
 			SetString(" · "),
+		footerMode: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(accent).
+			Bold(true).
+			Padding(0, 1),
 	}
 }

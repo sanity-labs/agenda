@@ -63,6 +63,10 @@ type List[T Item] struct {
 	caseSensitive bool
 
 	keys listKeys
+
+	// selFirst/selN are where the selected item landed in the last View:
+	// its first line and line count (selN 0 when it was off screen).
+	selFirst, selN int
 }
 
 type listKeys struct {
@@ -517,9 +521,13 @@ func (l *List[T]) View() string {
 	}
 
 	var lines []string
+	l.selFirst, l.selN = 0, 0
 	for i := l.offset; i < end; i++ {
-		block := l.items[l.filtered[i]].Render(contentW, i == l.cursor, l.highlighter())
-		lines = append(lines, strings.Split(block, "\n")...)
+		block := strings.Split(l.items[l.filtered[i]].Render(contentW, i == l.cursor, l.highlighter()), "\n")
+		if i == l.cursor {
+			l.selFirst, l.selN = len(lines), len(block)
+		}
+		lines = append(lines, block...)
 	}
 	if !gutter {
 		return strings.Join(lines, "\n")
@@ -536,6 +544,13 @@ func (l *List[T]) View() string {
 		lines[i] += strings.Repeat(" ", pad) + " " + bar[i]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// SelectedLines reports where the selected item sits in the last View's
+// output: its first line and how many it spans. ok is false when the item
+// was not drawn (filtered out, or nothing rendered yet).
+func (l *List[T]) SelectedLines() (first, n int, ok bool) {
+	return l.selFirst, l.selN, l.selN > 0
 }
 
 // Scrollbar returns height cells for a slim vertical scrollbar: a thumb sized

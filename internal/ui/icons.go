@@ -11,6 +11,7 @@ const (
 	IconCIOK      = "\ueab2" // 
 	IconCIFail    = "\uf467" // 
 	IconCIPending = "\uf111" // 
+	IconCISkipped = "\uf05e" // 
 	IconApproved  = "\uedc6" // 
 	IconChanges   = "\uf41b" // 
 	IconReviewReq = "\uf4a0" // 
