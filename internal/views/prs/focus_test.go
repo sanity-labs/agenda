@@ -291,21 +291,45 @@ func TestFloatedDescriptionTakesFocus(t *testing.T) {
 	}
 }
 
-// Floated, left and right do not move focus: there is no list beside the
-// pane to hand the keys to, and esc is the way out.
-func TestArrowsDoNotMoveFocusInAFloat(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
-	v.SetSize(90, 40, 20)
-	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
-	p.Repository.NameWithOwner = "o/r"
-	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
-	v.Update(ui.PreviewShownMsg(false))
-	v.Update(tea.KeyPressMsg{Code: 'c'})
+// Floated, an arrow that would leave the pane closes the float: there is
+// no list beside it to hand the keys to, so a dimmed list behind a window
+// the arrows cannot leave would be a dead end.
+func TestArrowsCloseAFloat(t *testing.T) {
+	open := map[string]func(v *View){
+		"comments": func(v *View) { v.Update(tea.KeyPressMsg{Code: 'c'}) },
+		"description": func(v *View) { // what 'v' does
+			v.FocusPane(true)
+			v.Update(ui.PreviewShownMsg(true))
+			v.Update(ui.PreviewFloatingMsg(true))
+		},
+	}
+	for name, openFloat := range open {
+		for _, key := range []rune{tea.KeyLeft, tea.KeyRight} {
+			t.Setenv("XDG_CACHE_HOME", t.TempDir())
+			v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+			v.SetSize(90, 40, 20)
+			p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+			p.Repository.NameWithOwner = "o/r"
+			v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+			v.Update(ui.PreviewShownMsg(false))
+			openFloat(v)
+			if !v.PaneFocused() {
+				t.Fatalf("setup: the floated %s is not focused", name)
+			}
 
-	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
-	if !v.PaneFocused() {
-		t.Error("left gave up focus in a float, leaving nothing holding the keys")
+			press := tea.KeyPressMsg{Code: key}
+			cmd := v.Update(press)
+			if cmd == nil {
+				t.Errorf("%s in the floated %s did nothing", press, name)
+				continue
+			}
+			if _, ok := cmd().(ui.ConcealPreviewMsg); !ok {
+				t.Errorf("%s in the floated %s did not close it", press, name)
+			}
+			if v.PaneFocused() || v.pane != paneBody {
+				t.Errorf("%s closed the floated %s but left pane=%v focused=%v", press, name, v.pane, v.PaneFocused())
+			}
+		}
 	}
 }
 
@@ -359,5 +383,30 @@ func TestHiddenPreviewAtStartupDoesNotDim(t *testing.T) {
 	v.Update(ui.PreviewShownMsg(false))
 	if v.PaneFocused() {
 		t.Error("focus survived the float closing")
+	}
+}
+
+// tea.Batch runs each command in its own goroutine, so the two messages a
+// reveal sends land in either order. 'v' has no setPane to set the float
+// flag up front, so it must come out focused whichever arrives first.
+func TestFloatFocusSurvivesMessageOrder(t *testing.T) {
+	for name, order := range map[string][]tea.Msg{
+		"float then shown": {ui.PreviewFloatingMsg(true), ui.PreviewShownMsg(true)},
+		"shown then float": {ui.PreviewShownMsg(true), ui.PreviewFloatingMsg(true)},
+	} {
+		t.Setenv("XDG_CACHE_HOME", t.TempDir())
+		v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+		v.SetSize(90, 40, 20)
+		p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+		p.Repository.NameWithOwner = "o/r"
+		v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+		v.Update(ui.PreviewShownMsg(false)) // startup, hide_preview
+		v.FocusPane(true)                   // what the 'v' handler does first
+		for _, msg := range order {
+			v.Update(msg)
+		}
+		if !v.PaneFocused() {
+			t.Errorf("%s: the floated description is not focused", name)
+		}
 	}
 }

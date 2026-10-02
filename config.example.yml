@@ -183,11 +183,6 @@ github:
   # than as of the last full refresh. On by default: one request for a single
   # PR, debounced, so cycling a list costs nothing until you stop.
   refresh_row: true
-  # In the file list, open the file under the cursor and close the one you
-  # left, so walking the list reads like scrolling a diff without the pane
-  # growing to the length of one. On by default; off keeps a file open
-  # until you collapse it with '-'.
-  file_auto_expand: true
   # Add merge entries to the review popup ('r'): 'm' merges, 'M' enables
   # auto-merge so a PR lands once its checks pass. Off by default, because
   # merging is the one thing in that popup you cannot undo with another

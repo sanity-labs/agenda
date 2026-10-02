@@ -334,8 +334,7 @@ out of the box agenda looks and acts as it did before these options existed.
   only diff view that works on a large PR: the unified diff endpoint
   refuses past 300 files with a 406, while the files endpoint pages
   happily (937 files tested). Review threads show boxed under the line
-  they are anchored to, and the file under the cursor expands as you move
-  (`github.file_auto_expand`).
+  they are anchored to.
 - **Pane focus**: right arrow puts the keys in the preview pane, left
   gives them back to the list, and the list dims while they are away so
   only one cursor is lit. Works for every pane that has something to

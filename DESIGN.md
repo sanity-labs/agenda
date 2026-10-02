@@ -20,7 +20,7 @@ refused.
 
 | key | kept for |
 |---|---|
-| `←` `→` | moving focus between the list and the pane |
+| `←` `→` | moving focus between the list and the pane; closing a float |
 | `↑` `↓` | moving within whatever has focus |
 | `esc` | stepping back out of whatever is open |
 | `ctrl+c` | quitting |
@@ -46,9 +46,13 @@ is the one the arrows will move.
 - `→` focuses the pane, `←` hands the keys back.
 - A **float takes the keys on open**, whatever opened it and whatever it
   holds, including a floated description. The list is behind it, so there
-  is nothing else the arrows could belong to, and `←`/`→` do not move
-  focus there: `esc` is the way out, and it is the one thing that hands
-  the keys back while the float is still up.
+  is nothing else the arrows could belong to.
+- **Leaving a float closes it.** An arrow that would hand the keys back
+  beside a list (`←` from a scrolling pane, `←` with nothing left to
+  collapse in the file list or jobs pane, either arrow on a floated
+  description) has nothing to hand them to, so it closes the float
+  outright. Hanging onto a dimmed list behind a window the arrows cannot
+  leave is a dead end.
 - A pane opened **beside a visible list** waits to be asked, since both
   are visible and either could reasonably take the arrows.
 - Changing panes drops focus, so a pane that has just appeared never
@@ -64,11 +68,13 @@ is the one the arrows will move.
   "hidden" as "floating" gets it wrong twice: the list dims at startup
   with nothing open, and a real float fails to take the keys because the
   reveal that opens it reports shown.
-- `setPreview` sends the float state *before* the shown state, since the
-  reveal handler has to know which of the two it is in. The key handler
-  also calls `FocusPane` immediately while those messages land after, so
-  the handler must set focus itself rather than rely on that earlier call
-  surviving.
+- **The two preview messages arrive in either order.** `setPreview`
+  batches them and `tea.Batch` runs each command in its own goroutine, so
+  neither handler may assume the other has run. Both call `floatFocus`,
+  which settles focus from the combined state; a handler that decides from
+  its own message alone loses focus on `v` whenever "shown" lands first.
+  The key handler also calls `FocusPane` immediately while those messages
+  land after, so that call cannot be relied on to survive.
 
 Panes that hold their own cursor (the jobs pane, the file list) keep it.
 Panes that scroll (diffs, comments) get the arrows and page keys routed

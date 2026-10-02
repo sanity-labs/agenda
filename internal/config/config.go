@@ -199,10 +199,6 @@ type GitHubConfig struct {
 	// default: it is one request for a single PR, debounced, so cycling a
 	// list costs nothing until you stop.
 	RefreshRow *bool `yaml:"refresh_row"`
-	// FileAutoExpand opens the file under the cursor in the file list and
-	// closes the one you left, so walking the list reads like scrolling a
-	// diff. On by default; off keeps a file open until you collapse it.
-	FileAutoExpand *bool `yaml:"file_auto_expand"`
 	// Merge adds merge entries to the review popup ('r'). Off by default:
 	// merging is the one irreversible action in that popup, so it is opt-in
 	// rather than a keypress away for everyone.
@@ -217,11 +213,6 @@ type GitHubConfig struct {
 
 // RefreshRowEnabled reports whether the selected PR is re-read on settle.
 func (g GitHubConfig) RefreshRowEnabled() bool { return g.RefreshRow == nil || *g.RefreshRow }
-
-// FileAutoExpandEnabled reports whether the file list follows the cursor.
-func (g GitHubConfig) FileAutoExpandEnabled() bool {
-	return g.FileAutoExpand == nil || *g.FileAutoExpand
-}
 
 // ResolvedMergeMethod is the gh flag for the configured merge method,
 // defaulting to squash. An unrecognised value falls back rather than

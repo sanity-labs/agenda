@@ -15,18 +15,17 @@ import (
 func filesView(t *testing.T, files ...prFile) *View {
 	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	// diff_pane opts into the in-pane view, which is the file list.
-	// Auto-expand off: these cover the manual +/- behaviour, and the
-	// following-cursor case has its own test.
-	off := false
-	v := New(config.GitHubConfig{DiffPane: true, FileAutoExpand: &off}, nil, nil, nil)
+	// diff_pane opts into the in-pane view, which is the file list. The
+	// preview is never shown beside the list here, so the pane floats.
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
 	v.SetSize(60, 70, 24)
 	p := pr{Number: 1, URL: "u", Title: "t", State: "OPEN"}
 	p.Repository.NameWithOwner = "o/r"
 	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
 	v.Update(tea.KeyPressMsg{Code: 'd'})
 	v.Update(filesMsg{url: "u", files: files})
-	v.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // focus the pane
+	// Floated, the pane took the keys on open; a right here would reach
+	// updateFiles and expand the first file instead.
 	return v
 }
 
@@ -111,9 +110,10 @@ func TestSummaryCountsReviewed(t *testing.T) {
 	}
 }
 
-// Left collapses first, then returns focus: one key walking back out,
-// rather than leaving the pane with files still expanded.
-func TestLeftCollapsesThenReleasesFocus(t *testing.T) {
+// Left collapses first, then leaves: one key walking back out, rather
+// than leaving the pane with files still expanded. Floated, leaving is
+// closing, since there is no list beside the pane to hand the keys to.
+func TestLeftCollapsesThenClosesTheFloat(t *testing.T) {
 	v := filesView(t, sample()...)
 	st := v.files["u"]
 	v.Update(tea.KeyPressMsg{Code: '+'})
@@ -125,12 +125,36 @@ func TestLeftCollapsesThenReleasesFocus(t *testing.T) {
 	if !v.PaneFocused() {
 		t.Error("left released focus while a file was still expanded")
 	}
-	// Beside a visible list, left then hands the keys back. Floated there
-	// is nothing to hand them to, so esc is the way out instead.
+
+	cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if cmd == nil {
+		t.Fatal("left with nothing expanded did nothing in a float")
+	}
+	if _, ok := cmd().(ui.ConcealPreviewMsg); !ok {
+		t.Error("left with nothing expanded did not close the float")
+	}
+	if v.PaneFocused() || v.pane != paneBody {
+		t.Errorf("the float closed but the view kept pane=%v focused=%v", v.pane, v.PaneFocused())
+	}
+}
+
+// Beside a visible list, left with nothing expanded hands the keys back
+// to the list and the pane stays open.
+func TestLeftReleasesFocusBesideTheList(t *testing.T) {
+	v := filesView(t, sample()...)
+	v.Update(ui.PreviewFloatingMsg(false))
 	v.Update(ui.PreviewShownMsg(true))
+	v.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // focus the pane
+	if !v.PaneFocused() {
+		t.Fatal("setup: right did not focus the pane")
+	}
+
 	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	if v.PaneFocused() {
 		t.Error("left did not release focus once nothing was expanded")
+	}
+	if v.pane != paneFiles {
+		t.Error("left closed the pane instead of handing the keys back")
 	}
 }
 
@@ -164,33 +188,6 @@ func TestNoFiles(t *testing.T) {
 	v := filesView(t)
 	if got := ansi.Strip(v.PreviewView()); !strings.Contains(got, "No files changed") {
 		t.Errorf("an empty file list says nothing:\n%s", got)
-	}
-}
-
-// On by default the list follows the cursor: the file under it opens and
-// the one you left closes, so the pane stays short enough to see the list
-// around it.
-func TestAutoExpandFollowsTheCursor(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil) // default on
-	v.SetSize(60, 70, 24)
-	p := pr{Number: 1, URL: "u", Title: "t", State: "OPEN"}
-	p.Repository.NameWithOwner = "o/r"
-	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
-	v.Update(tea.KeyPressMsg{Code: 'd'})
-	v.Update(filesMsg{url: "u", files: sample()})
-	st := v.files["u"]
-
-	v.Update(tea.KeyPressMsg{Code: 'j'})
-	if !st.open["b.go"] {
-		t.Error("moving to a file did not open it")
-	}
-	if st.open["a.go"] {
-		t.Error("the file left behind stayed open")
-	}
-	v.Update(tea.KeyPressMsg{Code: 'j'})
-	if !st.open["c.go"] || st.open["b.go"] {
-		t.Errorf("the cursor is not the only file open: %v", st.open)
 	}
 }
 
@@ -272,30 +269,5 @@ func TestThreadsOnlyShowWhereTheyAnchor(t *testing.T) {
 	threads[0].Line = &elsewhere
 	if out := ansi.Strip(renderFilesPane(st, 70, true, "", threads)); strings.Contains(out, "a remark") {
 		t.Errorf("a thread showed on a line it is not anchored to:\n%s", out)
-	}
-}
-
-// Moving the cursor asks the preview to scroll with it. Without this an
-// expanded file taller than the pane pushes the next one off screen and
-// the cursor appears to stop moving.
-func TestCursorAsksThePreviewToFollow(t *testing.T) {
-	v := filesView(t, sample()...)
-	v.pendingJump = nil
-
-	v.Update(tea.KeyPressMsg{Code: 'j'})
-	if v.pendingJump == nil {
-		t.Fatal("moving the cursor asked for no scroll")
-	}
-	first := *v.pendingJump
-
-	v.pendingJump = nil
-	v.Update(tea.KeyPressMsg{Code: 'j'})
-	if v.pendingJump == nil {
-		t.Fatal("the second move asked for no scroll")
-	}
-	// Clamped at the top until the cursor is far enough down, so compare
-	// only once both are past the clamp.
-	if *v.pendingJump < first {
-		t.Errorf("the scroll went backwards: %d then %d", first, *v.pendingJump)
 	}
 }

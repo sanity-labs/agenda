@@ -805,6 +805,9 @@ func (v *View) updateJobsFocus(msg tea.KeyMsg) (tea.Cmd, bool) {
 		default:
 			v.jobsFocus = false
 		}
+		if !v.jobsFocus && v.floatReveal {
+			return v.closeFloat(), true
+		}
 		return nil, true
 	case key.Matches(msg, v.nav.Up):
 		return v.moveJob(-1), true

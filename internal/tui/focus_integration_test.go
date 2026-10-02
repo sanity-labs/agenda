@@ -83,3 +83,41 @@ func runCmds(t *testing.T, m *Model, cmd tea.Cmd, depth int) {
 	*m = got.(Model)
 	runCmds(t, m, next, depth+1)
 }
+
+// The same keys with every batch delivered back to front: tea.Batch runs
+// its commands concurrently, so the real order is whichever goroutine
+// wins, and the result must not depend on it.
+func TestFloatKeysAutoFocusWhicheverOrder(t *testing.T) {
+	for _, k := range []rune{'v', 'd', 'c', 't'} {
+		m, f := focusIntegrationModel(t)
+		got, cmd := m.Update(tea.KeyPressMsg{Code: k})
+		m = got.(Model)
+		runCmdsReversed(t, &m, cmd, 0)
+		if !m.floating() {
+			t.Errorf("%q did not open a float", k)
+		}
+		if !f.PaneFocused() {
+			t.Errorf("%q opened a float without focusing it (messages reversed)", k)
+		}
+	}
+}
+
+func runCmdsReversed(t *testing.T, m *Model, cmd tea.Cmd, depth int) {
+	t.Helper()
+	if cmd == nil || depth > 6 {
+		return
+	}
+	msg := cmd()
+	if b, ok := msg.(tea.BatchMsg); ok {
+		for i := len(b) - 1; i >= 0; i-- {
+			runCmdsReversed(t, m, b[i], depth+1)
+		}
+		return
+	}
+	if msg == nil {
+		return
+	}
+	got, next := m.Update(msg)
+	*m = got.(Model)
+	runCmdsReversed(t, m, next, depth+1)
+}

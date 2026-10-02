@@ -1388,16 +1388,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
-		// A float is over the list, so it takes the keys whatever it holds.
-		// Beside a visible list, or hidden with nothing on screen at all,
-		// the list keeps them: previewShown is true for a float too, so the
-		// float is what this turns on, not the detail being visible.
-		if v.floatReveal && v.previewShown {
-			v.paneFocus = true
-			v.jobsFocus = v.pane == paneJobs
-		} else {
-			v.jobsFocus, v.paneFocus, v.logView = false, false, nil
-		}
+		v.floatFocus()
 		// Revealing the detail shows whatever is selected, so that row is
 		// read.
 		if v.previewShown {
@@ -1408,6 +1399,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return v.drainSync()
 	case ui.PreviewFloatingMsg:
 		v.floatReveal = bool(msg)
+		v.floatFocus()
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -1491,6 +1483,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				v.paneFocus = true
 				return ui.RevealPreview
 			}
+		}
+		// Floated, an arrow that would leave the pane closes the float. The
+		// file list and jobs pane collapse first and do this themselves.
+		if v.floatReveal && v.pane != paneFiles && v.pane != paneJobs && !v.list.Filtering() &&
+			(msg.String() == "left" || msg.String() == "right") {
+			return v.closeFloat()
 		}
 		// Every other pane takes focus the same way: right arrow in, left
 		// arrow back to the list. These scroll rather than holding a
@@ -1678,6 +1676,28 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	// The pane is about to show a diff, comments or jobs; a hidden preview
 	// would swallow it silently.
 	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs(), v.maybeFetchFiles())
+}
+
+// floatFocus settles focus from the preview's combined state: a float over
+// the list takes the keys, a side pane or an empty screen leaves them with
+// the list. Both preview messages call it because tea.Batch runs its
+// commands concurrently, so they land in either order.
+func (v *View) floatFocus() {
+	if v.floatReveal && v.previewShown {
+		v.paneFocus = true
+		v.jobsFocus = v.pane == paneJobs
+		return
+	}
+	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
+}
+
+// closeFloat shuts a floated detail from inside: an arrow that would hand
+// the keys back has no list beside the float to hand them to.
+func (v *View) closeFloat() tea.Cmd {
+	v.pane = paneBody
+	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
+	v.floatReveal = false
+	return ui.ConcealPreview
 }
 
 // jumpThread moves between inline-thread anchors in the current pane and
@@ -2222,42 +2242,6 @@ func (v *View) maybeFetchFiles() tea.Cmd {
 	return fetchFiles(p.URL, p.repo(), p.Number)
 }
 
-// followFileCursor scrolls the preview so the selected file stays on
-// screen. Without it an expanded file taller than the pane pushes the
-// next one out of view, and the cursor appears to stop moving.
-func (v *View) followFileCursor(st *filesState) {
-	rows := st.rows()
-	if st.sel < 0 || st.sel >= len(rows) {
-		return
-	}
-	// The pane prints a summary and a blank line before the rows.
-	line := v.paneHeader + filesPaneHeader + st.sel - v.height/3
-	if line < 0 {
-		line = 0
-	}
-	v.pendingJump = &line
-}
-
-// filesPaneHeader is the rows renderFilesPane prints before the files: a
-// summary and a blank line.
-const filesPaneHeader = 2
-
-// autoExpand opens the file under the cursor and closes the rest, so
-// walking the list reads like scrolling a diff without the pane growing
-// to the length of one. Off, a file stays as you left it.
-func (v *View) autoExpand(st *filesState) {
-	if !v.cfg.FileAutoExpandEnabled() {
-		return
-	}
-	rows := st.rows()
-	if st.sel < 0 || st.sel >= len(rows) {
-		return
-	}
-	name := st.files[rows[st.sel].file].Filename
-	clear(st.open)
-	st.open[name] = true
-}
-
 // updateFiles handles keys while the file list has the keys. Reports
 // whether it consumed the key, like the jobs pane.
 func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
@@ -2280,8 +2264,6 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 		for i := st.sel + d; i >= 0 && i < len(rows); i += d {
 			if rows[i].patch == "" {
 				st.sel = i
-				v.autoExpand(st)
-				v.followFileCursor(st)
 				return
 			}
 		}
@@ -2313,9 +2295,10 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 			st.open[name] = false
 			return nil, true
 		}
-		// Floated there is no list beside the pane to go back to, so left
-		// does nothing once everything is collapsed; esc is the way out.
-		if v.previewShown && (msg.String() == "left" || msg.String() == "h") {
+		if msg.String() == "left" || msg.String() == "h" {
+			if v.floatReveal {
+				return v.closeFloat(), true
+			}
 			v.paneFocus = false
 			return nil, true
 		}
