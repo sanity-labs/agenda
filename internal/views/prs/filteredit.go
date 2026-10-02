@@ -26,7 +26,7 @@ type filterEdit struct {
 // says which you mean, so it needs no extra prompt.
 func (v *View) editFilter() tea.Cmd {
 	path, label, q := "github.filter", "my PRs", v.cfg.Filter
-	if v.inReviewSection() {
+	if v.reviewsOnly || v.inReviewSection() {
 		path, label, q = "github.review_filter", "review requests", v.cfg.ReviewFilter
 	}
 	v.filterEd = &filterEdit{path: path, label: label, query: q}

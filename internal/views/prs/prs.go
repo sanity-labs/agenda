@@ -593,10 +593,13 @@ type View struct {
 	raw        []pr // own PRs
 	reviewRaw  []pr // PRs waiting on the user's review
 	showReview bool // render the review section (toggled with 'w')
-	grouping   bool // swimlanes derived from the active sort
-	sort       sortMode
-	rev        bool // sort order reversed
-	store      *store.Store
+	// reviewsOnly makes this the Reviews tab: the review-requested search is
+	// the whole list, and the own-PR search never runs.
+	reviewsOnly bool
+	grouping    bool // swimlanes derived from the active sort
+	sort        sortMode
+	rev         bool // sort order reversed
+	store       *store.Store
 
 	// notifier posts "needs your review" notifications (nil = off); seeded
 	// gates them so the first data never fires a storm.
@@ -856,16 +859,30 @@ func (k viewKeys) binding(action string) key.Binding {
 }
 
 func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store.Store) *View {
+	return newView(cfg, km, n, st, false)
+}
+
+// NewReviews builds the Reviews tab: the PR view with its review-requested
+// section as the entire list, for reviewing without your own PRs in the way.
+func NewReviews(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store.Store) *View {
+	return newView(cfg, km, n, st, true)
+}
+
+func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store.Store, reviewsOnly bool) *View {
 	bind := func(action, desc string, def ...string) key.Binding {
 		return ui.Bind(km.Of("prs", action, def...), "", desc)
 	}
 	v := &View{
-		cfg:        cfg,
-		store:      st,
-		notifier:   n,
-		list:       ui.NewList[pr](),
-		loading:    true,
-		showReview: cfg.ShowReviewRequested != nil && *cfg.ShowReviewRequested,
+		cfg:      cfg,
+		store:    st,
+		notifier: n,
+		list:     ui.NewList[pr](),
+		// The Reviews tab has no own-PR search to clear the tab-wide flag,
+		// so it starts on the review search's own.
+		loading:       !reviewsOnly,
+		reviewLoading: reviewsOnly,
+		showReview:    reviewsOnly || (cfg.ShowReviewRequested != nil && *cfg.ShowReviewRequested),
+		reviewsOnly:   reviewsOnly,
 		keys: viewKeys{
 			Open:       bind("open", "open", "enter"),
 			Copy:       bind("copy_url", "copy url", "y"),
@@ -899,7 +916,7 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 	v.nav = newNavKeys(km)
 
 	// Paint last run's PRs immediately; the live fetch refreshes them.
-	if cached, ok := cache.Load[cachedPRs](cacheName); ok && len(cached.Mine)+len(cached.Review) > 0 {
+	if cached, ok := cache.Load[cachedPRs](v.cacheName()); ok && len(cached.Mine)+len(cached.Review) > 0 {
 		v.raw, v.reviewRaw = cached.Mine, cached.Review
 		v.seeded, v.mineSeeded = true, true
 		if len(cached.Unread) > 0 {
@@ -937,9 +954,21 @@ func (v *View) unreadURLs() []string {
 	return out
 }
 
-const cacheName = "prs"
+// cacheName keeps each tab's rows apart: the two tabs fetch different
+// searches, and sharing a file would let each overwrite the other's.
+func (v *View) cacheName() string {
+	if v.reviewsOnly {
+		return "reviews"
+	}
+	return "prs"
+}
 
-func (v *View) Title() string { return "PRs" }
+func (v *View) Title() string {
+	if v.reviewsOnly {
+		return "Reviews"
+	}
+	return "PRs"
+}
 
 func (v *View) Init() tea.Cmd {
 	v.loading = true
@@ -1122,6 +1151,16 @@ func searchPRs(q string, size int, after string) (searchPage, error, error) {
 }
 
 func (v *View) fetch() tea.Cmd {
+	if v.reviewsOnly {
+		// No own-PR search will land to clear the tab-wide spinner; the
+		// review search carries its own.
+		v.loading = false
+		cmds := []tea.Cmd{v.fetchReview()}
+		if v.unreadSync {
+			cmds = append(cmds, fetchReadThreads())
+		}
+		return tea.Batch(cmds...)
+	}
 	q := ensurePR(v.cfg.Filter)
 	size := v.pageSize()
 	cmds := []tea.Cmd{func() tea.Msg {
@@ -1235,7 +1274,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.mineSeeded = true
 		v.applySort()
 		v.publish(append(v.raw, v.reviewRaw...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
+		v.saveCache()
 		return partial
 	case reviewListMsg:
 		v.reviewLoading = false
@@ -1270,7 +1309,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.seeded = true
 		v.applySort()
 		v.publish(append(v.raw, next...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: next, Unread: v.unreadURLs()})
+		v.saveCache()
 		return cmd
 	case filesMsg:
 		st := v.files[msg.url]
@@ -1625,7 +1664,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.rev = !v.rev
 			v.applySort()
 			return nil
-		case key.Matches(msg, v.keys.Review):
+		case key.Matches(msg, v.keys.Review) && !v.reviewsOnly:
 			v.showReview = !v.showReview
 			v.applySort()
 			// The review search isn't fetched while the section is off
@@ -2622,7 +2661,7 @@ func (v *View) markRead() {
 // saveCache rewrites the cache so a mark cleared (or earned) in this session
 // survives a restart. Cheap: one small JSON file, written atomically.
 func (v *View) saveCache() {
-	_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
+	_ = cache.Save(v.cacheName(), cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
 }
 
 // notifyNewReviews posts a notification for review requests that appeared
@@ -2745,6 +2784,15 @@ func (v *View) statusText() string {
 		return "Error (ctrl+r to retry)"
 	case v.flash != "":
 		return v.flash
+	case v.reviewsOnly:
+		if v.reviewLoading && len(v.reviewRaw) == 0 {
+			return "Loading review requests…"
+		}
+		s := fmt.Sprintf("%d to review", len(v.reviewRaw))
+		if v.reviewPage.total > len(v.reviewRaw) {
+			s = fmt.Sprintf("%d of %d to review", len(v.reviewRaw), v.reviewPage.total)
+		}
+		return fmt.Sprintf("%s · sort: %s%s", s, sortName[v.sort], ui.RevMarker(v.rev))
 	default:
 		s := fmt.Sprintf("%d PRs", len(v.raw))
 		if v.minePage.total > len(v.raw) {
@@ -3070,6 +3118,9 @@ func (v *View) Bindings() []key.Binding {
 	}
 	if v.PaneFocused() && v.pane == paneFiles {
 		return v.filesBindings()
+	}
+	if v.reviewsOnly {
+		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.EditFilter}
 	}
 	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
 }

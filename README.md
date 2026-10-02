@@ -6,6 +6,7 @@ A terminal dashboard that unifies the things you keep checking into one TUI you
 tab between:
 
 - **PRs** — your open GitHub pull requests
+- **Reviews** (opt-in) — just the PRs waiting on your review, as their own tab
 - **Sessions** — your local agent sessions (Claude Code, Codex, Antigravity),
   with the estimated cost and model for Claude sessions
 - **Linear** — your assigned Linear issues
@@ -58,8 +59,8 @@ Linear in one switcher.
 go install github.com/sanity-labs/agenda@latest
 ```
 
-`agenda` opens on the first tab; `agenda prs` / `agenda sessions` /
-`agenda linear` open straight on that view. `agenda help` lists every
+`agenda` opens on the first tab; `agenda prs` / `agenda reviews` /
+`agenda sessions` / `agenda linear` open straight on that view. `agenda help` lists every
 command.
 
 ```sh
@@ -130,6 +131,27 @@ The only view that needs setup is **Linear**: add a personal API key
 linear:
   token: lin_api_xxx
 ```
+
+### Reviewing PRs
+
+The PRs tab opens on your own PRs. To work through the PRs other people
+asked you to review, either press `w` there to add a "Review Requested"
+section below them, or give reviews a tab of its own:
+
+```yaml
+views: [reviews, prs, sessions, linear]   # opens on Reviews
+github:
+  mark_reviewed: true    # dim the ones you have already reviewed
+  hide_approved: true    # drop ones someone already approved
+  diff_pane: true        # read diffs in the right pane
+notifications:
+  popup: desktop         # hear about new review requests
+```
+
+The Reviews tab lists `github.review_filter` (by default
+`review-requested:@me is:open archived:false`) and nothing else, and has
+every PRs key: `r` to approve / comment / request changes, `d` for the
+diff, `c` for threads, `t` for CI. `F` edits its search.
 
 ## Keys
 

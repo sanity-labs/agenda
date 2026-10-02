@@ -1485,7 +1485,7 @@ func (m Model) versionTag() string {
 // means "nothing to show" for that slot.
 func glyphLegend(title string) []string {
 	switch title {
-	case "PRs":
+	case "PRs", "Reviews":
 		return []string{
 			ui.Dim.Render("state  ") + ui.Green.Render(ui.IconOpen) + " open  " +
 				ui.Magenta.Render(ui.IconMerged) + " merged  " +
@@ -1523,6 +1523,8 @@ func tabIcon(title string) string {
 	switch title {
 	case "PRs":
 		return ui.Glyph(ui.IconTabPRs, "")
+	case "Reviews":
+		return ui.Glyph(ui.IconReviewReq, "")
 	case "Sessions":
 		return ui.Glyph(ui.IconTabSessions, "")
 	case "Linear":

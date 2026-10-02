@@ -235,3 +235,30 @@ func TestUpdateCheckDefaultsOn(t *testing.T) {
 		t.Error("update_check: false did not disable the check")
 	}
 }
+
+// The Reviews tab is opt-in: it is never in the default list, it shows once
+// named in views, and it is a GitHub view, so github.enabled: false drops it
+// along with PRs and the PRs refresh interval drives it.
+func TestReviewsView(t *testing.T) {
+	writeConfig(t, "views: [reviews, prs]\nrefresh:\n  every: 5m\n  prs: 2m\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range Default().Views {
+		if name == "reviews" {
+			t.Error("reviews is in the default views: an upgrade would add a tab")
+		}
+	}
+	if got := cfg.EnabledViews(); len(got) != 2 || got[0] != "reviews" || got[1] != "prs" {
+		t.Errorf("EnabledViews() = %v, want [reviews prs]", got)
+	}
+	if got := cfg.RefreshFor("reviews"); got != 2*time.Minute {
+		t.Errorf("RefreshFor(reviews) = %v, want 2m (the PRs override)", got)
+	}
+	off := false
+	cfg.GitHub.Enabled = &off
+	if got := cfg.EnabledViews(); len(got) != 0 {
+		t.Errorf("EnabledViews() with github off = %v, want none", got)
+	}
+}
