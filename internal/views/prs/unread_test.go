@@ -202,8 +202,8 @@ func TestMovingOffAFloatDoesNotReadTheNextRow(t *testing.T) {
 	if !v.unread["u2"] {
 		t.Fatal("hovering read a row with the detail hidden")
 	}
-	v.Update(ui.PreviewShownMsg(true)) // 'v': the float opens on u2
-	v.Update(ui.PreviewFloatingMsg(true))
+	v.Update(ui.PreviewFloatingMsg(true)) // 'v': the float opens on u2
+	v.Update(ui.PreviewShownMsg(true))
 	if v.unread["u2"] {
 		t.Fatal("setup: opening the float should have read u2")
 	}

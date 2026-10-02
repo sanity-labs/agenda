@@ -51,6 +51,7 @@ func keyRegistry() []keyEntry {
 		{"prs", "open", "open in browser", []string{"enter"}},
 		{"prs", "copy_url", "copy url", []string{"y"}},
 		{"prs", "diff", "diff", []string{"d"}},
+		{"prs", "edit_filter", "edit the search", []string{"F"}},
 		{"prs", "comments", "comments pane", []string{"c"}},
 		{"prs", "review", "review popup", []string{"r"}},
 		{"prs", "comment", "new PR comment", []string{"C"}},

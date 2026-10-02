@@ -638,6 +638,9 @@ type View struct {
 	// previewShown tracks whether the detail pane is on screen, which
 	// decides what marks a row read: hovering, or asking for the detail.
 	previewShown bool
+	// floatBase records that the float was opened on the description with
+	// 'v', so a pane toggled over it has a level to step back to.
+	floatBase bool
 	// floatReveal distinguishes a float, which closes when you move on,
 	// from a pane that stays open and shows the row you arrive at.
 	floatReveal bool
@@ -702,6 +705,12 @@ type View struct {
 	// jobSel and jobsOpen are its cursor and expanded jobs, belonging to
 	// the PR jobsFor; nav is the list's movement keys, reused there.
 	jobsFocus bool
+	// files is the per-PR file list ('D'), keyed by URL like the diffs.
+	files map[string]*filesState
+	// paneFocus is focus for the panes that scroll (a diff, comments)
+	// rather than holding their own cursor. jobsFocus is the jobs pane's
+	// own, since it tracks a row as well.
+	paneFocus bool
 	jobSel    jobCursor
 	jobsOpen  map[string]bool
 	jobsFor   string
@@ -737,6 +746,7 @@ const (
 	paneDiff
 	paneComments
 	paneJobs
+	paneFiles
 )
 
 // reviewFlow drives the review popup: pick an option, then (for comment /
@@ -1262,6 +1272,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.publish(append(v.raw, next...))
 		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: next, Unread: v.unreadURLs()})
 		return cmd
+	case filesMsg:
+		st := v.files[msg.url]
+		if st == nil {
+			return nil
+		}
+		st.files, st.err, st.done = msg.files, msg.err, true
+		v.bodyKey = ""
+		if msg.err != nil {
+			return statusCmd(ui.SeverityWarn, msg.err)
+		}
+		return nil
 	case diffMsg:
 		v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
 		return nil
@@ -1269,7 +1290,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.gen != v.settleGen {
 			return nil // superseded by further navigation
 		}
-		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs())
+		return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs(), v.maybeFetchFiles())
 	case logMsg:
 		return v.applyLog(msg)
 	case jobsMsg:
@@ -1370,11 +1391,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
-		// A hidden pane cannot hold the keys: j/k would move a cursor you
-		// cannot see.
-		if !v.previewShown {
-			v.jobsFocus, v.logView = false, nil
-		}
+		v.floatFocus()
 		// Revealing the detail shows whatever is selected, so that row is
 		// read.
 		if v.previewShown {
@@ -1385,6 +1402,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return v.drainSync()
 	case ui.PreviewFloatingMsg:
 		v.floatReveal = bool(msg)
+		v.floatFocus()
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -1458,6 +1476,50 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				return ui.RevealPreview
 			}
 		}
+		// The file list holds its own cursor, like the jobs pane.
+		if v.pane == paneFiles && !v.list.Filtering() {
+			if v.paneFocus {
+				if cmd, ok := v.updateFiles(msg); ok {
+					return cmd
+				}
+			} else if msg.String() == "right" {
+				v.paneFocus = true
+				return ui.RevealPreview
+			}
+		}
+		// Floated, an arrow that would leave the pane steps a level out of
+		// the float. The file list and jobs pane collapse first and do this
+		// themselves.
+		if v.floatReveal && v.pane != paneFiles && v.pane != paneJobs && !v.list.Filtering() {
+			switch msg.String() {
+			case "left":
+				return v.leaveFloat()
+			case "right":
+				return nil // nothing deeper to step into
+			}
+		}
+		// Beside a visible list the same step applies one level down: with
+		// the keys already on the list, left takes an open pane back to the
+		// description. The configured pane itself never closes.
+		if v.previewShown && !v.floatReveal && !v.PaneFocused() && v.pane != paneBody &&
+			!v.list.Filtering() && msg.String() == "left" {
+			v.pane = paneBody
+			v.logView = nil
+			return nil
+		}
+		// Every other pane takes focus the same way: right arrow in, left
+		// arrow back to the list. These scroll rather than holding a
+		// cursor, so the root model routes the arrows to the preview.
+		if v.pane == paneDiff || v.pane == paneComments {
+			switch {
+			case !v.paneFocus && msg.String() == "right":
+				v.paneFocus = true
+				return ui.RevealPreview
+			case v.previewShown && v.paneFocus && msg.String() == "left":
+				v.paneFocus = false
+				return nil
+			}
+		}
 		if v.filterEd != nil {
 			return v.updateFilterEdit(msg)
 		}
@@ -1501,11 +1563,13 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return v.copySelected()
 		case key.Matches(msg, v.keys.Diff):
 			// Default 'd' keeps the original behavior: page the diff
-			// through less. github.diff_pane opts into the in-pane diff.
+			// through less. github.diff_pane opts into the in-pane view,
+			// which is the file list: it reads better than a flat diff and
+			// is the only one that works past 300 files.
 			if !v.cfg.DiffPane {
 				return v.diffInPager()
 			}
-			return v.setPane(paneDiff)
+			return v.setPane(paneFiles)
 		case key.Matches(msg, v.keys.Expand):
 			if sel := v.list.Selected(); sel.URL != "" {
 				if v.expanded == sel.URL {
@@ -1592,6 +1656,7 @@ func (v *View) resetToggles() {
 		return
 	}
 	v.pane = paneBody
+	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
 	v.expanded = ""
 	v.bodyKey = ""
 	v.annIdx = 0
@@ -1606,6 +1671,12 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 		// Back to the description, not away from the detail: concealing
 		// here would shut a floated preview instead of switching panes.
 		// Only a pane the toggle itself revealed goes away again.
+		if v.floatReveal {
+			// Toggling the pane off is leaving its level: back to a 'v'
+			// description if there is one, otherwise the float closes.
+			v.pane = mode
+			return v.leaveFloat()
+		}
 		if v.previewShown {
 			return nil
 		}
@@ -1613,12 +1684,65 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	}
 	v.pane = mode
 	v.annIdx = 0
-	// Opening the jobs pane is asking to look through the jobs, so it takes
-	// the keys straight away; esc hands them back to the PR list.
-	v.jobsFocus = mode == paneJobs
+	// A pane opened into a float takes the keys straight away: the list is
+	// behind it, so there is nothing to arrow through and an explicit
+	// right would be a keystroke for nothing. With the preview pane on,
+	// both are visible, so focus stays with the list until asked for.
+	// floatReveal as well as !previewShown: a pane toggled over a 'v' float
+	// has the detail on screen already, and is just as much behind glass.
+	auto := !v.previewShown || v.floatReveal || mode == paneJobs
+	v.jobsFocus = auto && mode == paneJobs
+	v.paneFocus = auto && mode != paneJobs && mode != paneBody
+	// Opening a pane with the preview hidden is the float appearing. Say so
+	// here rather than waiting for the root model's toggle message, which
+	// only fires when floating() changes.
+	v.floatReveal = v.floatReveal || !v.previewShown
 	// The pane is about to show a diff, comments or jobs; a hidden preview
 	// would swallow it silently.
-	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs())
+	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs(), v.maybeFetchFiles())
+}
+
+// floatFocus settles focus from the preview's combined state: a float over
+// the list takes the keys, a side pane or an empty screen leaves them with
+// the list. Both preview messages call it because tea.Batch runs its
+// commands concurrently, so they land in either order.
+func (v *View) floatFocus() {
+	if v.floatReveal && v.previewShown {
+		v.paneFocus = true
+		v.jobsFocus = v.pane == paneJobs
+		// A float that settles on the description was opened with 'v', so
+		// a pane toggled over it has that level to step back to. A pane
+		// opened straight from the list is level one itself.
+		if v.pane == paneBody {
+			v.floatBase = true
+		}
+		return
+	}
+	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
+	if !v.floatReveal {
+		v.floatBase = false
+	}
+}
+
+// leaveFloat steps one level out of a float: a pane over a 'v' description
+// goes back to it, anything else closes the float. There is no list beside
+// a float to hand the keys to, so leaving the last level is closing.
+func (v *View) leaveFloat() tea.Cmd {
+	if v.floatBase && v.pane != paneBody {
+		v.pane = paneBody
+		v.jobsFocus, v.logView = false, nil
+		v.paneFocus = true // the description scrolls, so it keeps the keys
+		return nil
+	}
+	return v.closeFloat()
+}
+
+// closeFloat shuts a floated detail from inside, whatever level it is on.
+func (v *View) closeFloat() tea.Cmd {
+	v.pane = paneBody
+	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
+	v.floatReveal, v.floatBase = false, false
+	return ui.ConcealPreview
 }
 
 // jumpThread moves between inline-thread anchors in the current pane and
@@ -2124,6 +2248,129 @@ type diffMsg struct {
 
 // maybeFetchDiff starts a diff fetch for the selected PR when the diff pane
 // is showing and we have neither the diff nor a fetch in flight.
+// fileState is the file list for a PR, created empty on first use so the
+// pane can render "loading" before the fetch lands.
+func (v *View) fileState(p pr) *filesState {
+	if v.files == nil {
+		v.files = map[string]*filesState{}
+	}
+	st, ok := v.files[p.URL]
+	if !ok {
+		st = &filesState{open: map[string]bool{}, reviewed: map[string]bool{}}
+		v.files[p.URL] = st
+	}
+	return st
+}
+
+// filesHint names the keys the file list answers to, since they are not
+// the list's own.
+func (v *View) filesHint() string {
+	if !v.PaneFocused() {
+		return "→ to focus"
+	}
+	return "↑↓ move · +/→ expand · -/← collapse · space reviewed · esc back"
+}
+
+// maybeFetchFiles lists the selected PR's files once the pane is open.
+func (v *View) maybeFetchFiles() tea.Cmd {
+	if v.pane != paneFiles {
+		return nil
+	}
+	p := v.list.Selected()
+	if p.URL == "" {
+		return nil
+	}
+	st := v.fileState(p)
+	if st.done || st.err != nil {
+		return nil
+	}
+	return fetchFiles(p.URL, p.repo(), p.Number)
+}
+
+// updateFiles handles keys while the file list has the keys. Reports
+// whether it consumed the key, like the jobs pane.
+func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
+	st := v.fileState(v.list.Selected())
+	rows := st.rows()
+	if len(rows) == 0 {
+		// Nothing to collapse, so left is straight to leaving the pane;
+		// an empty list must not trap the keys.
+		if msg.String() == "left" || msg.String() == "h" {
+			if v.floatReveal {
+				return v.leaveFloat(), true
+			}
+			v.paneFocus = false
+			return nil, true
+		}
+		return nil, false
+	}
+	// The cursor sits on file rows only: patch lines are not targets, so
+	// moving skips over whatever is expanded.
+	fileAt := func(i int) int {
+		for ; i >= 0 && i < len(rows); i++ {
+			if rows[i].patch == "" {
+				return i
+			}
+		}
+		return -1
+	}
+	move := func(d int) {
+		for i := st.sel + d; i >= 0 && i < len(rows); i += d {
+			if rows[i].patch == "" {
+				st.sel = i
+				return
+			}
+		}
+	}
+	cur := fileAt(st.sel)
+	if cur < 0 {
+		cur = fileAt(0)
+	}
+	name := ""
+	if cur >= 0 {
+		name = st.files[rows[cur].file].Filename
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		move(-1)
+	case "down", "j":
+		move(1)
+	case "+", "right", "l":
+		if name != "" && !st.open[name] {
+			st.open[name] = true
+			return nil, true
+		}
+		if msg.String() == "right" {
+			return nil, false // nothing to expand: let the pane keep focus
+		}
+	case "-", "left", "h":
+		if name != "" && st.open[name] {
+			st.open[name] = false
+			return nil, true
+		}
+		if msg.String() == "left" || msg.String() == "h" {
+			if v.floatReveal {
+				return v.leaveFloat(), true
+			}
+			v.paneFocus = false
+			return nil, true
+		}
+	case "space":
+		// The GitHub UI's "viewed" checkbox: mark a file read and move on,
+		// so working down a large PR is one key per file.
+		if name != "" {
+			st.reviewed[name] = !st.reviewed[name]
+			if st.reviewed[name] {
+				move(1)
+			}
+		}
+	default:
+		return nil, false
+	}
+	return nil, true
+}
+
 func (v *View) maybeFetchDiff() tea.Cmd {
 	if v.pane != paneDiff {
 		return nil
@@ -2474,6 +2721,9 @@ func (v *View) SetSize(listW, prevW, h int) {
 }
 
 func (v *View) ListView() string {
+	// The list dims while a pane has the keys, so the only lit cursor on
+	// screen is the one the arrows will move.
+	v.list.SetBlurred(v.PaneFocused())
 	header := ""
 	switch {
 	case v.input != nil:
@@ -2559,6 +2809,9 @@ func (v *View) PreviewView() string {
 		b.WriteString(v.renderedComments(p))
 	case paneJobs:
 		b.WriteString(v.renderedJobs(p))
+	case paneFiles:
+		b.WriteString(renderFilesPane(v.fileState(p), v.prevW,
+			v.PaneFocused(), v.filesHint(), v.threadsFor(p)))
 	default:
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
@@ -2815,6 +3068,9 @@ func (v *View) Bindings() []key.Binding {
 		}
 		return v.jobsBindings()
 	}
+	if v.PaneFocused() && v.pane == paneFiles {
+		return v.filesBindings()
+	}
 	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
 }
 
@@ -2859,20 +3115,93 @@ func (v *View) restoreFilter(path, prev string) {
 	v.cfg.ReviewFilter = prev
 }
 
+// filesBindings are the footer's keys while the file list has focus: its
+// own, since the list's keys do nothing there.
+func (v *View) filesBindings() []key.Binding {
+	return []key.Binding{
+		ui.Bind([]string{"+"}, "", "expand"),
+		ui.Bind([]string{"-"}, "", "collapse"),
+		ui.Bind([]string{"space"}, "", "reviewed"),
+		ui.Bind([]string{"esc"}, "", "back"),
+	}
+}
+
+// PaneFocused reports whether the preview pane has the keys.
+func (v *View) PaneFocused() bool {
+	// A float has the keys whatever it holds: the list is behind it, so
+	// there is nothing else they could belong to. floatReveal, not
+	// previewShown: with hide_preview on there is no float at all until
+	// something opens one, and dimming the list before that is dimming it
+	// for nothing. Esc still steps focus out of a float that stays open.
+	if v.floatReveal {
+		return v.paneFocus || v.jobsFocus
+	}
+	if !v.previewShown {
+		return false
+	}
+	// Beside a visible list, focus is tied to a pane being open rather
+	// than to the flag alone: a pane closed by any route (a review
+	// submitted, a toggle reset) cannot leave the list dimmed with
+	// nothing focused.
+	if v.pane == paneBody {
+		return false
+	}
+	return (v.jobsFocus && v.pane == paneJobs) || v.paneFocus
+}
+
+// FocusPane gives the pane the keys or takes them back, reporting whether
+// anything changed so a no-op key does not redraw.
+func (v *View) FocusPane(on bool) bool {
+	if v.PaneFocused() == on {
+		return false
+	}
+	switch v.pane {
+	case paneJobs:
+		v.jobsFocus = on
+	case paneFiles:
+		v.paneFocus = on
+	case paneBody:
+		// Floated, the description takes the keys to scroll it; beside a
+		// visible list there is nothing to focus.
+		if v.previewShown {
+			return false
+		}
+		v.paneFocus = on
+	default:
+		v.paneFocus = on
+	}
+	return true
+}
+
+// PaneScrolls reports a pane that scrolls rather than holding its own
+// cursor, so the arrows should move the preview.
+func (v *View) PaneScrolls() bool {
+	return v.PaneFocused() && v.pane != paneJobs && v.pane != paneFiles
+}
+
 // Dismiss closes the innermost pane this view has open, reporting whether
 // it closed anything so the root model knows if esc still has work to do.
-// Order matters: the log sits inside the jobs pane, which sits inside the
-// preview, so esc walks out one layer at a time rather than collapsing
-// everything at once.
+// Order matters beside a list: the log sits inside the jobs pane, which
+// sits inside the preview, so esc walks out one layer at a time rather
+// than collapsing everything at once.
 func (v *View) Dismiss() bool {
-	switch {
-	case v.logView != nil:
+	// Floated, esc closes the whole float whatever level it is on, a job
+	// log included; the arrows are what step a level at a time. Reporting
+	// nothing left to do hands the close to the root model, which owns the
+	// float.
+	if v.floatReveal {
+		v.closeFloat()
+		return false
+	}
+	if v.logView != nil {
 		// Back to the jobs list, which is what the log's own hint says.
 		v.logView = nil
 		return true
-	case v.jobsFocus:
+	}
+	switch {
+	case v.PaneFocused():
 		// Focus back to the list: the pane stays open beside it.
-		v.jobsFocus = false
+		v.jobsFocus, v.paneFocus = false, false
 		return true
 	case v.pane != paneBody:
 		v.pane = paneBody

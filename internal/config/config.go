@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -409,6 +410,10 @@ func Load() (Config, error) {
 	if err := dec.Decode(&probe); err != nil && !errors.Is(err, io.EOF) {
 		cfg.Unknown = unknownKeys(err)
 	}
+	// A binding that claims a reserved key is dropped, so say so: the key
+	// would otherwise keep its built-in meaning and the override would
+	// look like it had simply not worked.
+	cfg.Unknown = append(cfg.Unknown, cfg.Keys.reservedWarnings()...)
 	if cfg.Linear.Filter.Limit <= 0 {
 		cfg.Linear.Filter.Limit = 100
 	}
@@ -534,10 +539,84 @@ type Keymap map[string]map[string]Chord
 
 // Of returns the configured keys for scope/action, or def when unset.
 // An explicitly-empty list disables the binding (returns an empty slice).
+// ReservedKeys cannot be rebound: they are how you get out of any state,
+// so a keymap that claims one is unrecoverable without editing the config
+// by hand. Arrows move and change focus, esc steps back, ctrl+c quits.
+// The key is fixed, not the action. Binding more keys to the same actions
+// is fine and expected: hjkl alongside the arrows, or pgup/pgdown for
+// paging. Only pointing a reserved key at something else is refused.
+//
+// Each entry names the scope.action the key is kept for, or "" when it is
+// handled by the root model rather than a keymap action: focus, esc and
+// ctrl+c are not keymap actions at all.
+var ReservedKeys = map[string]struct{ Action, Why string }{
+	"left":   {"", "move focus back to the list"},
+	"right":  {"", "move focus into the pane"},
+	"up":     {"list.up", "move within the focused pane"},
+	"down":   {"list.down", "move within the focused pane"},
+	"esc":    {"list.clear_filter", "step back out of whatever is open"},
+	"ctrl+c": {"global.quit", "quit"},
+}
+
+// reservedWarnings names every binding that tried to claim a reserved key,
+// for the startup message log.
+func (k Keymap) reservedWarnings() []string {
+	var out []string
+	for scope, actions := range k {
+		for action, chord := range actions {
+			for _, key := range chord {
+				if why, ok := ReservedFor(scope, action, key); !ok {
+					out = append(out, fmt.Sprintf(
+						"keys.%s.%s: %q is reserved (%s) and was ignored;"+
+							" bind another key to this action instead",
+						scope, action, key, why))
+				}
+			}
+		}
+	}
+	sort.Strings(out) // map order is random; a stable message reads better
+	return out
+}
+
+// Reserved reports whether a key is one agenda keeps for itself, and what
+// it is kept for.
+func Reserved(key string) (string, bool) {
+	r, ok := ReservedKeys[normalKey(key)]
+	return r.Why, ok
+}
+
+// ReservedFor reports whether binding key to scope.action is allowed. A
+// reserved key may only be bound to the action it already means, so
+// writing out a default (list.up: [up, k]) keeps working while pointing
+// it elsewhere does not.
+func ReservedFor(scope, action, key string) (string, bool) {
+	r, ok := ReservedKeys[normalKey(key)]
+	if !ok {
+		return "", true // not reserved: bind it anywhere
+	}
+	if r.Action != "" && r.Action == scope+"."+action {
+		return "", true // its own action, written out
+	}
+	return r.Why, false
+}
+
+func normalKey(key string) string {
+	return strings.ToLower(strings.TrimSpace(key))
+}
+
 func (k Keymap) Of(scope, action string, def ...string) []string {
 	if actions, ok := k[scope]; ok {
 		if chord, ok := actions[action]; ok {
-			return []string(chord)
+			// Drop any reserved key rather than the whole binding: the rest
+			// of the override still works, and the user is told why in the
+			// config warnings.
+			kept := make([]string, 0, len(chord))
+			for _, key := range chord {
+				if _, ok := ReservedFor(scope, action, key); ok {
+					kept = append(kept, key)
+				}
+			}
+			return kept
 		}
 	}
 	return def

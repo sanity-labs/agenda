@@ -482,7 +482,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// over the list rather than splitting it, and pressing it again
 			// closes that. Otherwise it is the plain pane toggle.
 			if m.cfg.HidePreview {
-				return m, m.setPreview(m.floating(), !m.floating())
+				open := !m.floating()
+				cmd := m.setPreview(!open, open)
+				// A float takes the keys however it was opened, so 'v' is
+				// the same as 'c', 'd' or 't' in that respect: the list is
+				// behind it either way.
+				if f, ok := m.views[m.current].(paneFocuser); ok {
+					f.FocusPane(open)
+				}
+				return m, cmd
 			}
 			// The pane is the configured state, so hiding it is a peek at
 			// this row's list entry: the next row brings the pane back.
@@ -497,6 +505,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			return m, tea.Batch(cmd, spinnerTick())
+		case m.paneFocused() && (msg.String() == "up" || msg.String() == "down"):
+			// A focused scrolling pane takes the plain arrows: the list is
+			// dimmed, so moving it would be invisible anyway.
+			d := 1
+			if msg.String() == "up" {
+				d = -1
+			}
+			m.scrollPreview(d)
+			return m, nil
+		case m.paneFocused() && (msg.String() == "pgup" || msg.String() == "pgdown"):
+			d := m.contentHeight() - 2
+			if msg.String() == "pgup" {
+				d = -d
+			}
+			m.scrollPreview(d)
+			return m, nil
 		case key.Matches(msg, m.keys.PreviewUp):
 			m.scrollPreview(-1)
 			return m, nil
@@ -696,6 +720,8 @@ func (m *Model) setPreview(hidden, transient bool) tea.Cmd {
 		shown := !hidden
 		cmds = append(cmds, func() tea.Msg { return ui.PreviewShownMsg(shown) })
 	}
+	// Batch runs these concurrently, so views cannot assume an order: each
+	// handler settles focus from the combined state.
 	if isFloat := m.floating(); wasFloat != isFloat {
 		cmds = append(cmds, func() tea.Msg { return ui.PreviewFloatingMsg(isFloat) })
 	}
@@ -959,6 +985,31 @@ type filterable interface {
 	Fields() []string
 	FilterState() (string, []string, bool)
 	SetFilter(query string, enabled []string, caseSensitive bool)
+}
+
+// paneFocuser is optionally implemented by views whose preview pane can
+// take the keys. Focus is the view's own state, since only it knows what
+// its pane holds; the root model asks so it can route the arrows and the
+// footer can say where they go.
+type paneFocuser interface {
+	// PaneFocused reports whether the pane has the keys.
+	PaneFocused() bool
+	// FocusPane gives the pane the keys, or takes them back. Reports
+	// whether anything changed, so a no-op key does not redraw.
+	FocusPane(bool) bool
+	// PaneScrolls reports a pane that scrolls rather than holding its own
+	// rows, so the arrows should move the preview instead of a cursor.
+	PaneScrolls() bool
+}
+
+// paneFocused reports whether the active view's pane has the keys and
+// scrolls, which is when the arrows belong to the preview.
+func (m Model) paneFocused() bool {
+	if len(m.views) == 0 {
+		return false
+	}
+	f, ok := m.views[m.current].(paneFocuser)
+	return ok && f.PaneFocused() && f.PaneScrolls()
 }
 
 // dismisser is optionally implemented by views with their own closable

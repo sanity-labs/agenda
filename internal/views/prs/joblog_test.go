@@ -209,13 +209,22 @@ func TestErrorPaneSaysHowToRetry(t *testing.T) {
 	}
 }
 
-// Hiding the pane takes the keys back: j/k must not move a cursor nobody
-// can see.
-func TestHidingThePaneReturnsTheKeys(t *testing.T) {
+// The pane is not hidden when the preview pane is off: it floats over the
+// list, so it keeps the keys. Showing the preview beside the list is what
+// hands them back, since there are then two cursors and only one can move.
+func TestShowingThePaneReturnsTheKeys(t *testing.T) {
 	v, _ := jobsView(t, run(1, 9, "CI", "pull_request", "a", "COMPLETED", "SUCCESS"))
 	openJobs(t, v)
-	v.Update(ui.PreviewShownMsg(false))
+
+	// Floated: on screen, but over the list rather than beside it.
+	v.Update(ui.PreviewFloatingMsg(true))
+	v.Update(ui.PreviewShownMsg(true))
+	if v.PreviewFocus() == "" {
+		t.Error("a floated jobs pane gave up the keys")
+	}
+	v.Update(ui.PreviewFloatingMsg(false))
+	v.Update(ui.PreviewShownMsg(true))
 	if v.PreviewFocus() != "" {
-		t.Error("a hidden pane should not keep the keys")
+		t.Error("the pane kept the keys beside a visible list")
 	}
 }

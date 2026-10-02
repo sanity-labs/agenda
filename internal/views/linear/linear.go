@@ -462,8 +462,12 @@ type View struct {
 
 	// Navigation tree state (ctrl+p). source drives what fetch() queries;
 	// defaultSource is the config-derived one whose results are cached.
-	navShown      bool
-	navFocus      bool
+	navShown bool
+	navFocus bool
+	// paneFocus puts the keys in the preview pane: the nav tree takes the
+	// left arrow, so the pane takes the right. Both dim the list, since
+	// two lit cursors say nothing about which one moves.
+	paneFocus     bool
 	navItems      []navItem
 	navSel        int
 	favs          []navProject
@@ -935,6 +939,18 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.navFocus = true
 			return nil
 		}
+		// The preview takes the right arrow, mirroring the nav tree on the
+		// left. Only worth focusing when it has something scrollable in it.
+		if !v.list.Filtering() {
+			switch {
+			case !v.paneFocus && v.showComments && msg.String() == "right":
+				v.paneFocus = true
+				return ui.RevealPreview
+			case v.paneFocus && msg.String() == "left":
+				v.paneFocus = false
+				return nil
+			}
+		}
 		before := v.list.Selected().Identifier
 		if consumed, cmd := v.list.Update(msg); consumed {
 			// Selection may have moved with the comments section showing:
@@ -965,6 +981,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			case !v.showComments:
 				v.showComments = true
 				v.jumpPending, v.commentsJumped = true, true
+				// Floated, the list is behind the pane, so it takes the
+				// keys without being asked. Beside a visible list, focus
+				// waits for the right arrow.
+				v.paneFocus = !v.previewShown
 				return tea.Batch(ui.RevealPreview, v.maybeFetchComments())
 			case !v.commentsJumped:
 				v.jumpPending, v.commentsJumped = true, true
@@ -1188,6 +1208,8 @@ func (v *View) ListView() string {
 	if v.token == "" {
 		return ui.Faint.Render(v.setupHint())
 	}
+	// The list dims while the nav tree or the preview has the keys.
+	v.list.SetBlurred(v.navFocus || v.paneFocus)
 	header := v.list.FilterLine()
 	if header == "" {
 		header = ui.Faint.Render(v.statusText())
@@ -1309,9 +1331,39 @@ func (v *View) Bindings() []key.Binding {
 // footer slot would only repeat them.
 func (v *View) Status() string { return "" }
 
-// Dismiss closes the comments pane, reporting whether it closed anything
-// so esc can fall through to a floated preview when it did not.
+// PaneFocused reports whether the preview pane has the keys.
+func (v *View) PaneFocused() bool { return v.paneFocus }
+
+// FocusPane gives the pane the keys or takes them back.
+func (v *View) FocusPane(on bool) bool {
+	if v.paneFocus == on || (on && !v.showComments) {
+		return false
+	}
+	v.paneFocus = on
+	return true
+}
+
+// PaneScrolls: the comments pane scrolls rather than holding a cursor, so
+// the arrows move the preview.
+func (v *View) PaneScrolls() bool { return v.paneFocus }
+
+// Dismiss steps back one layer: focus to the list, then the comments pane
+// shut. Reports whether it did anything, so esc can fall through to a
+// floated preview when it did not.
 func (v *View) Dismiss() bool {
+	// Floated, there is no list beside the pane to hand the keys back to,
+	// so esc closes the pane and then the float itself.
+	if !v.previewShown {
+		if v.showComments {
+			v.showComments, v.commentsJumped, v.paneFocus = false, false, false
+			return true
+		}
+		return false
+	}
+	if v.paneFocus {
+		v.paneFocus = false
+		return true
+	}
 	if v.showComments {
 		v.showComments, v.commentsJumped = false, false
 		return true

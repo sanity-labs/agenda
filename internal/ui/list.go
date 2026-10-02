@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Field is one named, scopable piece of an Item's searchable text. Prose marks
@@ -60,6 +61,10 @@ type List[T Item] struct {
 
 	width, height int
 	rowHeight     int // lines per item (default 1); set higher for multi-line rows
+	// blurred dims the rows and hides the selection bar: the keys are
+	// in a pane beside the list, and two lit cursors say nothing about
+	// which one the arrows move.
+	blurred bool
 
 	filtering bool
 	query     string
@@ -162,6 +167,14 @@ func (l *List[T]) SetItems(items []T) {
 }
 
 func (l *List[T]) SetSize(w, h int) { l.width, l.height = w, h; l.clampCursor() }
+
+// SetBlurred dims the list and drops its selection bar, for when the
+// keys have gone to a pane beside it. Two lit cursors say nothing
+// about which one the arrows move.
+func (l *List[T]) SetBlurred(b bool) { l.blurred = b }
+
+// Blurred reports whether the keys are somewhere else.
+func (l *List[T]) Blurred() bool { return l.blurred }
 
 // Filtering reports whether the list is currently capturing filter input.
 func (l *List[T]) Filtering() bool { return l.filtering }
@@ -579,7 +592,13 @@ func (l *List[T]) View() string {
 	var lines []string
 	l.selFirst, l.selN = 0, 0
 	for i := l.offset; i < end; i++ {
-		block := strings.Split(l.items[l.filtered[i]].Render(contentW, i == l.cursor, l.highlighter()), "\n")
+		// Blurred: no row reads as selected, and the rows dim, so the lit
+		// cursor in the focused pane is the only one on screen.
+		rendered := l.items[l.filtered[i]].Render(contentW, !l.blurred && i == l.cursor, l.highlighter())
+		if l.blurred {
+			rendered = Faint.Render(ansi.Strip(rendered))
+		}
+		block := strings.Split(rendered, "\n")
 		if i == l.cursor {
 			l.selFirst, l.selN = len(lines), len(block)
 		}
