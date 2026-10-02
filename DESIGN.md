@@ -56,8 +56,10 @@ is the one the arrows will move.
   description; a pane toggled over it (`c`, `d`, `t`) is level two. An
   arrow that would hand the keys back beside a list (`←` from a scrolling
   pane, `←` with nothing left to collapse in the file list or jobs pane,
-  either arrow on the description) steps down a level: back to the `v`
-  description if there is one, otherwise the float closes. A pane opened
+  `←` on the description) steps down a level: back to the `v`
+  description if there is one, otherwise the float closes. `→` has
+  nothing deeper to step into, so in a float it does nothing beyond what
+  the file list and jobs pane make of it (expand, open). A pane opened
   straight from the list is level one itself, so `←` closes it rather
   than dropping onto a description nobody asked for. Toggling a pane off
   with its own key is the same step. `floatBase` records that level one

@@ -321,17 +321,18 @@ func TestArrowsCloseALevelOneFloat(t *testing.T) {
 		"description": pressV,
 	}
 	for name, openFloat := range open {
-		for _, key := range []rune{tea.KeyLeft, tea.KeyRight} {
-			v := floatView(t)
-			openFloat(v)
-			if !v.PaneFocused() {
-				t.Fatalf("setup: the floated %s is not focused", name)
-			}
-			press := tea.KeyPressMsg{Code: key}
-			closes(t, v.Update(press), press.String()+" in the floated "+name)
-			if v.PaneFocused() || v.pane != paneBody {
-				t.Errorf("%s closed the floated %s but left pane=%v focused=%v", press, name, v.pane, v.PaneFocused())
-			}
+		v := floatView(t)
+		openFloat(v)
+		if !v.PaneFocused() {
+			t.Fatalf("setup: the floated %s is not focused", name)
+		}
+		// Right has nothing deeper to step into, so it leaves things be.
+		if cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyRight}); cmd != nil || !v.floatReveal || !v.PaneFocused() {
+			t.Errorf("right in the floated %s acted: float=%v focused=%v", name, v.floatReveal, v.PaneFocused())
+		}
+		closes(t, v.Update(tea.KeyPressMsg{Code: tea.KeyLeft}), "left in the floated "+name)
+		if v.PaneFocused() || v.pane != paneBody {
+			t.Errorf("left closed the floated %s but left pane=%v focused=%v", name, v.pane, v.PaneFocused())
 		}
 	}
 }
@@ -463,6 +464,29 @@ func TestLeftStepsDownBesideTheList(t *testing.T) {
 		}
 		if !v.previewShown {
 			t.Error("the configured pane closed")
+		}
+	}
+}
+
+// A pane toggled over a 'v' float takes the keys like one opened from the
+// list: the detail is already on screen, so previewShown is true, but the
+// pane is just as much behind glass. Right then has nothing to do.
+func TestPaneOverTheDescriptionTakesFocus(t *testing.T) {
+	for _, key := range []rune{'c', 'd', 't'} {
+		v := floatView(t)
+		pressV(v)
+		v.Update(tea.KeyPressMsg{Code: key})
+		if !v.PaneFocused() {
+			t.Errorf("%q over the floated description opened unfocused", key)
+		}
+		v.ListView()
+		if !v.list.Blurred() {
+			t.Errorf("the list lit up again when %q opened over the float", key)
+		}
+		want := v.pane
+		v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+		if v.pane != want {
+			t.Errorf("right stepped %q back to pane=%v", key, v.pane)
 		}
 	}
 }

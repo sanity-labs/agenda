@@ -1490,9 +1490,13 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// Floated, an arrow that would leave the pane steps a level out of
 		// the float. The file list and jobs pane collapse first and do this
 		// themselves.
-		if v.floatReveal && v.pane != paneFiles && v.pane != paneJobs && !v.list.Filtering() &&
-			(msg.String() == "left" || msg.String() == "right") {
-			return v.leaveFloat()
+		if v.floatReveal && v.pane != paneFiles && v.pane != paneJobs && !v.list.Filtering() {
+			switch msg.String() {
+			case "left":
+				return v.leaveFloat()
+			case "right":
+				return nil // nothing deeper to step into
+			}
 		}
 		// Beside a visible list the same step applies one level down: with
 		// the keys already on the list, left takes an open pane back to the
@@ -1684,7 +1688,9 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	// behind it, so there is nothing to arrow through and an explicit
 	// right would be a keystroke for nothing. With the preview pane on,
 	// both are visible, so focus stays with the list until asked for.
-	auto := !v.previewShown || mode == paneJobs
+	// floatReveal as well as !previewShown: a pane toggled over a 'v' float
+	// has the detail on screen already, and is just as much behind glass.
+	auto := !v.previewShown || v.floatReveal || mode == paneJobs
 	v.jobsFocus = auto && mode == paneJobs
 	v.paneFocus = auto && mode != paneJobs && mode != paneBody
 	// Opening a pane with the preview hidden is the float appearing. Say so
