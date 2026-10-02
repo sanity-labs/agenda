@@ -1636,6 +1636,7 @@ func (v *View) resetToggles() {
 		return
 	}
 	v.pane = paneBody
+	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
 	v.expanded = ""
 	v.bodyKey = ""
 	v.annIdx = 0
@@ -3057,6 +3058,12 @@ func (v *View) filesBindings() []key.Binding {
 
 // PaneFocused reports whether the preview pane has the keys.
 func (v *View) PaneFocused() bool {
+	// Tied to the pane being open, not just to the flag: focus belongs to
+	// a pane, so a pane closed by any route (a review submitted, a toggle
+	// reset) cannot leave the list dimmed with nothing focused.
+	if v.pane == paneBody {
+		return false
+	}
 	return (v.jobsFocus && v.pane == paneJobs) || v.paneFocus
 }
 

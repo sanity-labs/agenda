@@ -43,6 +43,10 @@ is the one the arrows will move.
   are visible and either could reasonably take the arrows.
 - Changing panes drops focus, so a pane that has just appeared never
   silently owns the keys.
+- **Focus cannot outlive its pane.** `PaneFocused` is tied to a pane being
+  open, not just to the flag, so a pane closed by any route (a submitted
+  review, a toggle reset) cannot leave the list dimmed with nothing
+  focused. The flags are cleared too, so a reopened pane starts fresh.
 
 Panes that hold their own cursor (the jobs pane, the file list) keep it.
 Panes that scroll (diffs, comments) get the arrows and page keys routed

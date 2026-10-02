@@ -191,3 +191,68 @@ func TestEscInAFloatGoesToTheDescription(t *testing.T) {
 		t.Error("esc claimed to act with only the description showing")
 	}
 }
+
+// Submitting a review closes the pane you reviewed from, so the list must
+// come back lit: a dimmed list with nothing focused says the arrows are
+// somewhere they are not.
+func TestReviewingUndimsTheList(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false)) // floated
+
+	v.Update(tea.KeyPressMsg{Code: 'd'})
+	if !v.PaneFocused() {
+		t.Fatal("setup: the floated pane is not focused")
+	}
+
+	v.Update(reviewDoneMsg{url: "u", what: "approved o/r#1", state: "APPROVED"})
+	if v.PaneFocused() {
+		t.Error("the list is still dimmed after reviewing")
+	}
+	if v.list.Blurred() {
+		t.Error("the list is still blurred after reviewing")
+	}
+}
+
+// With toggles: persist the pane deliberately stays open, so it keeps the
+// keys and the list stays dimmed: that is the setting working, not focus
+// stranded by a closed pane.
+func TestPersistedToggleKeepsFocus(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	v.togglesPersist = true
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false))
+	v.Update(tea.KeyPressMsg{Code: 'd'})
+
+	v.Update(reviewDoneMsg{url: "u", what: "approved", state: "APPROVED"})
+	if v.pane == paneBody {
+		t.Fatal("toggles: persist closed the pane anyway")
+	}
+	if !v.PaneFocused() {
+		t.Error("the pane stayed open but lost the keys")
+	}
+}
+
+// Closing a pane by any route leaves nothing focused: focus belongs to a
+// pane, so it cannot outlive one.
+func TestFocusCannotOutliveItsPane(t *testing.T) {
+	v := focusView(t)
+	v.Update(tea.KeyPressMsg{Code: 'c'})
+	v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if !v.PaneFocused() {
+		t.Fatal("setup: the pane is not focused")
+	}
+	// Whatever closes it, focus goes with it.
+	v.pane = paneBody
+	if v.PaneFocused() {
+		t.Error("focus survived its pane closing")
+	}
+}
