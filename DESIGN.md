@@ -37,8 +37,10 @@ drops its selection bar**, so exactly one cursor is lit on screen and it
 is the one the arrows will move.
 
 - `→` focuses the pane, `←` hands the keys back.
-- A pane opened **into a float** takes focus immediately: the list is
-  behind it, so an explicit `→` would be a keystroke for nothing.
+- A **float always has the keys**, whatever opened it and whatever it
+  holds — including a floated description. The list is behind it, so
+  there is nothing else the arrows could belong to, and `←`/`→` do not
+  move focus there: `esc` is the way out.
 - A pane opened **beside a visible list** waits to be asked, since both
   are visible and either could reasonably take the arrows.
 - Changing panes drops focus, so a pane that has just appeared never

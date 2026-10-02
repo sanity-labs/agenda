@@ -482,7 +482,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// over the list rather than splitting it, and pressing it again
 			// closes that. Otherwise it is the plain pane toggle.
 			if m.cfg.HidePreview {
-				return m, m.setPreview(m.floating(), !m.floating())
+				open := !m.floating()
+				cmd := m.setPreview(!open, open)
+				// A float takes the keys however it was opened, so 'v' is
+				// the same as 'c', 'd' or 't' in that respect: the list is
+				// behind it either way.
+				if f, ok := m.views[m.current].(paneFocuser); ok {
+					f.FocusPane(open)
+				}
+				return m, cmd
 			}
 			// The pane is the configured state, so hiding it is a peek at
 			// this row's list entry: the next row brings the pane back.

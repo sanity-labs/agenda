@@ -1388,10 +1388,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
-		// A hidden pane cannot hold the keys: j/k would move a cursor you
-		// cannot see.
-		if !v.previewShown {
-			v.jobsFocus, v.logView = false, nil
+		// A float is visible and over the list, so it takes the keys: the
+		// list is behind it whatever the pane holds. Back beside a visible
+		// list, focus starts with the list again.
+		if v.previewShown {
+			v.jobsFocus, v.paneFocus, v.logView = false, false, nil
+		} else {
+			v.paneFocus = true
+			v.jobsFocus = v.pane == paneJobs
 		}
 		// Revealing the detail shows whatever is selected, so that row is
 		// read.
@@ -1495,7 +1499,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			case !v.paneFocus && msg.String() == "right":
 				v.paneFocus = true
 				return ui.RevealPreview
-			case v.paneFocus && msg.String() == "left":
+			case v.previewShown && v.paneFocus && msg.String() == "left":
 				v.paneFocus = false
 				return nil
 			}
@@ -2212,6 +2216,26 @@ func (v *View) maybeFetchFiles() tea.Cmd {
 	return fetchFiles(p.URL, p.repo(), p.Number)
 }
 
+// followFileCursor scrolls the preview so the selected file stays on
+// screen. Without it an expanded file taller than the pane pushes the
+// next one out of view, and the cursor appears to stop moving.
+func (v *View) followFileCursor(st *filesState) {
+	rows := st.rows()
+	if st.sel < 0 || st.sel >= len(rows) {
+		return
+	}
+	// The pane prints a summary and a blank line before the rows.
+	line := v.paneHeader + filesPaneHeader + st.sel - v.height/3
+	if line < 0 {
+		line = 0
+	}
+	v.pendingJump = &line
+}
+
+// filesPaneHeader is the rows renderFilesPane prints before the files: a
+// summary and a blank line.
+const filesPaneHeader = 2
+
 // autoExpand opens the file under the cursor and closes the rest, so
 // walking the list reads like scrolling a diff without the pane growing
 // to the length of one. Off, a file stays as you left it.
@@ -2251,6 +2275,7 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 			if rows[i].patch == "" {
 				st.sel = i
 				v.autoExpand(st)
+				v.followFileCursor(st)
 				return
 			}
 		}
@@ -2282,8 +2307,10 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 			st.open[name] = false
 			return nil, true
 		}
-		if msg.String() == "left" || msg.String() == "h" {
-			v.paneFocus = false // collapsed already: back to the list
+		// Floated there is no list beside the pane to go back to, so left
+		// does nothing once everything is collapsed; esc is the way out.
+		if v.previewShown && (msg.String() == "left" || msg.String() == "h") {
+			v.paneFocus = false
 			return nil, true
 		}
 	case "space":
@@ -3058,9 +3085,16 @@ func (v *View) filesBindings() []key.Binding {
 
 // PaneFocused reports whether the preview pane has the keys.
 func (v *View) PaneFocused() bool {
-	// Tied to the pane being open, not just to the flag: focus belongs to
-	// a pane, so a pane closed by any route (a review submitted, a toggle
-	// reset) cannot leave the list dimmed with nothing focused.
+	// A float has the keys whatever it holds: the list is behind it, so
+	// there is nothing else they could belong to. The description scrolls
+	// rather than holding a cursor, which PaneScrolls reports.
+	if !v.previewShown {
+		return v.pane != paneBody || v.paneFocus
+	}
+	// Beside a visible list, focus is tied to a pane being open rather
+	// than to the flag alone: a pane closed by any route (a review
+	// submitted, a toggle reset) cannot leave the list dimmed with
+	// nothing focused.
 	if v.pane == paneBody {
 		return false
 	}
@@ -3079,7 +3113,12 @@ func (v *View) FocusPane(on bool) bool {
 	case paneFiles:
 		v.paneFocus = on
 	case paneBody:
-		return false // nothing to focus: the description just scrolls
+		// Floated, the description takes the keys to scroll it; beside a
+		// visible list there is nothing to focus.
+		if v.previewShown {
+			return false
+		}
+		v.paneFocus = on
 	default:
 		v.paneFocus = on
 	}
@@ -3089,7 +3128,7 @@ func (v *View) FocusPane(on bool) bool {
 // PaneScrolls reports a pane that scrolls rather than holding its own
 // cursor, so the arrows should move the preview.
 func (v *View) PaneScrolls() bool {
-	return v.paneFocus && v.pane != paneJobs && v.pane != paneFiles
+	return v.PaneFocused() && v.pane != paneJobs && v.pane != paneFiles
 }
 
 // Dismiss closes the innermost pane this view has open, reporting whether

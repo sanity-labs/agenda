@@ -256,3 +256,72 @@ func TestFocusCannotOutliveItsPane(t *testing.T) {
 		t.Error("focus survived its pane closing")
 	}
 }
+
+// A float takes the keys however it was opened. 'v' floats the
+// description and must dim the list the same as 'c', 'd' or 't' do: the
+// list is behind the window either way.
+func TestFloatedDescriptionTakesFocus(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false))
+
+	if !v.PaneFocused() {
+		t.Error("a floated description does not have the keys")
+	}
+	if !v.PaneScrolls() {
+		t.Error("a floated description should scroll, not hold a cursor")
+	}
+	v.ListView()
+	if !v.list.Blurred() {
+		t.Error("the list is not dimmed behind a floated description")
+	}
+
+	// Back beside a visible list, the description focuses nothing.
+	v.Update(ui.PreviewShownMsg(true))
+	if v.PaneFocused() {
+		t.Error("the description took focus beside a visible list")
+	}
+}
+
+// Floated, left and right do not move focus: there is no list beside the
+// pane to hand the keys to, and esc is the way out.
+func TestArrowsDoNotMoveFocusInAFloat(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false))
+	v.Update(tea.KeyPressMsg{Code: 'c'})
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if !v.PaneFocused() {
+		t.Error("left gave up focus in a float, leaving nothing holding the keys")
+	}
+}
+
+// esc from any floated pane returns to the description, then closes.
+func TestEscFromEachFloatedPane(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false))
+
+	for _, k := range []rune{'c', 'd', 't'} {
+		v.Update(tea.KeyPressMsg{Code: k})
+		if v.pane == paneBody {
+			t.Fatalf("%q did not open a pane", k)
+		}
+		if !v.Dismiss() || v.pane != paneBody {
+			t.Errorf("esc from %q did not return to the description", k)
+		}
+	}
+}

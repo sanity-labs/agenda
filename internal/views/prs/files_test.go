@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func filesView(t *testing.T, files ...prFile) *View {
@@ -124,6 +125,9 @@ func TestLeftCollapsesThenReleasesFocus(t *testing.T) {
 	if !v.PaneFocused() {
 		t.Error("left released focus while a file was still expanded")
 	}
+	// Beside a visible list, left then hands the keys back. Floated there
+	// is nothing to hand them to, so esc is the way out instead.
+	v.Update(ui.PreviewShownMsg(true))
 	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	if v.PaneFocused() {
 		t.Error("left did not release focus once nothing was expanded")
@@ -268,5 +272,30 @@ func TestThreadsOnlyShowWhereTheyAnchor(t *testing.T) {
 	threads[0].Line = &elsewhere
 	if out := ansi.Strip(renderFilesPane(st, 70, true, "", threads)); strings.Contains(out, "a remark") {
 		t.Errorf("a thread showed on a line it is not anchored to:\n%s", out)
+	}
+}
+
+// Moving the cursor asks the preview to scroll with it. Without this an
+// expanded file taller than the pane pushes the next one off screen and
+// the cursor appears to stop moving.
+func TestCursorAsksThePreviewToFollow(t *testing.T) {
+	v := filesView(t, sample()...)
+	v.pendingJump = nil
+
+	v.Update(tea.KeyPressMsg{Code: 'j'})
+	if v.pendingJump == nil {
+		t.Fatal("moving the cursor asked for no scroll")
+	}
+	first := *v.pendingJump
+
+	v.pendingJump = nil
+	v.Update(tea.KeyPressMsg{Code: 'j'})
+	if v.pendingJump == nil {
+		t.Fatal("the second move asked for no scroll")
+	}
+	// Clamped at the top until the cursor is far enough down, so compare
+	// only once both are past the clamp.
+	if *v.pendingJump < first {
+		t.Errorf("the scroll went backwards: %d then %d", first, *v.pendingJump)
 	}
 }
