@@ -86,8 +86,12 @@ mutually exclusive, and the key that opened one closes it.
 | `t` | CI jobs |
 
 The review popup's "view diff" opens the **unified** diff rather than the
-file list: inline comment threads are anchored to diff lines, and
-reviewing reads better against a flat diff.
+file list: reviewing reads better against a flat diff.
+
+Both show the inline review threads, boxed under the line they are
+anchored to. The file list derives each patch line's number in the new
+file from the `@@` headers to match them; a removed line has no number,
+since there is nothing on the new side for a thread to point at.
 
 ## Opinionated changes are configurable
 

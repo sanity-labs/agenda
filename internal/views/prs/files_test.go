@@ -189,3 +189,84 @@ func TestAutoExpandFollowsTheCursor(t *testing.T) {
 		t.Errorf("the cursor is not the only file open: %v", st.open)
 	}
 }
+
+// Patch lines carry their number in the new file, which is what review
+// threads anchor to. Removed lines have none: there is nothing on the new
+// side for a thread to point at.
+func TestPatchLineNumbers(t *testing.T) {
+	st := &filesState{open: map[string]bool{"main.go": true}, files: []prFile{{
+		Filename: "main.go",
+		Patch:    "@@ -10,3 +10,4 @@\n ctx := ...\n-old()\n+new()\n+more()",
+	}}}
+	var got []int
+	for _, r := range st.rows() {
+		if r.patch != "" {
+			got = append(got, r.line)
+		}
+	}
+	want := []int{0, 10, 0, 11, 12} // header, context, removed, two added
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("line %d = %d, want %d", i, got[i], want[i])
+		}
+	}
+}
+
+// A thread shows under the line it is about, boxed so it reads as a
+// conversation rather than more diff.
+func TestThreadsRenderUnderTheirLine(t *testing.T) {
+	st := &filesState{done: true, open: map[string]bool{"main.go": true}, files: []prFile{{
+		Filename: "main.go",
+		Patch:    "@@ -10,2 +10,2 @@\n+first()\n+second()",
+	}}}
+	line := 11
+	threads := []prThread{{Path: "main.go", Line: &line}}
+	threads[0].Comments.Nodes = []prComment{{Body: "allocates every call"}}
+	threads[0].Comments.Nodes[0].Author.Login = "armandocerna"
+
+	out := ansi.Strip(renderFilesPane(st, 70, true, "", threads))
+	lines := strings.Split(out, "\n")
+
+	at := -1
+	for i, l := range lines {
+		if strings.Contains(l, "second()") {
+			at = i
+		}
+	}
+	if at < 0 {
+		t.Fatalf("the anchored line is missing:\n%s", out)
+	}
+	// The box opens on the very next row, not somewhere else in the pane.
+	if !strings.Contains(lines[at+1], "╭") {
+		t.Errorf("no thread box under the line it is about:\n%s", out)
+	}
+	if !strings.Contains(out, "allocates every call") {
+		t.Errorf("the thread body is missing:\n%s", out)
+	}
+}
+
+// A thread on a file that is collapsed, or on a line that is not shown,
+// stays out of the way rather than floating free.
+func TestThreadsOnlyShowWhereTheyAnchor(t *testing.T) {
+	st := &filesState{done: true, open: map[string]bool{}, files: []prFile{{
+		Filename: "main.go", Patch: "@@ -1,1 +1,1 @@\n+x",
+	}}}
+	line := 1
+	threads := []prThread{{Path: "main.go", Line: &line}}
+	threads[0].Comments.Nodes = []prComment{{Body: "a remark"}}
+
+	if out := ansi.Strip(renderFilesPane(st, 70, true, "", threads)); strings.Contains(out, "a remark") {
+		t.Errorf("a thread showed on a collapsed file:\n%s", out)
+	}
+
+	// Expanded but anchored to a line this patch does not contain.
+	st.open["main.go"] = true
+	elsewhere := 99
+	threads[0].Line = &elsewhere
+	if out := ansi.Strip(renderFilesPane(st, 70, true, "", threads)); strings.Contains(out, "a remark") {
+		t.Errorf("a thread showed on a line it is not anchored to:\n%s", out)
+	}
+}

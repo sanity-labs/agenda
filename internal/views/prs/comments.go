@@ -91,7 +91,9 @@ const commentsQuery = `query($owner: String!, $name: String!, $number: Int!) {
 // maybeFetchComments starts a comment fetch for the selected PR when a pane
 // that needs them is showing and nothing is cached or in flight.
 func (v *View) maybeFetchComments() tea.Cmd {
-	if v.pane != paneDiff && v.pane != paneComments {
+	// The file list needs them too, for the threads it shows beside the
+	// lines they are about.
+	if v.pane != paneDiff && v.pane != paneComments && v.pane != paneFiles {
 		return nil
 	}
 	p := v.list.Selected()
@@ -106,6 +108,17 @@ func (v *View) maybeFetchComments() tea.Cmd {
 	}
 	v.comments[p.URL] = &commentsState{} // in flight
 	return v.fetchCommentsCmd(p)
+}
+
+// threadsFor is the PR's review threads, for panes that show them beside
+// the lines they are about. Empty until the comments fetch lands, which
+// the file list triggers alongside its own.
+func (v *View) threadsFor(p pr) []prThread {
+	st, ok := v.comments[p.URL]
+	if !ok || st == nil || !st.done {
+		return nil
+	}
+	return st.data.ReviewThreads.Nodes
 }
 
 // prByURL finds a loaded PR (own or review section) by its URL.

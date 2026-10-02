@@ -73,9 +73,15 @@ func fetchFiles(url, repo string, num int) tea.Cmd {
 type fileRow struct {
 	file  int    // index into filesState.files
 	patch string // "" for the file's own row
+	// line is the patch line's number in the new file, for matching
+	// review threads to it. 0 when there is none (a hunk header, or a
+	// deleted line, which no thread on the new side can anchor to).
+	line int
 }
 
-// rows flattens the files and whatever is expanded into navigable rows.
+// rows flattens the files and whatever is expanded into navigable rows,
+// tracking each patch line's number in the new file so the threads
+// anchored there can be shown beside it.
 func (st *filesState) rows() []fileRow {
 	var out []fileRow
 	for i, f := range st.files {
@@ -83,16 +89,49 @@ func (st *filesState) rows() []fileRow {
 		if !st.open[f.Filename] {
 			continue
 		}
+		n := 0
 		for _, line := range strings.Split(strings.TrimRight(f.Patch, "\n"), "\n") {
-			out = append(out, fileRow{file: i, patch: line})
+			switch {
+			case strings.HasPrefix(line, "@@"):
+				n = hunkStart(line)
+				out = append(out, fileRow{file: i, patch: line})
+				continue
+			case strings.HasPrefix(line, "-"):
+				// Removed: no line in the new file to anchor to.
+				out = append(out, fileRow{file: i, patch: line})
+				continue
+			}
+			out = append(out, fileRow{file: i, patch: line, line: n})
+			n++
 		}
 	}
 	return out
 }
 
+// hunkStart reads the new-file start line out of a "@@ -a,b +c,d @@"
+// header. Zero when it cannot be parsed, which just means no thread will
+// match those lines.
+func hunkStart(header string) int {
+	plus := strings.Index(header, "+")
+	if plus < 0 {
+		return 0
+	}
+	rest := header[plus+1:]
+	end := strings.IndexAny(rest, ", ")
+	if end < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // renderFilesPane draws the file list: one row per file with its counts
 // and a reviewed marker, the hunks of whatever is expanded beneath it.
-func renderFilesPane(st *filesState, width int, focused bool, hint string) string {
+func renderFilesPane(st *filesState, width int, focused bool, hint string,
+	threads []prThread) string {
 	if st.err != nil {
 		return ui.Red.Render("could not list files: " + st.err.Error())
 	}
@@ -111,6 +150,12 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string) strin
 		f := st.files[r.file]
 		if r.patch != "" {
 			out = append(out, "    "+diffLine(r.patch, width-4))
+			// A review thread anchored here goes under the line it is
+			// about, boxed so it reads as a conversation rather than more
+			// diff.
+			for _, t := range threadsAt(threads, f.Filename, r.line) {
+				out = append(out, threadBox(t, width-4)...)
+			}
 			continue
 		}
 		cursor := "  "
@@ -177,4 +222,50 @@ func diffLine(s string, width int) string {
 		return ui.Cyan.Render(s)
 	}
 	return ui.Faint.Render(s)
+}
+
+// threadsAt returns the review threads anchored to one line of one file.
+// Line 0 matches nothing: a hunk header or a removed line has no line in
+// the new file for a thread to point at.
+func threadsAt(threads []prThread, path string, line int) []prThread {
+	if line == 0 {
+		return nil
+	}
+	var out []prThread
+	for _, t := range threads {
+		if t.Path == path && t.Line != nil && *t.Line == line {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// threadBox renders one review thread under the line it is about: a
+// bordered block, so it reads as a conversation rather than more diff.
+func threadBox(t prThread, width int) []string {
+	var body []string
+	for _, c := range t.Comments.Nodes {
+		head := ui.Cyan.Render("@" + c.Author.Login)
+		if t.IsResolved {
+			head += ui.Faint.Render("  resolved")
+		} else if t.IsOutdated {
+			head += ui.Faint.Render("  outdated")
+		}
+		body = append(body, head)
+		for _, line := range strings.Split(strings.TrimRight(c.Body, "\n"), "\n") {
+			body = append(body, ui.Truncate(line, max(1, width-6)))
+		}
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	style := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(ui.Pal().Yellow)).
+		Padding(0, 1).
+		Width(max(10, width-4))
+	if t.IsResolved {
+		style = style.BorderForeground(lipgloss.Color(ui.Pal().Dim))
+	}
+	return strings.Split(style.Render(strings.Join(body, "\n")), "\n")
 }

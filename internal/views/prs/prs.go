@@ -2740,7 +2740,7 @@ func (v *View) PreviewView() string {
 		b.WriteString(v.renderedJobs(p))
 	case paneFiles:
 		b.WriteString(renderFilesPane(v.fileState(p), v.prevW,
-			v.PaneFocused(), v.filesHint()))
+			v.PaneFocused(), v.filesHint(), v.threadsFor(p)))
 	default:
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
