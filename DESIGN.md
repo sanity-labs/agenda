@@ -57,13 +57,18 @@ is the one the arrows will move.
   open, not just to the flag, so a pane closed by any route (a submitted
   review, a toggle reset) cannot leave the list dimmed with nothing
   focused. The flags are cleared too, so a reopened pane starts fresh.
-- **The preview being off is not a float.** With `hide_preview` the list
-  starts alone on screen with nothing over it, so it keeps the keys and
-  stays lit; only opening a float dims it. A view reads this from
-  `PreviewFloatingMsg`, never from `previewShown` alone, and `setPreview`
-  sends the float state *before* the shown state so the reveal handler
-  knows which of the two it is in. Treating "hidden" as "floating" dims
-  the list at startup with nothing open.
+- **A float arrives as `PreviewShownMsg(true)`, same as a side pane.**
+  "Shown" means the detail is on screen; it says nothing about *where*.
+  Only `PreviewFloatingMsg` distinguishes a float from a side pane, so
+  focus keys off that flag and never off `previewShown` alone. Reading
+  "hidden" as "floating" gets it wrong twice: the list dims at startup
+  with nothing open, and a real float fails to take the keys because the
+  reveal that opens it reports shown.
+- `setPreview` sends the float state *before* the shown state, since the
+  reveal handler has to know which of the two it is in. The key handler
+  also calls `FocusPane` immediately while those messages land after, so
+  the handler must set focus itself rather than rely on that earlier call
+  surviving.
 
 Panes that hold their own cursor (the jobs pane, the file list) keep it.
 Panes that scroll (diffs, comments) get the arrows and page keys routed

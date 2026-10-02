@@ -1388,16 +1388,15 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
-		// A float is visible and over the list, so it takes the keys: the
-		// list is behind it whatever the pane holds. Back beside a visible
-		// list, focus starts with the list again. The preview merely being
-		// off is not a float: at startup with hide_preview there is nothing
-		// on screen to hand the keys to.
-		if v.previewShown || !v.floatReveal {
-			v.jobsFocus, v.paneFocus, v.logView = false, false, nil
-		} else {
+		// A float is over the list, so it takes the keys whatever it holds.
+		// Beside a visible list, or hidden with nothing on screen at all,
+		// the list keeps them: previewShown is true for a float too, so the
+		// float is what this turns on, not the detail being visible.
+		if v.floatReveal && v.previewShown {
 			v.paneFocus = true
 			v.jobsFocus = v.pane == paneJobs
+		} else {
+			v.jobsFocus, v.paneFocus, v.logView = false, false, nil
 		}
 		// Revealing the detail shows whatever is selected, so that row is
 		// read.

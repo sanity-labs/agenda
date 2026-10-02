@@ -267,10 +267,10 @@ func TestFloatedDescriptionTakesFocus(t *testing.T) {
 	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
 	p.Repository.NameWithOwner = "o/r"
 	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
-	// Both messages, in the order the root model sends them: the preview
-	// merely being off is startup, not a float.
+	// What 'v' actually sends: the detail is on screen, and the float flag
+	// is what says it is over the list rather than beside it.
 	v.Update(ui.PreviewFloatingMsg(true))
-	v.Update(ui.PreviewShownMsg(false))
+	v.Update(ui.PreviewShownMsg(true))
 
 	if !v.PaneFocused() {
 		t.Error("a floated description does not have the keys")
