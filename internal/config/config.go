@@ -195,6 +195,9 @@ type GitHubConfig struct {
 	// is no reason to stop looking. Off by default, and merged PRs are the
 	// search filter's business (is:open), not this toggle's.
 	HideApproved bool `yaml:"hide_approved"`
+	// HideDependencyBots leaves Renovate and Dependabot PRs out of the
+	// review-requested search. Off by default: some teams do review them.
+	HideDependencyBots bool `yaml:"hide_dependency_bots"`
 	// RefreshRow re-reads the selected PR once the cursor stops moving, so
 	// check state and review decisions are current on the row you are
 	// about to act on rather than as of the last full refresh. On by
@@ -215,6 +218,28 @@ type GitHubConfig struct {
 
 // RefreshRowEnabled reports whether the selected PR is re-read on settle.
 func (g GitHubConfig) RefreshRowEnabled() bool { return g.RefreshRow == nil || *g.RefreshRow }
+
+// dependencyBots are the GitHub Apps HideDependencyBots excludes, as search
+// qualifiers. GitHub search has no "not a bot" term, so they are named.
+var dependencyBots = []string{"-author:app/renovate", "-author:app/dependabot"}
+
+// ReviewQuery is the review-requested search as sent: ReviewFilter plus the
+// bot exclusions when HideDependencyBots is on. The exclusion runs in the
+// search rather than on the fetched rows because bots can be most of a
+// queue, and dropping them from a page would leave it near empty with a
+// count that still includes them.
+func (g GitHubConfig) ReviewQuery() string {
+	q := g.ReviewFilter
+	if !g.HideDependencyBots {
+		return q
+	}
+	for _, term := range dependencyBots {
+		if !strings.Contains(q, term) {
+			q = strings.TrimSpace(q + " " + term)
+		}
+	}
+	return q
+}
 
 // ResolvedMergeMethod is the gh flag for the configured merge method,
 // defaulting to squash. An unrecognised value falls back rather than

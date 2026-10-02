@@ -285,3 +285,25 @@ func TestWithReviewsTab(t *testing.T) {
 		t.Errorf("adding twice duplicated: %v", WithReviewsTab(got, true))
 	}
 }
+
+// Dependency bots are excluded in the search itself, not dropped after the
+// fetch: they can be most of a review queue, and filtering a page locally
+// would leave a near-empty page and a count that includes what is hidden.
+func TestReviewQueryHidesDependencyBots(t *testing.T) {
+	g := Default().GitHub
+	if got := g.ReviewQuery(); got != g.ReviewFilter {
+		t.Errorf("ReviewQuery() = %q, want the filter unchanged by default", got)
+	}
+	g.HideDependencyBots = true
+	got := g.ReviewQuery()
+	for _, want := range []string{g.ReviewFilter, "-author:app/renovate", "-author:app/dependabot"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ReviewQuery() = %q, missing %q", got, want)
+		}
+	}
+	// A filter that already excludes one keeps a single copy of it.
+	g.ReviewFilter = "review-requested:@me -author:app/renovate"
+	if got := g.ReviewQuery(); strings.Count(got, "-author:app/renovate") != 1 {
+		t.Errorf("ReviewQuery() = %q, repeated an exclusion already in the filter", got)
+	}
+}
