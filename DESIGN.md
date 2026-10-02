@@ -7,9 +7,16 @@ test, that is a gap worth filling rather than permission to ignore it.
 
 ## Reserved keys
 
-These cannot be rebound. They are how you get out of any state, and a
-keymap that claimed one would be unrecoverable without editing the config
-file by hand.
+These always mean what they mean. They are how you get out of any state,
+and a keymap that pointed one somewhere else would be unrecoverable
+without editing the config file by hand.
+
+**The key is fixed, not the action.** Binding more keys to the same
+actions is expected: `hjkl` alongside the arrows, `pgup`/`pgdown` for
+paging, `ctrl+p` for up. A reserved key is also still allowed on the
+action it already means, so writing out a default (`list.up: [up, k]`)
+keeps working. Only pointing a reserved key at something *else* is
+refused.
 
 | key | kept for |
 |---|---|
@@ -18,9 +25,9 @@ file by hand.
 | `esc` | stepping back out of whatever is open |
 | `ctrl+c` | quitting |
 
-`config.Of` drops a reserved key from any binding that claims it and the
-rest of that binding still applies, so a partly-reserved override is not
-thrown away whole. The startup message log says which were ignored, since
+`config.Of` drops a reserved key only from a binding that points it
+somewhere else, and the rest of that binding still applies, so a
+partly-reserved override is not thrown away whole. The startup message log says which were ignored, since
 the key would otherwise keep its built-in meaning and the override would
 look like it had simply not worked.
 
