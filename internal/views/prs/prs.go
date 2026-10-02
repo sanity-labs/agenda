@@ -638,6 +638,9 @@ type View struct {
 	// previewShown tracks whether the detail pane is on screen, which
 	// decides what marks a row read: hovering, or asking for the detail.
 	previewShown bool
+	// floatBase records that the float was opened on the description with
+	// 'v', so a pane toggled over it has a level to step back to.
+	floatBase bool
 	// floatReveal distinguishes a float, which closes when you move on,
 	// from a pane that stays open and shows the row you arrive at.
 	floatReveal bool
@@ -1484,11 +1487,21 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				return ui.RevealPreview
 			}
 		}
-		// Floated, an arrow that would leave the pane closes the float. The
-		// file list and jobs pane collapse first and do this themselves.
+		// Floated, an arrow that would leave the pane steps a level out of
+		// the float. The file list and jobs pane collapse first and do this
+		// themselves.
 		if v.floatReveal && v.pane != paneFiles && v.pane != paneJobs && !v.list.Filtering() &&
 			(msg.String() == "left" || msg.String() == "right") {
-			return v.closeFloat()
+			return v.leaveFloat()
+		}
+		// Beside a visible list the same step applies one level down: with
+		// the keys already on the list, left takes an open pane back to the
+		// description. The configured pane itself never closes.
+		if v.previewShown && !v.floatReveal && !v.PaneFocused() && v.pane != paneBody &&
+			!v.list.Filtering() && msg.String() == "left" {
+			v.pane = paneBody
+			v.logView = nil
+			return nil
 		}
 		// Every other pane takes focus the same way: right arrow in, left
 		// arrow back to the list. These scroll rather than holding a
@@ -1654,10 +1667,15 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 		// Back to the description, not away from the detail: concealing
 		// here would shut a floated preview instead of switching panes.
 		// Only a pane the toggle itself revealed goes away again.
+		if v.floatReveal {
+			// Toggling the pane off is leaving its level: back to a 'v'
+			// description if there is one, otherwise the float closes.
+			v.pane = mode
+			return v.leaveFloat()
+		}
 		if v.previewShown {
 			return nil
 		}
-		v.floatReveal, v.paneFocus = false, false
 		return ui.ConcealPreview
 	}
 	v.pane = mode
@@ -1686,17 +1704,38 @@ func (v *View) floatFocus() {
 	if v.floatReveal && v.previewShown {
 		v.paneFocus = true
 		v.jobsFocus = v.pane == paneJobs
+		// A float that settles on the description was opened with 'v', so
+		// a pane toggled over it has that level to step back to. A pane
+		// opened straight from the list is level one itself.
+		if v.pane == paneBody {
+			v.floatBase = true
+		}
 		return
 	}
 	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
+	if !v.floatReveal {
+		v.floatBase = false
+	}
 }
 
-// closeFloat shuts a floated detail from inside: an arrow that would hand
-// the keys back has no list beside the float to hand them to.
+// leaveFloat steps one level out of a float: a pane over a 'v' description
+// goes back to it, anything else closes the float. There is no list beside
+// a float to hand the keys to, so leaving the last level is closing.
+func (v *View) leaveFloat() tea.Cmd {
+	if v.floatBase && v.pane != paneBody {
+		v.pane = paneBody
+		v.jobsFocus, v.logView = false, nil
+		v.paneFocus = true // the description scrolls, so it keeps the keys
+		return nil
+	}
+	return v.closeFloat()
+}
+
+// closeFloat shuts a floated detail from inside, whatever level it is on.
 func (v *View) closeFloat() tea.Cmd {
 	v.pane = paneBody
 	v.jobsFocus, v.paneFocus, v.logView = false, false, nil
-	v.floatReveal = false
+	v.floatReveal, v.floatBase = false, false
 	return ui.ConcealPreview
 }
 
@@ -2248,6 +2287,15 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 	st := v.fileState(v.list.Selected())
 	rows := st.rows()
 	if len(rows) == 0 {
+		// Nothing to collapse, so left is straight to leaving the pane;
+		// an empty list must not trap the keys.
+		if msg.String() == "left" || msg.String() == "h" {
+			if v.floatReveal {
+				return v.leaveFloat(), true
+			}
+			v.paneFocus = false
+			return nil, true
+		}
 		return nil, false
 	}
 	// The cursor sits on file rows only: patch lines are not targets, so
@@ -2297,7 +2345,7 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		if msg.String() == "left" || msg.String() == "h" {
 			if v.floatReveal {
-				return v.closeFloat(), true
+				return v.leaveFloat(), true
 			}
 			v.paneFocus = false
 			return nil, true
@@ -3127,25 +3175,22 @@ func (v *View) PaneScrolls() bool {
 
 // Dismiss closes the innermost pane this view has open, reporting whether
 // it closed anything so the root model knows if esc still has work to do.
-// Order matters: the log sits inside the jobs pane, which sits inside the
-// preview, so esc walks out one layer at a time rather than collapsing
-// everything at once.
+// Order matters beside a list: the log sits inside the jobs pane, which
+// sits inside the preview, so esc walks out one layer at a time rather
+// than collapsing everything at once.
 func (v *View) Dismiss() bool {
+	// Floated, esc closes the whole float whatever level it is on, a job
+	// log included; the arrows are what step a level at a time. Reporting
+	// nothing left to do hands the close to the root model, which owns the
+	// float.
+	if v.floatReveal {
+		v.closeFloat()
+		return false
+	}
 	if v.logView != nil {
 		// Back to the jobs list, which is what the log's own hint says.
 		v.logView = nil
 		return true
-	}
-	// Floated, there is no list beside the pane to hand the keys back to,
-	// so esc goes straight to the description and then closes the float.
-	// The root model closes it once this reports nothing left to do.
-	if !v.previewShown {
-		if v.pane != paneBody {
-			v.pane = paneBody
-			v.jobsFocus, v.paneFocus = false, false
-			return true
-		}
-		return false
 	}
 	switch {
 	case v.PaneFocused():

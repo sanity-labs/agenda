@@ -43,16 +43,25 @@ The preview pane can take the keys. While it has them the list **dims and
 drops its selection bar**, so exactly one cursor is lit on screen and it
 is the one the arrows will move.
 
-- `→` focuses the pane, `←` hands the keys back.
+- **Beside a visible list the levels are** `list → pane open → pane
+  focused`. `→` walks up: it focuses an open pane. `←` walks down: from a
+  focused pane it hands the keys back with the pane still open; with the
+  keys on the list and a pane open, it takes the pane back to the
+  description. The configured pane is the floor and never closes, since it
+  is the state you asked for.
 - A **float takes the keys on open**, whatever opened it and whatever it
   holds, including a floated description. The list is behind it, so there
   is nothing else the arrows could belong to.
-- **Leaving a float closes it.** An arrow that would hand the keys back
-  beside a list (`←` from a scrolling pane, `←` with nothing left to
-  collapse in the file list or jobs pane, either arrow on a floated
-  description) has nothing to hand them to, so it closes the float
-  outright. Hanging onto a dimmed list behind a window the arrows cannot
-  leave is a dead end.
+- **A float has levels, and `←` steps one.** `v` opens level one, the
+  description; a pane toggled over it (`c`, `d`, `t`) is level two. An
+  arrow that would hand the keys back beside a list (`←` from a scrolling
+  pane, `←` with nothing left to collapse in the file list or jobs pane,
+  either arrow on the description) steps down a level: back to the `v`
+  description if there is one, otherwise the float closes. A pane opened
+  straight from the list is level one itself, so `←` closes it rather
+  than dropping onto a description nobody asked for. Toggling a pane off
+  with its own key is the same step. `floatBase` records that level one
+  was opened; it is set when a float settles on the description.
 - A pane opened **beside a visible list** waits to be asked, since both
   are visible and either could reasonably take the arrows.
 - Changing panes drops focus, so a pane that has just appeared never
@@ -88,7 +97,8 @@ gesture is symmetric there rather than borrowed.
 `esc` steps back one layer and **never closes agenda** — that is `q`
 alone. The focused view gets the key first and reports whether it handled
 it, so a pane unwinds its own state before the root model closes
-anything.
+anything. `←` and `esc` both step beside a list; they part ways in a
+float, where `←` steps a level and `esc` closes the window.
 
 With the preview pane on:
 
@@ -96,12 +106,9 @@ With the preview pane on:
 job log → jobs/file-list focus → pane focus → the pane → zoom
 ```
 
-Floated, there is no list beside the pane to hand focus back to, so the
-steps collapse:
-
-```
-any pane → the description → the float closes
-```
+Floated, `esc` does not step: it closes the whole float from any level.
+The arrows are what walk back a level at a time (see Focus), so `esc`
+is the one key that is always "get me out of this window".
 
 A preview pane you configured on is never closed by `esc`: it undoes what
 was opened over the list, not the configured state.

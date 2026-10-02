@@ -157,38 +157,48 @@ func TestPaneWaitsForFocusWhenThePreviewIsOn(t *testing.T) {
 	}
 }
 
-// Floated, esc goes to the description and then closes: there is no list
-// beside the pane to hand the keys back to, so stepping through a focus
-// state nothing can see would be a wasted press.
-func TestEscInAFloatGoesToTheDescription(t *testing.T) {
+// floatView opens a float the way the root model does for 'v': the view is
+// told to focus, then the two preview messages land.
+func floatView(t *testing.T) *View {
+	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
 	v.SetSize(90, 40, 20)
 	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
 	p.Repository.NameWithOwner = "o/r"
 	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
-	v.Update(ui.PreviewShownMsg(false))
+	v.Update(ui.PreviewShownMsg(false)) // startup, hide_preview
+	return v
+}
 
+func pressV(v *View) {
+	v.FocusPane(true)
+	v.Update(ui.PreviewShownMsg(true))
+	v.Update(ui.PreviewFloatingMsg(true))
+}
+
+// Floated, esc closes the whole float whatever level it is on: the arrows
+// step a level at a time, esc is the way out. Reporting nothing left to do
+// is how the view hands the close to the root model, which owns the float.
+func TestEscClosesAFloatOutright(t *testing.T) {
 	for _, key := range []rune{'d', 'c', 't'} {
-		v.pane = paneBody
-		v.Update(tea.KeyPressMsg{Code: key})
-		if v.pane == paneBody {
-			t.Fatalf("%q did not open a pane", key)
+		for _, viaV := range []bool{false, true} {
+			v := floatView(t)
+			if viaV {
+				pressV(v)
+			}
+			v.Update(tea.KeyPressMsg{Code: key})
+			if v.pane == paneBody {
+				t.Fatalf("%q did not open a pane", key)
+			}
+			if v.Dismiss() {
+				t.Errorf("esc from %q (via v: %v) stepped instead of closing", key, viaV)
+			}
+			if v.floatReveal || v.PaneFocused() || v.pane != paneBody {
+				t.Errorf("esc from %q (via v: %v) left float=%v pane=%v focused=%v",
+					key, viaV, v.floatReveal, v.pane, v.PaneFocused())
+			}
 		}
-		if !v.Dismiss() {
-			t.Errorf("esc did nothing in the floated %q pane", key)
-		}
-		if v.pane != paneBody {
-			t.Errorf("esc from %q left pane=%v, want the description", key, v.pane)
-		}
-		if v.PaneFocused() {
-			t.Errorf("esc from %q left the pane focused", key)
-		}
-	}
-	// On the description there is nothing left, so the root model closes
-	// the float.
-	if v.Dismiss() {
-		t.Error("esc claimed to act with only the description showing")
 	}
 }
 
@@ -291,41 +301,34 @@ func TestFloatedDescriptionTakesFocus(t *testing.T) {
 	}
 }
 
-// Floated, an arrow that would leave the pane closes the float: there is
-// no list beside it to hand the keys to, so a dimmed list behind a window
-// the arrows cannot leave would be a dead end.
-func TestArrowsCloseAFloat(t *testing.T) {
+func closes(t *testing.T, cmd tea.Cmd, what string) {
+	t.Helper()
+	if cmd == nil {
+		t.Errorf("%s did nothing", what)
+		return
+	}
+	if _, ok := cmd().(ui.ConcealPreviewMsg); !ok {
+		t.Errorf("%s did not close the float", what)
+	}
+}
+
+// A float opened straight from the list is level one, so an arrow that
+// would leave the pane closes it: there is no list beside it to hand the
+// keys to, and no description underneath to fall back to.
+func TestArrowsCloseALevelOneFloat(t *testing.T) {
 	open := map[string]func(v *View){
-		"comments": func(v *View) { v.Update(tea.KeyPressMsg{Code: 'c'}) },
-		"description": func(v *View) { // what 'v' does
-			v.FocusPane(true)
-			v.Update(ui.PreviewShownMsg(true))
-			v.Update(ui.PreviewFloatingMsg(true))
-		},
+		"comments":    func(v *View) { v.Update(tea.KeyPressMsg{Code: 'c'}) },
+		"description": pressV,
 	}
 	for name, openFloat := range open {
 		for _, key := range []rune{tea.KeyLeft, tea.KeyRight} {
-			t.Setenv("XDG_CACHE_HOME", t.TempDir())
-			v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
-			v.SetSize(90, 40, 20)
-			p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
-			p.Repository.NameWithOwner = "o/r"
-			v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
-			v.Update(ui.PreviewShownMsg(false))
+			v := floatView(t)
 			openFloat(v)
 			if !v.PaneFocused() {
 				t.Fatalf("setup: the floated %s is not focused", name)
 			}
-
 			press := tea.KeyPressMsg{Code: key}
-			cmd := v.Update(press)
-			if cmd == nil {
-				t.Errorf("%s in the floated %s did nothing", press, name)
-				continue
-			}
-			if _, ok := cmd().(ui.ConcealPreviewMsg); !ok {
-				t.Errorf("%s in the floated %s did not close it", press, name)
-			}
+			closes(t, v.Update(press), press.String()+" in the floated "+name)
 			if v.PaneFocused() || v.pane != paneBody {
 				t.Errorf("%s closed the floated %s but left pane=%v focused=%v", press, name, v.pane, v.PaneFocused())
 			}
@@ -333,24 +336,43 @@ func TestArrowsCloseAFloat(t *testing.T) {
 	}
 }
 
-// esc from any floated pane returns to the description, then closes.
-func TestEscFromEachFloatedPane(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
-	v.SetSize(90, 40, 20)
-	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
-	p.Repository.NameWithOwner = "o/r"
-	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
-	v.Update(ui.PreviewShownMsg(false))
+// 'v' then a pane is two levels: left goes back to the description, which
+// is still the float and still has the keys, and only the next left
+// closes. Toggling the pane off with its own key is the same step.
+func TestArrowsStepBackToTheDescription(t *testing.T) {
+	for _, back := range []rune{tea.KeyLeft, 'c'} {
+		v := floatView(t)
+		pressV(v)
+		v.Update(tea.KeyPressMsg{Code: 'c'})
+		if v.pane != paneComments {
+			t.Fatal("setup: 'c' did not open comments over the description")
+		}
 
-	for _, k := range []rune{'c', 'd', 't'} {
-		v.Update(tea.KeyPressMsg{Code: k})
-		if v.pane == paneBody {
-			t.Fatalf("%q did not open a pane", k)
+		press := tea.KeyPressMsg{Code: back}
+		if cmd := v.Update(press); cmd != nil {
+			if _, ok := cmd().(ui.ConcealPreviewMsg); ok {
+				t.Errorf("%s closed the float instead of stepping back to the description", press)
+			}
 		}
-		if !v.Dismiss() || v.pane != paneBody {
-			t.Errorf("esc from %q did not return to the description", k)
+		if v.pane != paneBody || !v.floatReveal {
+			t.Errorf("%s left pane=%v float=%v, want the floated description", press, v.pane, v.floatReveal)
 		}
+		if !v.PaneFocused() {
+			t.Errorf("the description lost the keys after %s", press)
+		}
+
+		closes(t, v.Update(tea.KeyPressMsg{Code: tea.KeyLeft}), "left on the description")
+	}
+}
+
+// A pane toggled off with its own key at level one closes the float rather
+// than leaving a description nobody asked for.
+func TestTogglingALevelOnePaneOffClosesTheFloat(t *testing.T) {
+	v := floatView(t)
+	v.Update(tea.KeyPressMsg{Code: 'c'})
+	closes(t, v.Update(tea.KeyPressMsg{Code: 'c'}), "'c' again")
+	if v.floatReveal || v.PaneFocused() {
+		t.Error("the view still thinks it is floating")
 	}
 }
 
@@ -407,6 +429,40 @@ func TestFloatFocusSurvivesMessageOrder(t *testing.T) {
 		}
 		if !v.PaneFocused() {
 			t.Errorf("%s: the floated description is not focused", name)
+		}
+	}
+}
+
+// Beside a visible list the same step applies one level down: left from a
+// focused pane hands the keys to the list with the pane still open, and
+// left again takes the pane back to the description. The configured pane
+// is the floor and never closes.
+func TestLeftStepsDownBesideTheList(t *testing.T) {
+	for _, key := range []rune{'c', 'd', 't'} {
+		v := focusView(t) // preview on
+		v.Update(tea.KeyPressMsg{Code: key})
+		if !v.PaneFocused() {
+			v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+		}
+		if !v.PaneFocused() {
+			t.Fatalf("setup: the %q pane is not focused", key)
+		}
+		want := v.pane
+
+		v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+		if v.PaneFocused() {
+			t.Errorf("left did not hand the keys back from the %q pane", key)
+		}
+		if v.pane != want {
+			t.Errorf("left closed the %q pane along with releasing focus", key)
+		}
+
+		v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+		if v.pane != paneBody {
+			t.Errorf("a second left did not take the %q pane back to the description", key)
+		}
+		if !v.previewShown {
+			t.Error("the configured pane closed")
 		}
 	}
 }
