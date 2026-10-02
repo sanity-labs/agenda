@@ -14,12 +14,13 @@ import (
 func filesView(t *testing.T, files ...prFile) *View {
 	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	v := New(config.GitHubConfig{}, nil, nil, nil)
+	// diff_pane opts into the in-pane view, which is the file list.
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
 	v.SetSize(60, 70, 24)
 	p := pr{Number: 1, URL: "u", Title: "t", State: "OPEN"}
 	p.Repository.NameWithOwner = "o/r"
 	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
-	v.Update(tea.KeyPressMsg{Code: 'D'})
+	v.Update(tea.KeyPressMsg{Code: 'd'})
 	v.Update(filesMsg{url: "u", files: files})
 	v.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // focus the pane
 	return v

@@ -28,7 +28,7 @@ func TestRightAndLeftMoveFocus(t *testing.T) {
 		key  rune
 		pane paneMode
 	}{
-		{'d', paneDiff}, {'c', paneComments},
+		{'d', paneFiles}, {'c', paneComments},
 	} {
 		v := focusView(t)
 		v.Update(tea.KeyPressMsg{Code: c.key})
@@ -43,8 +43,10 @@ func TestRightAndLeftMoveFocus(t *testing.T) {
 		if !v.PaneFocused() {
 			t.Errorf("right did not focus the %q pane", c.key)
 		}
+		// Left returns focus from a scrolling pane. The file list collapses
+		// first and releases on the next press, which its own test covers.
 		v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
-		if v.PaneFocused() {
+		if c.pane != paneFiles && v.PaneFocused() {
 			t.Errorf("left did not return focus from the %q pane", c.key)
 		}
 	}
@@ -88,7 +90,7 @@ func TestSwitchingPanesDropsFocus(t *testing.T) {
 // esc steps back: focus first, then the pane.
 func TestEscStepsBackThroughFocus(t *testing.T) {
 	v := focusView(t)
-	v.Update(tea.KeyPressMsg{Code: 'd'})
+	v.Update(tea.KeyPressMsg{Code: 'c'})
 	v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 
 	if !v.Dismiss() {
@@ -97,7 +99,7 @@ func TestEscStepsBackThroughFocus(t *testing.T) {
 	if v.PaneFocused() {
 		t.Error("the first esc did not drop focus")
 	}
-	if v.pane != paneDiff {
+	if v.pane != paneComments {
 		t.Error("the first esc closed the pane as well as dropping focus")
 	}
 	if !v.Dismiss() {

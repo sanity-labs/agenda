@@ -826,7 +826,6 @@ type viewKeys struct {
 	JobLog     key.Binding
 	Rerun      key.Binding
 	EditFilter key.Binding
-	Files      key.Binding
 }
 
 // binding looks a binding up by its action name, for prompts that name the
@@ -884,7 +883,6 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 			JobLog:     bind("job_log", "", "p"),
 			Rerun:      bind("rerun", "", "x"),
 			EditFilter: bind("edit_filter", "search", "F"),
-			Files:      bind("files", "files", "D"),
 		},
 	}
 	if mode, ok := sortByName(cfg.Sort); ok {
@@ -1545,11 +1543,13 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return v.copySelected()
 		case key.Matches(msg, v.keys.Diff):
 			// Default 'd' keeps the original behavior: page the diff
-			// through less. github.diff_pane opts into the in-pane diff.
+			// through less. github.diff_pane opts into the in-pane view,
+			// which is the file list: it reads better than a flat diff and
+			// is the only one that works past 300 files.
 			if !v.cfg.DiffPane {
 				return v.diffInPager()
 			}
-			return v.setPane(paneDiff)
+			return v.setPane(paneFiles)
 		case key.Matches(msg, v.keys.Expand):
 			if sel := v.list.Selected(); sel.URL != "" {
 				if v.expanded == sel.URL {
@@ -1560,8 +1560,6 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				v.bodyKey = "" // the body is cached per expansion state
 			}
 			return nil
-		case key.Matches(msg, v.keys.Files):
-			return v.setPane(paneFiles)
 		case key.Matches(msg, v.keys.EditFilter):
 			return v.editFilter()
 		case key.Matches(msg, v.keys.Comments):
@@ -2982,7 +2980,7 @@ func (v *View) Bindings() []key.Binding {
 	if v.PaneFocused() && v.pane == paneFiles {
 		return v.filesBindings()
 	}
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Files, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
+	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
 }
 
 // Status is the footer's right-hand slot. The list header already carries
