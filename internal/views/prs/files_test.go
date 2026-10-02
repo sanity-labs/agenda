@@ -15,7 +15,10 @@ func filesView(t *testing.T, files ...prFile) *View {
 	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	// diff_pane opts into the in-pane view, which is the file list.
-	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	// Auto-expand off: these cover the manual +/- behaviour, and the
+	// following-cursor case has its own test.
+	off := false
+	v := New(config.GitHubConfig{DiffPane: true, FileAutoExpand: &off}, nil, nil, nil)
 	v.SetSize(60, 70, 24)
 	p := pr{Number: 1, URL: "u", Title: "t", State: "OPEN"}
 	p.Repository.NameWithOwner = "o/r"
@@ -157,5 +160,32 @@ func TestNoFiles(t *testing.T) {
 	v := filesView(t)
 	if got := ansi.Strip(v.PreviewView()); !strings.Contains(got, "No files changed") {
 		t.Errorf("an empty file list says nothing:\n%s", got)
+	}
+}
+
+// On by default the list follows the cursor: the file under it opens and
+// the one you left closes, so the pane stays short enough to see the list
+// around it.
+func TestAutoExpandFollowsTheCursor(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil) // default on
+	v.SetSize(60, 70, 24)
+	p := pr{Number: 1, URL: "u", Title: "t", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(tea.KeyPressMsg{Code: 'd'})
+	v.Update(filesMsg{url: "u", files: sample()})
+	st := v.files["u"]
+
+	v.Update(tea.KeyPressMsg{Code: 'j'})
+	if !st.open["b.go"] {
+		t.Error("moving to a file did not open it")
+	}
+	if st.open["a.go"] {
+		t.Error("the file left behind stayed open")
+	}
+	v.Update(tea.KeyPressMsg{Code: 'j'})
+	if !st.open["c.go"] || st.open["b.go"] {
+		t.Errorf("the cursor is not the only file open: %v", st.open)
 	}
 }

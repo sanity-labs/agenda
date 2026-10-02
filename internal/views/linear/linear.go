@@ -981,6 +981,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			case !v.showComments:
 				v.showComments = true
 				v.jumpPending, v.commentsJumped = true, true
+				// Floated, the list is behind the pane, so it takes the
+				// keys without being asked. Beside a visible list, focus
+				// waits for the right arrow.
+				v.paneFocus = !v.previewShown
 				return tea.Batch(ui.RevealPreview, v.maybeFetchComments())
 			case !v.commentsJumped:
 				v.jumpPending, v.commentsJumped = true, true
@@ -1347,6 +1351,15 @@ func (v *View) PaneScrolls() bool { return v.paneFocus }
 // shut. Reports whether it did anything, so esc can fall through to a
 // floated preview when it did not.
 func (v *View) Dismiss() bool {
+	// Floated, there is no list beside the pane to hand the keys back to,
+	// so esc closes the pane and then the float itself.
+	if !v.previewShown {
+		if v.showComments {
+			v.showComments, v.commentsJumped, v.paneFocus = false, false, false
+			return true
+		}
+		return false
+	}
 	if v.paneFocus {
 		v.paneFocus = false
 		return true

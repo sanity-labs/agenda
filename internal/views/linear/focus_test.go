@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func focusView(t *testing.T) *View {
@@ -16,6 +17,8 @@ func focusView(t *testing.T) *View {
 	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
 	v.SetSize(90, 40, 20)
 	v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1", Title: "t"}}, source: v.defaultSource})
+	// The preview pane is on: both are visible, so focus is asked for.
+	v.Update(ui.PreviewShownMsg(true))
 	return v
 }
 
@@ -80,5 +83,26 @@ func TestEscStepsBackThroughFocus(t *testing.T) {
 	}
 	if v.Dismiss() {
 		t.Error("esc claimed to act with nothing left open")
+	}
+}
+
+// Floated, the comments pane takes the keys on open and esc closes it
+// outright: there is no list beside it to hand focus back to.
+func TestFloatedCommentsTakeFocusAndEscCloses(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1", Title: "t"}}, source: v.defaultSource})
+	v.Update(ui.PreviewShownMsg(false))
+
+	v.Update(tea.KeyPressMsg{Code: 'c'})
+	if !v.PaneFocused() {
+		t.Error("a floated comments pane did not take the keys")
+	}
+	if !v.Dismiss() || v.showComments {
+		t.Error("esc did not close the floated pane")
+	}
+	if v.Dismiss() {
+		t.Error("esc claimed to act with only the description left")
 	}
 }

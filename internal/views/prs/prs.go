@@ -1657,10 +1657,13 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	}
 	v.pane = mode
 	v.annIdx = 0
-	// Opening the jobs pane is asking to look through the jobs, so it takes
-	// the keys straight away; esc hands them back to the PR list.
-	v.jobsFocus = mode == paneJobs
-	v.paneFocus = false // a new pane starts unfocused, beside a lit list
+	// A pane opened into a float takes the keys straight away: the list is
+	// behind it, so there is nothing to arrow through and an explicit
+	// right would be a keystroke for nothing. With the preview pane on,
+	// both are visible, so focus stays with the list until asked for.
+	auto := !v.previewShown || mode == paneJobs
+	v.jobsFocus = auto && mode == paneJobs
+	v.paneFocus = auto && mode != paneJobs && mode != paneBody
 	// The pane is about to show a diff, comments or jobs; a hidden preview
 	// would swallow it silently.
 	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs(), v.maybeFetchFiles())
@@ -2208,6 +2211,22 @@ func (v *View) maybeFetchFiles() tea.Cmd {
 	return fetchFiles(p.URL, p.repo(), p.Number)
 }
 
+// autoExpand opens the file under the cursor and closes the rest, so
+// walking the list reads like scrolling a diff without the pane growing
+// to the length of one. Off, a file stays as you left it.
+func (v *View) autoExpand(st *filesState) {
+	if !v.cfg.FileAutoExpandEnabled() {
+		return
+	}
+	rows := st.rows()
+	if st.sel < 0 || st.sel >= len(rows) {
+		return
+	}
+	name := st.files[rows[st.sel].file].Filename
+	clear(st.open)
+	st.open[name] = true
+}
+
 // updateFiles handles keys while the file list has the keys. Reports
 // whether it consumed the key, like the jobs pane.
 func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
@@ -2230,6 +2249,7 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 		for i := st.sel + d; i >= 0 && i < len(rows); i += d {
 			if rows[i].patch == "" {
 				st.sel = i
+				v.autoExpand(st)
 				return
 			}
 		}
@@ -3071,11 +3091,23 @@ func (v *View) PaneScrolls() bool {
 // preview, so esc walks out one layer at a time rather than collapsing
 // everything at once.
 func (v *View) Dismiss() bool {
-	switch {
-	case v.logView != nil:
+	if v.logView != nil {
 		// Back to the jobs list, which is what the log's own hint says.
 		v.logView = nil
 		return true
+	}
+	// Floated, there is no list beside the pane to hand the keys back to,
+	// so esc goes straight to the description and then closes the float.
+	// The root model closes it once this reports nothing left to do.
+	if !v.previewShown {
+		if v.pane != paneBody {
+			v.pane = paneBody
+			v.jobsFocus, v.paneFocus = false, false
+			return true
+		}
+		return false
+	}
+	switch {
 	case v.PaneFocused():
 		// Focus back to the list: the pane stays open beside it.
 		v.jobsFocus, v.paneFocus = false, false

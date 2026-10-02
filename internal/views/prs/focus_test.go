@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func focusView(t *testing.T) *View {
@@ -18,6 +19,9 @@ func focusView(t *testing.T) *View {
 	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
 	p.Repository.NameWithOwner = "o/r"
 	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	// The preview pane is on: both panes are visible, so focus is asked
+	// for rather than assumed. The float case is covered separately.
+	v.Update(ui.PreviewShownMsg(true))
 	return v
 }
 
@@ -121,5 +125,69 @@ func TestBodyPaneTakesNoFocus(t *testing.T) {
 	}
 	if v.PaneFocused() {
 		t.Error("the body pane reports focus")
+	}
+}
+
+// A pane opened into a float takes the keys straight away: the list is
+// behind it, so an explicit right would be a keystroke for nothing.
+func TestFloatedPaneTakesFocusOnOpen(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false)) // hidden: panes float
+
+	for _, key := range []rune{'d', 'c', 't'} {
+		v.pane = paneBody
+		v.Update(tea.KeyPressMsg{Code: key})
+		if !v.PaneFocused() {
+			t.Errorf("%q floated a pane without focusing it", key)
+		}
+	}
+}
+
+// With the preview on, both are visible, so focus waits to be asked for.
+func TestPaneWaitsForFocusWhenThePreviewIsOn(t *testing.T) {
+	v := focusView(t) // previewShown
+	v.Update(tea.KeyPressMsg{Code: 'c'})
+	if v.PaneFocused() {
+		t.Error("a pane beside a visible list took focus on open")
+	}
+}
+
+// Floated, esc goes to the description and then closes: there is no list
+// beside the pane to hand the keys back to, so stepping through a focus
+// state nothing can see would be a wasted press.
+func TestEscInAFloatGoesToTheDescription(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false))
+
+	for _, key := range []rune{'d', 'c', 't'} {
+		v.pane = paneBody
+		v.Update(tea.KeyPressMsg{Code: key})
+		if v.pane == paneBody {
+			t.Fatalf("%q did not open a pane", key)
+		}
+		if !v.Dismiss() {
+			t.Errorf("esc did nothing in the floated %q pane", key)
+		}
+		if v.pane != paneBody {
+			t.Errorf("esc from %q left pane=%v, want the description", key, v.pane)
+		}
+		if v.PaneFocused() {
+			t.Errorf("esc from %q left the pane focused", key)
+		}
+	}
+	// On the description there is nothing left, so the root model closes
+	// the float.
+	if v.Dismiss() {
+		t.Error("esc claimed to act with only the description showing")
 	}
 }

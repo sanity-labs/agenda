@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -198,6 +199,10 @@ type GitHubConfig struct {
 	// default: it is one request for a single PR, debounced, so cycling a
 	// list costs nothing until you stop.
 	RefreshRow *bool `yaml:"refresh_row"`
+	// FileAutoExpand opens the file under the cursor in the file list and
+	// closes the one you left, so walking the list reads like scrolling a
+	// diff. On by default; off keeps a file open until you collapse it.
+	FileAutoExpand *bool `yaml:"file_auto_expand"`
 	// Merge adds merge entries to the review popup ('r'). Off by default:
 	// merging is the one irreversible action in that popup, so it is opt-in
 	// rather than a keypress away for everyone.
@@ -212,6 +217,11 @@ type GitHubConfig struct {
 
 // RefreshRowEnabled reports whether the selected PR is re-read on settle.
 func (g GitHubConfig) RefreshRowEnabled() bool { return g.RefreshRow == nil || *g.RefreshRow }
+
+// FileAutoExpandEnabled reports whether the file list follows the cursor.
+func (g GitHubConfig) FileAutoExpandEnabled() bool {
+	return g.FileAutoExpand == nil || *g.FileAutoExpand
+}
 
 // ResolvedMergeMethod is the gh flag for the configured merge method,
 // defaulting to squash. An unrecognised value falls back rather than
@@ -409,6 +419,10 @@ func Load() (Config, error) {
 	if err := dec.Decode(&probe); err != nil && !errors.Is(err, io.EOF) {
 		cfg.Unknown = unknownKeys(err)
 	}
+	// A binding that claims a reserved key is dropped, so say so: the key
+	// would otherwise keep its built-in meaning and the override would
+	// look like it had simply not worked.
+	cfg.Unknown = append(cfg.Unknown, cfg.Keys.reservedWarnings()...)
 	if cfg.Linear.Filter.Limit <= 0 {
 		cfg.Linear.Filter.Limit = 100
 	}
@@ -534,10 +548,57 @@ type Keymap map[string]map[string]Chord
 
 // Of returns the configured keys for scope/action, or def when unset.
 // An explicitly-empty list disables the binding (returns an empty slice).
+// ReservedKeys cannot be rebound: they are how you get out of any state,
+// so a keymap that claims one is unrecoverable without editing the config
+// by hand. Arrows move and change focus, esc steps back, ctrl+c quits.
+var ReservedKeys = map[string]string{
+	"left":   "move focus back to the list",
+	"right":  "move focus into the pane",
+	"up":     "move within the focused pane",
+	"down":   "move within the focused pane",
+	"esc":    "step back out of whatever is open",
+	"ctrl+c": "quit",
+}
+
+// reservedWarnings names every binding that tried to claim a reserved key,
+// for the startup message log.
+func (k Keymap) reservedWarnings() []string {
+	var out []string
+	for scope, actions := range k {
+		for action, chord := range actions {
+			for _, key := range chord {
+				if why, bad := Reserved(key); bad {
+					out = append(out, fmt.Sprintf(
+						"keys.%s.%s: %q is reserved (%s) and was ignored",
+						scope, action, key, why))
+				}
+			}
+		}
+	}
+	sort.Strings(out) // map order is random; a stable message reads better
+	return out
+}
+
+// Reserved reports whether a key is one agenda keeps for itself, and what
+// it is kept for.
+func Reserved(key string) (string, bool) {
+	why, ok := ReservedKeys[strings.ToLower(strings.TrimSpace(key))]
+	return why, ok
+}
+
 func (k Keymap) Of(scope, action string, def ...string) []string {
 	if actions, ok := k[scope]; ok {
 		if chord, ok := actions[action]; ok {
-			return []string(chord)
+			// Drop any reserved key rather than the whole binding: the rest
+			// of the override still works, and the user is told why in the
+			// config warnings.
+			kept := make([]string, 0, len(chord))
+			for _, key := range chord {
+				if _, bad := Reserved(key); !bad {
+					kept = append(kept, key)
+				}
+			}
+			return kept
 		}
 	}
 	return def
