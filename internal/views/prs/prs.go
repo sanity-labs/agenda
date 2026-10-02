@@ -1390,8 +1390,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.previewShown = bool(msg)
 		// A float is visible and over the list, so it takes the keys: the
 		// list is behind it whatever the pane holds. Back beside a visible
-		// list, focus starts with the list again.
-		if v.previewShown {
+		// list, focus starts with the list again. The preview merely being
+		// off is not a float: at startup with hide_preview there is nothing
+		// on screen to hand the keys to.
+		if v.previewShown || !v.floatReveal {
 			v.jobsFocus, v.paneFocus, v.logView = false, false, nil
 		} else {
 			v.paneFocus = true
@@ -1658,6 +1660,7 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 		if v.previewShown {
 			return nil
 		}
+		v.floatReveal, v.paneFocus = false, false
 		return ui.ConcealPreview
 	}
 	v.pane = mode
@@ -1669,6 +1672,10 @@ func (v *View) setPane(mode paneMode) tea.Cmd {
 	auto := !v.previewShown || mode == paneJobs
 	v.jobsFocus = auto && mode == paneJobs
 	v.paneFocus = auto && mode != paneJobs && mode != paneBody
+	// Opening a pane with the preview hidden is the float appearing. Say so
+	// here rather than waiting for the root model's toggle message, which
+	// only fires when floating() changes.
+	v.floatReveal = v.floatReveal || !v.previewShown
 	// The pane is about to show a diff, comments or jobs; a hidden preview
 	// would swallow it silently.
 	return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchJobs(), v.maybeFetchLogs(), v.maybeFetchFiles())
@@ -3086,10 +3093,15 @@ func (v *View) filesBindings() []key.Binding {
 // PaneFocused reports whether the preview pane has the keys.
 func (v *View) PaneFocused() bool {
 	// A float has the keys whatever it holds: the list is behind it, so
-	// there is nothing else they could belong to. The description scrolls
-	// rather than holding a cursor, which PaneScrolls reports.
+	// there is nothing else they could belong to. floatReveal, not
+	// previewShown: with hide_preview on there is no float at all until
+	// something opens one, and dimming the list before that is dimming it
+	// for nothing. Esc still steps focus out of a float that stays open.
+	if v.floatReveal {
+		return v.paneFocus || v.jobsFocus
+	}
 	if !v.previewShown {
-		return v.pane != paneBody || v.paneFocus
+		return false
 	}
 	// Beside a visible list, focus is tied to a pane being open rather
 	// than to the flag alone: a pane closed by any route (a review

@@ -44,10 +44,11 @@ drops its selection bar**, so exactly one cursor is lit on screen and it
 is the one the arrows will move.
 
 - `→` focuses the pane, `←` hands the keys back.
-- A **float always has the keys**, whatever opened it and whatever it
-  holds — including a floated description. The list is behind it, so
-  there is nothing else the arrows could belong to, and `←`/`→` do not
-  move focus there: `esc` is the way out.
+- A **float takes the keys on open**, whatever opened it and whatever it
+  holds, including a floated description. The list is behind it, so there
+  is nothing else the arrows could belong to, and `←`/`→` do not move
+  focus there: `esc` is the way out, and it is the one thing that hands
+  the keys back while the float is still up.
 - A pane opened **beside a visible list** waits to be asked, since both
   are visible and either could reasonably take the arrows.
 - Changing panes drops focus, so a pane that has just appeared never
@@ -56,6 +57,13 @@ is the one the arrows will move.
   open, not just to the flag, so a pane closed by any route (a submitted
   review, a toggle reset) cannot leave the list dimmed with nothing
   focused. The flags are cleared too, so a reopened pane starts fresh.
+- **The preview being off is not a float.** With `hide_preview` the list
+  starts alone on screen with nothing over it, so it keeps the keys and
+  stays lit; only opening a float dims it. A view reads this from
+  `PreviewFloatingMsg`, never from `previewShown` alone, and `setPreview`
+  sends the float state *before* the shown state so the reveal handler
+  knows which of the two it is in. Treating "hidden" as "floating" dims
+  the list at startup with nothing open.
 
 Panes that hold their own cursor (the jobs pane, the file list) keep it.
 Panes that scroll (diffs, comments) get the arrows and page keys routed

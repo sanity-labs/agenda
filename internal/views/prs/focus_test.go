@@ -267,6 +267,9 @@ func TestFloatedDescriptionTakesFocus(t *testing.T) {
 	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
 	p.Repository.NameWithOwner = "o/r"
 	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	// Both messages, in the order the root model sends them: the preview
+	// merely being off is startup, not a float.
+	v.Update(ui.PreviewFloatingMsg(true))
 	v.Update(ui.PreviewShownMsg(false))
 
 	if !v.PaneFocused() {
@@ -281,6 +284,7 @@ func TestFloatedDescriptionTakesFocus(t *testing.T) {
 	}
 
 	// Back beside a visible list, the description focuses nothing.
+	v.Update(ui.PreviewFloatingMsg(false))
 	v.Update(ui.PreviewShownMsg(true))
 	if v.PaneFocused() {
 		t.Error("the description took focus beside a visible list")
@@ -323,5 +327,37 @@ func TestEscFromEachFloatedPane(t *testing.T) {
 		if !v.Dismiss() || v.pane != paneBody {
 			t.Errorf("esc from %q did not return to the description", k)
 		}
+	}
+}
+
+// Startup with hide_preview is not a float: nothing is on screen over the
+// list, so the list keeps the keys and stays lit. The preview being off and
+// a float being open are different states, and only the second dims.
+func TestHiddenPreviewAtStartupDoesNotDim(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{DiffPane: true}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	p := pr{Number: 1, URL: "u", Title: "a title", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	v.Update(ui.PreviewShownMsg(false))
+
+	if v.PaneFocused() {
+		t.Error("the hidden preview took the keys with nothing on screen")
+	}
+	v.ListView()
+	if v.list.Blurred() {
+		t.Error("the list is dimmed at startup with nothing open")
+	}
+
+	// Opening a float then dims it, and closing it lights the list again.
+	v.Update(tea.KeyPressMsg{Code: 'd'})
+	if !v.PaneFocused() {
+		t.Error("a float opened without taking the keys")
+	}
+	v.Update(ui.PreviewFloatingMsg(false))
+	v.Update(ui.PreviewShownMsg(false))
+	if v.PaneFocused() {
+		t.Error("focus survived the float closing")
 	}
 }

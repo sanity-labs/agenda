@@ -716,12 +716,15 @@ func (m *Model) setPreview(hidden, transient bool) tea.Cmd {
 	m.previewHidden, m.previewTransient = hidden, transient
 	m.layout()
 	var cmds []tea.Cmd
+	// Float state leads: a view deciding where focus goes on a reveal has to
+	// know whether it is a float or a side pane, and these arrive as separate
+	// updates.
+	if isFloat := m.floating(); wasFloat != isFloat {
+		cmds = append(cmds, func() tea.Msg { return ui.PreviewFloatingMsg(isFloat) })
+	}
 	if was != hidden {
 		shown := !hidden
 		cmds = append(cmds, func() tea.Msg { return ui.PreviewShownMsg(shown) })
-	}
-	if isFloat := m.floating(); wasFloat != isFloat {
-		cmds = append(cmds, func() tea.Msg { return ui.PreviewFloatingMsg(isFloat) })
 	}
 	if len(cmds) == 0 {
 		return nil
