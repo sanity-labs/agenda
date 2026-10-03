@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 // filterEdit is the open search-filter editor. Editing the search is a
@@ -90,14 +88,6 @@ func (v *View) updateFilterEdit(msg tea.KeyMsg) tea.Cmd {
 	// The band carries the text being typed, so every key rebuilds it.
 	v.applySort()
 	return nil
-}
-
-// filterPromptLine renders the open editor for the list header.
-func (v *View) filterPromptLine() string {
-	f := v.filterEd
-	return ui.Yellow.Render(ui.Glyph(ui.IconSearch, "?")+" "+f.label+": ") +
-		f.query + "█" +
-		ui.Faint.Render("  (enter apply · ctrl+u clear · esc cancel)")
 }
 
 // filterTriedMsg reports whether an edited filter returned anything, and

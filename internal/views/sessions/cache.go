@@ -1,12 +1,12 @@
 package sessions
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sanity-labs/agenda/internal/cache"
 )
 
 // cacheVersion is bumped whenever meta's schema changes, so stale on-disk
@@ -20,40 +20,13 @@ type cacheEntry struct {
 	Meta meta   `json:"meta"`
 }
 
-func cacheFile() string {
-	dir := os.Getenv("XDG_CACHE_HOME")
-	if dir == "" {
-		dir = filepath.Join(home(), ".cache")
-	}
-	return filepath.Join(dir, "agenda", "sessions-cache.json")
-}
-
-func loadCache() map[string]cacheEntry {
-	raw, err := os.ReadFile(cacheFile())
-	if err != nil {
-		return map[string]cacheEntry{}
-	}
-	var c map[string]cacheEntry
-	if json.Unmarshal(raw, &c) != nil {
-		return map[string]cacheEntry{}
-	}
-	return c
-}
-
-func saveCache(c map[string]cacheEntry) {
-	path := cacheFile()
-	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
-		return
-	}
-	if raw, err := json.Marshal(c); err == nil {
-		_ = os.WriteFile(path, raw, 0o644)
-	}
-}
+// cacheName is the on-disk file under the shared cache dir.
+const cacheName = "sessions-cache"
 
 // collect scans every session, parsing only files whose signature changed
 // since the last run, and returns them sorted newest-first.
 func collect() []session {
-	cache := loadCache()
+	prev, _ := cache.Load[map[string]cacheEntry](cacheName)
 	next := make(map[string]cacheEntry)
 	files := discover()
 
@@ -76,7 +49,7 @@ func collect() []session {
 		sig := fmt.Sprintf("%s:%d:%d", cacheVersion, st.ModTime().Unix(), st.Size())
 
 		var m meta
-		if c, ok := cache[f.path]; ok && c.Sig == sig {
+		if c, ok := prev[f.path]; ok && c.Sig == sig {
 			m = c.Meta
 		} else {
 			m = parse(f.path, f.tool)
@@ -96,7 +69,7 @@ func collect() []session {
 		})
 	}
 
-	saveCache(next)
+	_ = cache.Save(cacheName, next) // a failed write only costs a slower next start
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
 	markSpawned(out)
 	return out

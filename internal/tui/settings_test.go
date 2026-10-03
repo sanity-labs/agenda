@@ -148,7 +148,7 @@ func TestEveryConfigKeyHasASettingRow(t *testing.T) {
 		// Free text, edited in the file.
 		"token": true, "review_filter": true, "views": true, "palette": true,
 		"glyphs": true, "command": true, "limit": true, "scope": true,
-		"teams": true, "projects": true, "states": true, "nav": true,
+		"teams": true, "projects": true, "states": true,
 		"include_completed": true, "include_canceled": true,
 	}
 	src, err := os.ReadFile("../config/config.go")

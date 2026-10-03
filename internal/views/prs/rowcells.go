@@ -2,7 +2,6 @@ package prs
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/sanity-labs/agenda/internal/ui"
 )
@@ -90,12 +89,7 @@ func (p pr) rightCluster(width int, dim bool) string {
 	// right-aligned by the row renderer, and the numeric cells are fixed,
 	// so padding the labels to a constant width pins the whole block.
 	cells := diffCellW + commentsCellW + ageCellW + 2 // the cell gaps
-	budget := ui.LabelColWidth(width, cells, labelColReserve)
-	if budget <= 0 {
-		return nums
-	}
-	labels := ui.FitLabels(pillsFor(p.Labels.Nodes), budget)
-	return ui.PadCell(labels, budget) + strings.Repeat(" ", ui.LabelColMargin) + nums
+	return ui.LabelColumn(width, cells, labelColReserve, pillsFor(p.Labels.Nodes), nums)
 }
 
 // pillsFor renders one pill per label, for the shared column packer.

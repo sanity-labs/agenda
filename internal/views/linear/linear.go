@@ -14,12 +14,14 @@ import (
 	"net/http"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
@@ -93,6 +95,17 @@ type issue struct {
 	Assignee struct {
 		DisplayName string `json:"displayName"`
 	} `json:"assignee"`
+	// Comments carries ids only, to count: Linear's CommentConnection has
+	// no totalCount, so the list query asks for a page and whether there
+	// is more.
+	Comments struct {
+		Nodes []struct {
+			ID string `json:"id"`
+		} `json:"nodes"`
+		PageInfo struct {
+			HasNextPage bool `json:"hasNextPage"`
+		} `json:"pageInfo"`
+	} `json:"comments"`
 	Labels struct {
 		Nodes []label `json:"nodes"`
 	} `json:"labels"`
@@ -204,10 +217,32 @@ func (i issue) priorityCell() string {
 const (
 	// ageCellW pads the age so it forms a column instead of drifting.
 	ageCellW = 4 // "999d"
-	// labelColReserve is the room the metadata line needs: state,
-	// identifier and project.
-	labelColReserve = 40
+	// commentsCellW is the icon and up to three digits, as in the PRs view.
+	commentsCellW = 4
+	// labelColReserve is the room kept for the metadata line. Lower than
+	// the PRs view's: Linear labels run long, and the metadata truncates
+	// with an ellipsis where labels would be dropped whole.
+	labelColReserve = 30
 )
+
+// commentCount is how many comments the list query saw, and whether the
+// page it asked for was full with more behind it.
+func (i issue) commentCount() (n int, more bool) {
+	return len(i.Comments.Nodes), i.Comments.PageInfo.HasNextPage
+}
+
+// commentsText is the comment-count cell's plain text, empty for none so a
+// quiet issue shows nothing rather than a zero.
+func (i issue) commentsText() string {
+	n, more := i.commentCount()
+	if n == 0 {
+		return ""
+	}
+	if more {
+		return ui.IconComment + strconv.Itoa(n) + "+"
+	}
+	return ui.IconComment + strconv.Itoa(n)
+}
 
 // pillsFor renders one pill per label, for the shared column packer.
 func pillsFor(labels []label) []string {
@@ -246,21 +281,28 @@ func (i issue) Render(width int, selected bool, hl ui.Highlighter) string {
 	}
 	plain += i.Identifier
 	styled += ui.Cyan.Render(i.Identifier)
+	// The project takes the slot the PRs view gives its issue number, so
+	// it stands out from the dim run and follows the palette.
 	if i.Project.Name != "" && !i.HideProject {
 		plain += " · " + i.Project.Name
-		styled += ui.Dim.Render(" · " + i.Project.Name)
+		styled += ui.Dim.Render(" · ") + ui.Yellow.Render(i.Project.Name)
+	}
+	// Who has it, always: an unassigned issue says so rather than reading
+	// like one whose assignee did not fit.
+	if who := i.Assignee.DisplayName; who != "" {
+		plain += " · @" + who
+		styled += ui.Dim.Render(" · @" + who)
+	} else {
+		plain += " · Unassigned"
+		styled += ui.Faint.Render(" · Unassigned")
 	}
 
-	// Age is fixed-width so it forms a column; labels take the space a
-	// hidden preview frees up, to its left.
-	right := ui.PadCell(ui.Dim.Render(ui.Age(i.UpdatedAt)), ageCellW)
+	// Comments and age are fixed-width so they form columns; labels take
+	// the space a hidden preview frees up, to their left.
+	right := ui.PadCell(ui.Dim.Render(i.commentsText()), commentsCellW) + " " +
+		ui.PadCell(ui.Dim.Render(ui.Age(i.UpdatedAt)), ageCellW)
 	if i.ShowLabels {
-		budget := ui.LabelColWidth(width, ageCellW, labelColReserve)
-		if budget > 0 {
-			labels := ui.FitLabels(pillsFor(i.Labels.Nodes), budget)
-			right = ui.PadCell(labels, budget) +
-				strings.Repeat(" ", ui.LabelColMargin) + right
-		}
+		right = ui.LabelColumn(width, commentsCellW+ageCellW+1, labelColReserve, pillsFor(i.Labels.Nodes), right)
 	}
 
 	return ui.TwoLineRow(width, selected, glyphs, plain, styled, right, i.Title, hl)
@@ -399,23 +441,10 @@ var priorityBucket = map[int]string{
 // equal labels are contiguous in the sorted slice.
 // sortByName resolves a configured sort name to its mode; an unknown name
 // falls back to the default rather than stopping the view opening.
-func sortByName(name string) (sortMode, bool) {
-	for mode, n := range sortName {
-		if n == name {
-			return mode, true
-		}
-	}
-	return sortRecent, false
-}
+func sortByName(name string) (sortMode, bool) { return ui.SortByName(sortName, sortRecent, name) }
 
 // SortNames lists the sorts this view accepts, for the settings overlay.
-func SortNames() []string {
-	out := make([]string, 0, len(sortOrder))
-	for _, mode := range sortOrder {
-		out = append(out, sortName[mode])
-	}
-	return out
-}
+func SortNames() []string { return ui.SortNames(sortOrder, sortName) }
 
 func groupLabelFn(mode sortMode) func(issue) string {
 	switch mode {
@@ -496,6 +525,13 @@ type View struct {
 	// cleared per issue when you select it.
 	fresh    map[string]bool
 	unreadOn bool
+	// jump is the jump keys' step for the tree; the list keeps its own copy.
+	jump int
+	// floatReveal says the detail is a float over the list rather than a
+	// pane beside it; floatBase that the float was opened on the description
+	// with 'v', so comments toggled over it have a level to step back to.
+	floatReveal bool
+	floatBase   bool
 	// previewShown tracks whether the detail pane is on screen, which
 	// decides what marks an issue read: hovering, or asking for the detail.
 	previewShown bool
@@ -653,6 +689,7 @@ const issueFields = `
         team { key }
         project { name }
         assignee { displayName }
+        comments(first: 50) { nodes { id } pageInfo { hasNextPage } }
         labels(first: 10) { nodes { name color } }
         attachments(first: 20) { nodes { url sourceType title metadata } }`
 
@@ -898,20 +935,27 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
 		return nil
+	case ui.ListJumpMsg:
+		v.jump = int(msg)
+		v.list.SetJump(v.jump)
+		return nil
 	case ui.UnreadMsg:
+		// Display only: marks keep being recorded while this is off.
 		v.unreadOn = bool(msg)
-		if !v.unreadOn {
-			v.fresh = nil
-		}
 		v.applySort()
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
+		v.floatFocus()
 		if v.previewShown {
 			v.clearFresh()
 		}
 		// The label column lives in the space a hidden preview frees up.
 		v.applySort()
+		return nil
+	case ui.PreviewFloatingMsg:
+		v.floatReveal = bool(msg)
+		v.floatFocus()
 		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
@@ -921,33 +965,56 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// The nav pane toggle works regardless of focus; while the tree has
 		// focus it takes the navigation keys.
 		if key.Matches(msg, v.keys.Nav) {
-			v.navShown = !v.navShown
-			if !v.navShown {
-				v.navFocus = false
+			// ctrl+p is "take me to the tree": it shows the tree and puts the
+			// keys in it, or just focuses it when the tree is already up (a
+			// permanently-on tree included). Pressed with the tree focused,
+			// it hides the tree.
+			switch {
+			case !v.navShown:
+				v.navShown, v.navFocus = true, true
+			case !v.navFocus:
+				v.navFocus = true
+			default:
+				v.navShown, v.navFocus = false, false
+			}
+			// The tree is a different place to be: whatever pane was open
+			// closes rather than three things competing for the arrows.
+			var cmds []tea.Cmd
+			if v.navFocus {
+				if v.floatReveal {
+					cmds = append(cmds, v.closeFloat())
+				} else {
+					v.showComments, v.commentsJumped, v.paneFocus = v.cfgShowComments, false, false
+				}
 			}
 			v.resizeList()
 			if v.navShown && !v.favsLoaded {
 				v.favsLoaded = true
-				return v.fetchFavs()
+				cmds = append(cmds, v.fetchFavs())
 			}
-			return nil
+			return tea.Batch(cmds...)
 		}
 		if v.navFocus {
 			return v.updateNav(msg)
 		}
-		if v.navShown && msg.String() == "left" && !v.list.Filtering() {
-			v.navFocus = true
-			return nil
-		}
-		// The preview takes the right arrow, mirroring the nav tree on the
-		// left. Only worth focusing when it has something scrollable in it.
+		// Three places can hold the keys: the tree, the list, the pane. Left
+		// walks them right to left, so a focused pane hands the keys to the
+		// list and only the list hands them to the tree; a float is its own
+		// thing and left steps a level out of it instead.
 		if !v.list.Filtering() {
 			switch {
+			case v.floatReveal && msg.String() == "left":
+				return v.leaveFloat()
+			case v.floatReveal && msg.String() == "right":
+				return nil
+			case v.paneFocus && msg.String() == "left":
+				v.paneFocus = false
+				return nil
 			case !v.paneFocus && v.showComments && msg.String() == "right":
 				v.paneFocus = true
 				return ui.RevealPreview
-			case v.paneFocus && msg.String() == "left":
-				v.paneFocus = false
+			case v.navShown && msg.String() == "left":
+				v.navFocus = true
 				return nil
 			}
 		}
@@ -975,25 +1042,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		switch {
 		case key.Matches(msg, v.keys.Comm):
-			// Cycle: hidden -> show and jump to the section; visible (e.g.
-			// enabled in config) -> jump; already jumped -> hide.
-			switch {
-			case !v.showComments:
-				v.showComments = true
-				v.jumpPending, v.commentsJumped = true, true
-				// Floated, the list is behind the pane, so it takes the
-				// keys without being asked. Beside a visible list, focus
-				// waits for the right arrow.
-				v.paneFocus = !v.previewShown
-				return tea.Batch(ui.RevealPreview, v.maybeFetchComments())
-			case !v.commentsJumped:
-				v.jumpPending, v.commentsJumped = true, true
-				return ui.RevealPreview
-			default:
-				v.showComments = false
-				v.commentsJumped = false
-				return nil
-			}
+			return v.toggleComments()
 		case key.Matches(msg, v.keys.Open):
 			return ui.OpenURL(v.list.Selected().URL)
 		case key.Matches(msg, v.keys.Copy):
@@ -1043,9 +1092,6 @@ func newIssues(prev, next []issue) []issue {
 func (v *View) markFresh(prev, next []issue) {
 	// The caller only invokes this when the source is unchanged, so prev is
 	// a real previous set rather than a first load.
-	if !v.unreadOn {
-		return
-	}
 	known := make(map[string]bool, len(prev))
 	for _, i := range prev {
 		known[i.Identifier] = true
@@ -1115,7 +1161,7 @@ func (v *View) applySort() {
 	// list is wide enough that they are not crowding the metadata out.
 	labels := !v.previewShown && v.listW >= ui.LabelColMinRow
 	for i := range items {
-		items[i].Fresh = v.fresh[items[i].Identifier]
+		items[i].Fresh = v.unreadOn && v.fresh[items[i].Identifier]
 		items[i].FreshGutter = v.unreadOn
 		items[i].ShowLabels = labels
 	}
@@ -1268,7 +1314,7 @@ func (v *View) PreviewView() string {
 		statusLine += "   " + i.priorityCell() + " " + i.PriorityLabel
 	}
 	if i.Project.Name != "" {
-		statusLine += "   " + ui.Dim.Render("◇ "+i.Project.Name)
+		statusLine += "   " + ui.Yellow.Render("◇ "+i.Project.Name)
 	}
 	b.WriteString(statusLine)
 	b.WriteByte('\n')
@@ -1284,14 +1330,43 @@ func (v *View) PreviewView() string {
 
 	b.WriteString(ui.Dim.Render(strings.Repeat("─", min(v.prevW, 60))))
 	b.WriteByte('\n')
+	// Description, then comments, headed like the PRs view so the two
+	// panes read alike.
+	b.WriteString(ui.BlockHeader("Description"))
+	b.WriteByte('\n')
 	b.WriteString(v.renderedBody(i))
+	b.WriteString("\n\n")
+	// Record where the section starts so the 'c' jump can target it.
+	v.commentsLine = strings.Count(b.String(), "\n") + 1
+	b.WriteString(ui.BlockHeader("Comments"))
+	b.WriteByte('\n')
 	if v.showComments {
-		b.WriteByte('\n')
-		// Record where the section starts so the 'c' jump can target it.
-		v.commentsLine = strings.Count(b.String(), "\n") + 1
 		b.WriteString(v.renderComments(i.Identifier, v.prevW))
+	} else {
+		b.WriteString(v.commentsHint(i))
 	}
 	return b.String()
+}
+
+// commentsMarker is the phrase the clickable comments hint ends with.
+const commentsMarker = "to toggle comments"
+
+// commentsHint closes the summary with whether there is a conversation to
+// read, and which key opens it.
+func (v *View) commentsHint(i issue) string {
+	n, more := i.commentCount()
+	if n == 0 {
+		return ui.Faint.Render("  none yet")
+	}
+	count := strconv.Itoa(n)
+	if more {
+		count += "+"
+	}
+	k := "c"
+	if ks := v.keys.Comm.Keys(); len(ks) > 0 {
+		k = ks[0]
+	}
+	return ui.Faint.Render(fmt.Sprintf("  %s · %s or click %s", count, k, commentsMarker))
 }
 
 // TakePreviewJump implements the root model's preview-jump hook: when a 'c'
@@ -1334,9 +1409,11 @@ func (v *View) Status() string { return "" }
 // PaneFocused reports whether the preview pane has the keys.
 func (v *View) PaneFocused() bool { return v.paneFocus }
 
-// FocusPane gives the pane the keys or takes them back.
+// FocusPane gives the pane the keys or takes them back. Beside a visible
+// list only a pane with comments has anything to focus; a float takes them
+// whatever it holds, since the list is behind it.
 func (v *View) FocusPane(on bool) bool {
-	if v.paneFocus == on || (on && !v.showComments) {
+	if v.paneFocus == on || (on && !v.showComments && !v.floatReveal) {
 		return false
 	}
 	v.paneFocus = on
@@ -1347,17 +1424,93 @@ func (v *View) FocusPane(on bool) bool {
 // the arrows move the preview.
 func (v *View) PaneScrolls() bool { return v.paneFocus }
 
+// toggleComments is the 'c' cycle, from the key or a click on the hint:
+// hidden -> show and jump to the section; visible (e.g. enabled in config)
+// -> jump; already jumped -> hide, which in a float is leaving its level.
+func (v *View) toggleComments() tea.Cmd {
+	switch {
+	case !v.showComments:
+		v.showComments = true
+		v.jumpPending, v.commentsJumped = true, true
+		// Opening into a hidden preview is the float appearing, and a
+		// float takes the keys without being asked: the list is behind it.
+		// Beside a visible list, focus waits for the right arrow.
+		if !v.previewShown {
+			v.floatReveal = true
+		}
+		v.paneFocus = v.floatReveal
+		return tea.Batch(ui.RevealPreview, v.maybeFetchComments())
+	case !v.commentsJumped:
+		v.jumpPending, v.commentsJumped = true, true
+		return ui.RevealPreview
+	default:
+		if v.floatReveal {
+			return v.leaveFloat()
+		}
+		v.showComments = false
+		v.commentsJumped = false
+		return nil
+	}
+}
+
+// floatFocus settles focus from the preview's combined state: a float takes
+// the keys, a side pane or nothing on screen leaves them with the list. Both
+// preview messages call it because tea.Batch delivers them in either order.
+func (v *View) floatFocus() {
+	if v.floatReveal && v.previewShown {
+		v.paneFocus = true
+		if !v.showComments {
+			v.floatBase = true // settled on the description: opened with 'v'
+		}
+		return
+	}
+	v.paneFocus = false
+	if !v.floatReveal {
+		v.floatBase = false
+	}
+}
+
+// leaveFloat steps one level out of a float: comments over a 'v'
+// description go back to it, anything else closes the float.
+func (v *View) leaveFloat() tea.Cmd {
+	if v.floatBase && v.showComments {
+		v.showComments, v.commentsJumped = false, false
+		v.paneFocus = true // the description scrolls, so it keeps the keys
+		return nil
+	}
+	return v.closeFloat()
+}
+
+// closeFloat shuts a floated detail from inside, whatever level it is on.
+func (v *View) closeFloat() tea.Cmd {
+	v.showComments, v.commentsJumped = v.cfgShowComments, false
+	v.paneFocus, v.floatReveal, v.floatBase = false, false, false
+	return ui.ConcealPreview
+}
+
+// ClickPreview toggles comments when the click lands on the hint that
+// names them, matched against the rendered text rather than a tracked line
+// so a layout change cannot move the target.
+func (v *View) ClickPreview(line, col int) tea.Cmd {
+	lines := strings.Split(v.PreviewView(), "\n")
+	if line < 0 || line >= len(lines) {
+		return nil
+	}
+	if strings.Contains(ansi.Strip(lines[line]), commentsMarker) {
+		return v.toggleComments()
+	}
+	return nil
+}
+
 // Dismiss steps back one layer: focus to the list, then the comments pane
 // shut. Reports whether it did anything, so esc can fall through to a
 // floated preview when it did not.
 func (v *View) Dismiss() bool {
-	// Floated, there is no list beside the pane to hand the keys back to,
-	// so esc closes the pane and then the float itself.
-	if !v.previewShown {
-		if v.showComments {
-			v.showComments, v.commentsJumped, v.paneFocus = false, false, false
-			return true
-		}
+	// Floated, esc closes the whole float whatever level it is on; the
+	// arrows are what step a level at a time. Reporting nothing left to
+	// do hands the close to the root model, which owns the float.
+	if v.floatReveal {
+		v.closeFloat()
 		return false
 	}
 	if v.paneFocus {

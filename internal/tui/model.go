@@ -35,6 +35,7 @@ const (
 type Model struct {
 	cfg     config.Config
 	keys    globalKeys
+	jump    jumpKeys
 	theme   theme
 	views   []View
 	current int
@@ -143,6 +144,7 @@ func New(cfg config.Config, views []View) Model {
 	return Model{
 		cfg:           cfg,
 		keys:          newKeys(cfg.Keys),
+		jump:          newJumpKeys(cfg.Keys),
 		previewHidden: cfg.HidePreview,
 		theme:         defaultTheme(),
 		views:         views,
@@ -218,6 +220,8 @@ func (m Model) Init() tea.Cmd {
 	if m.cfg.UnreadEnabled() {
 		cmds = append(cmds, func() tea.Msg { return ui.UnreadMsg(true) })
 	}
+	jump := m.cfg.ListJumpSize()
+	cmds = append(cmds, func() tea.Msg { return ui.ListJumpMsg(jump) })
 	if m.previewHidden {
 		cmds = append(cmds, func() tea.Msg { return ui.PreviewShownMsg(false) })
 	}
@@ -456,13 +460,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.NextView):
 			m.current = (m.current + 1) % len(m.views)
 			m.syncPreviewKey(true)
-			m.concealTransient()
-			return m, nil
+			return m, m.concealTransient()
 		case key.Matches(msg, m.keys.PrevView):
 			m.current = (m.current - 1 + len(m.views)) % len(m.views)
 			m.syncPreviewKey(true)
-			m.concealTransient()
-			return m, nil
+			return m, m.concealTransient()
 		case key.Matches(msg, m.keys.Config):
 			// Printable config bindings land here, after input routing.
 			m.settings = newConfigOverlay()
@@ -514,8 +516,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.scrollPreview(d)
 			return m, nil
+		case m.paneFocused() && (key.Matches(msg, m.jump.Up) || key.Matches(msg, m.jump.Down)):
+			// The jump keys move whatever has the keys: list_jump rows of
+			// the list, list_jump lines of a focused pane.
+			d := m.cfg.ListJumpSize()
+			if key.Matches(msg, m.jump.Up) {
+				d = -d
+			}
+			m.scrollPreview(d)
+			return m, nil
 		case m.paneFocused() && (msg.String() == "pgup" || msg.String() == "pgdown"):
-			d := m.contentHeight() - 2
+			d := m.previewHeight() - 2
 			if msg.String() == "pgup" {
 				d = -d
 			}
@@ -528,10 +539,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollPreview(1)
 			return m, nil
 		case key.Matches(msg, m.keys.PreviewPgUp):
-			m.scrollPreview(-(m.contentHeight() - 2))
+			m.scrollPreview(-(m.previewHeight() - 2))
 			return m, nil
 		case key.Matches(msg, m.keys.PreviewPgDn):
-			m.scrollPreview(m.contentHeight() - 2)
+			m.scrollPreview(m.previewHeight() - 2)
 			return m, nil
 		case key.Matches(msg, m.keys.Follow):
 			// Follow a cross-reference: always confirm via the picker (even for
@@ -651,8 +662,8 @@ func (m *Model) applyPreviewRequests() {
 		if line, jump := j.TakePreviewJump(); jump {
 			// Put the target line near the top of the viewport.
 			_, lines := m.renderedPreview(cur)
-			maxOff := max(0, lines-m.contentHeight())
-			m.previewScroll = clamp(line-1, 0, maxOff)
+			maxOff := max(0, lines-m.previewHeight())
+			m.previewScroll = min(max(line-1, 0), maxOff)
 		}
 	}
 	if s, ok := cur.(previewScroller); ok {
@@ -696,14 +707,18 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 // concealTransient ends a transient reveal (see ui.ConcealPreviewMsg), and
 // its mirror: a pane peeked away with the toggle comes back, since the
 // pane is what the config asks for.
-func (m *Model) concealTransient() {
+// The command carries the preview messages to every view, the ones not on
+// screen included: a view that heard the float open and never hears it
+// close keeps its list dimmed for a window that is gone.
+func (m *Model) concealTransient() tea.Cmd {
 	switch {
 	case m.previewTransient:
-		_ = m.setPreview(true, false)
+		return m.setPreview(true, false)
 	case m.previewPeeked:
 		m.previewPeeked = false
-		_ = m.setPreview(false, false)
+		return m.setPreview(false, false)
 	}
+	return nil
 }
 
 // setPreview moves the preview between hidden and shown. One place owns the
@@ -858,8 +873,8 @@ func (m Model) previewSplit(cur View) []string {
 // boundary feel like it had a queue to work through.
 func (m *Model) scrollPreview(delta int) bool {
 	_, lines := m.renderedPreview(m.views[m.current])
-	maxOff := max(0, lines-m.contentHeight())
-	next := clamp(m.previewScroll+delta, 0, maxOff)
+	maxOff := max(0, lines-m.previewHeight())
+	next := min(max(m.previewScroll+delta, 0), maxOff)
 	if next == m.previewScroll {
 		return false
 	}
@@ -869,6 +884,18 @@ func (m *Model) scrollPreview(delta int) bool {
 
 func (m Model) contentHeight() int {
 	return max(1, m.height-tabBarHeight-footerHeight-m.statusHeight())
+}
+
+// previewHeight is how many preview lines are on screen: the float's height
+// when floating, the pane's otherwise. Scroll limits must use this one;
+// clamping with the pane height in a float leaves the last lines
+// unreachable and the bar short of the bottom.
+func (m Model) previewHeight() int {
+	if m.floating() {
+		_, h := m.floatDims()
+		return h
+	}
+	return m.contentHeight()
 }
 
 // statusHeight is the row the status line occupies, if it has anything to say.
@@ -896,6 +923,7 @@ func (m *Model) applyKeybind(change *keybindChange) {
 	}
 	if e.scope == "global" {
 		m.keys = newKeys(m.cfg.Keys)
+		m.jump = newJumpKeys(m.cfg.Keys)
 	}
 }
 
@@ -953,6 +981,9 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "toggles":
 		persist := m.cfg.TogglesPersist()
 		return func() tea.Msg { return ui.TogglesPersistMsg(persist) }
+	case path == "list_jump":
+		jump := m.cfg.ListJumpSize()
+		return func() tea.Msg { return ui.ListJumpMsg(jump) }
 	case path == "unread":
 		on := m.cfg.UnreadEnabled()
 		return func() tea.Msg { return ui.UnreadMsg(on) }
@@ -1399,16 +1430,12 @@ func clipLines(lines []string, offset, n int) []string {
 	if n <= 0 {
 		return nil
 	}
-	offset = clamp(offset, 0, len(lines))
+	offset = min(max(offset, 0), len(lines))
 	lines = lines[offset:]
 	if len(lines) > n {
 		lines = lines[:n]
 	}
 	return lines
-}
-
-func clamp(v, lo, hi int) int {
-	return min(max(v, lo), hi)
 }
 
 // viewIndexForKey maps a single-digit key string ("1".."9") to a 0-based view
