@@ -17,6 +17,7 @@ type command struct {
 func commands() []command {
 	return []command{
 		{name: "prs", summary: "open the TUI on the PRs view"},
+		{name: "reviews", summary: "open the TUI on the Reviews view (when listed in views)"},
 		{name: "sessions", summary: "open the TUI on the Sessions view"},
 		{name: "linear", summary: "open the TUI on the Linear view"},
 		{name: "version", summary: "print the version", run: runVersion},

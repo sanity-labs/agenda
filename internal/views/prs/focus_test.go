@@ -61,9 +61,22 @@ func TestFocusDimsTheList(t *testing.T) {
 	v := focusView(t)
 	v.Update(tea.KeyPressMsg{Code: 'd'})
 
-	lit := strings.Split(v.ListView(), "\n")[1]
+	// The first PR row sits under the section band, so find it by its
+	// selection bar rather than assuming a line number.
+	litLines := strings.Split(v.ListView(), "\n")
+	row := -1
+	for i, l := range litLines {
+		if strings.Contains(l, "▌") {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatalf("no selected row in the list:\n%s", ansi.Strip(v.ListView()))
+	}
+	lit := litLines[row]
 	v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
-	dim := strings.Split(v.ListView(), "\n")[1]
+	dim := strings.Split(v.ListView(), "\n")[row]
 
 	if !strings.Contains(lit, "▌") {
 		t.Errorf("the unfocused list has no selection bar: %q", ansi.Strip(lit))

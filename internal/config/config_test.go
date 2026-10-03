@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -233,5 +234,54 @@ func TestUpdateCheckDefaultsOn(t *testing.T) {
 	}
 	if cfg.UpdateCheckEnabled() {
 		t.Error("update_check: false did not disable the check")
+	}
+}
+
+// The Reviews tab is opt-in: it is never in the default list, it shows once
+// named in views, and it is a GitHub view, so github.enabled: false drops it
+// along with PRs and the PRs refresh interval drives it.
+func TestReviewsView(t *testing.T) {
+	writeConfig(t, "views: [reviews, prs]\nrefresh:\n  every: 5m\n  prs: 2m\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range Default().Views {
+		if name == "reviews" {
+			t.Error("reviews is in the default views: an upgrade would add a tab")
+		}
+	}
+	if got := cfg.EnabledViews(); len(got) != 2 || got[0] != "reviews" || got[1] != "prs" {
+		t.Errorf("EnabledViews() = %v, want [reviews prs]", got)
+	}
+	if got := cfg.RefreshFor("reviews"); got != 2*time.Minute {
+		t.Errorf("RefreshFor(reviews) = %v, want 2m (the PRs override)", got)
+	}
+	off := false
+	cfg.GitHub.Enabled = &off
+	if got := cfg.EnabledViews(); len(got) != 0 {
+		t.Errorf("EnabledViews() with github off = %v, want none", got)
+	}
+}
+
+// The reviews row edits the views list. An empty list means the defaults,
+// so adding to it spells them out rather than writing back [reviews] alone;
+// the tab goes before prs so the app opens on it; removing leaves the rest.
+func TestWithReviewsTab(t *testing.T) {
+	got := WithReviewsTab(nil, true)
+	want := []string{"reviews", "prs", "sessions", "linear"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("add to empty = %v, want %v", got, want)
+	}
+	got = WithReviewsTab([]string{"linear", "prs"}, true)
+	if strings.Join(got, ",") != "linear,reviews,prs" {
+		t.Errorf("add before prs = %v", got)
+	}
+	got = WithReviewsTab([]string{"reviews", "prs", "linear"}, false)
+	if strings.Join(got, ",") != "prs,linear" {
+		t.Errorf("remove = %v", got)
+	}
+	if got = WithReviewsTab([]string{"prs"}, true); strings.Join(WithReviewsTab(got, true), ",") != "reviews,prs" {
+		t.Errorf("adding twice duplicated: %v", WithReviewsTab(got, true))
 	}
 }

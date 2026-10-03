@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -21,7 +22,8 @@ import (
 // Config is the fully-resolved configuration (defaults merged with the file).
 type Config struct {
 	// Views lists which views to show, in tab order. Recognised names:
-	// "prs", "sessions", "linear". Per-view `enabled: false` flags remove a
+	// "prs", "reviews", "sessions", "linear". "reviews" is opt-in, so it is
+	// not in the default list. Per-view `enabled: false` flags remove a
 	// view from this list without editing it; see EnabledViews.
 	Views []string `yaml:"views"`
 
@@ -434,7 +436,7 @@ func (c Config) SessionsEnabled() bool {
 func (c Config) viewEnabled(name string) bool {
 	var flag *bool
 	switch name {
-	case "prs":
+	case "prs", "reviews":
 		flag = c.GitHub.Enabled
 	case "linear":
 		flag = c.Linear.Enabled
@@ -462,7 +464,7 @@ func (c Config) EnabledViews() []string {
 func (c Config) RefreshFor(view string) time.Duration {
 	var o *Duration
 	switch view {
-	case "prs":
+	case "prs", "reviews":
 		o = c.Refresh.PRs
 	case "linear":
 		o = c.Refresh.Linear
@@ -631,4 +633,28 @@ func (k Keymap) Has(scope, action string) bool {
 	}
 	_, ok = actions[action]
 	return ok
+}
+
+// WithReviewsTab adds the reviews tab to a views list or takes it out. An
+// empty list means the default views, so it is spelled out first rather
+// than written back as a one-entry list that would drop the others. Added,
+// it goes before prs: the point of the tab is to open on it.
+func WithReviewsTab(views []string, on bool) []string {
+	if len(views) == 0 {
+		views = append([]string(nil), Default().Views...)
+	}
+	out := make([]string, 0, len(views)+1)
+	for _, v := range views {
+		if v == "reviews" {
+			continue
+		}
+		if v == "prs" && on {
+			out = append(out, "reviews")
+		}
+		out = append(out, v)
+	}
+	if on && !slices.Contains(out, "reviews") {
+		out = append([]string{"reviews"}, out...)
+	}
+	return out
 }

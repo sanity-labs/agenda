@@ -46,6 +46,7 @@ const (
 
 // Decorative icons, gated by the theme.glyphs toggle (see Glyph).
 const (
+	IconTabReviews  = "\ueba1" //
 	IconTabPRs      = "\ueb00" //  github
 	IconTabSessions = "\uf120" //  terminal
 	IconTabLinear   = "\uf4a0" //  linear

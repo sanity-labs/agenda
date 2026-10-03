@@ -572,6 +572,11 @@ func sortPRs(in []pr, mode sortMode, rev bool) []pr {
 // timeout, streams into its section later and fails on its own without
 // taking the tab down.
 type mineMsg struct {
+	// from is the view whose search this answers. The root model
+	// broadcasts data messages to every view, and the PRs and Reviews tabs
+	// are the same type, so each would otherwise take the other's rows.
+	// nil (tests) means mine.
+	from *View
 	page searchPage
 	err  error
 	// more marks a page fetched after the first, appended rather than
@@ -580,6 +585,7 @@ type mineMsg struct {
 }
 
 type reviewListMsg struct {
+	from *View
 	page searchPage
 	err  error
 	more bool
@@ -593,10 +599,16 @@ type View struct {
 	raw        []pr // own PRs
 	reviewRaw  []pr // PRs waiting on the user's review
 	showReview bool // render the review section (toggled with 'w')
-	grouping   bool // swimlanes derived from the active sort
-	sort       sortMode
-	rev        bool // sort order reversed
-	store      *store.Store
+	// reviewsOnly makes this the Reviews tab: the review-requested search is
+	// the whole list, and the own-PR search never runs. reviewsElsewhere is
+	// the PRs tab beside one: its review section is off and stays off, since
+	// that tab owns the search, the cache and the unread marks.
+	reviewsOnly      bool
+	reviewsElsewhere bool
+	grouping         bool // swimlanes derived from the active sort
+	sort             sortMode
+	rev              bool // sort order reversed
+	store            *store.Store
 
 	// notifier posts "needs your review" notifications (nil = off); seeded
 	// gates them so the first data never fires a storm.
@@ -726,7 +738,10 @@ type View struct {
 }
 
 // settleMsg fires after navigation pauses; only the newest generation acts.
-type settleMsg struct{ gen int }
+type settleMsg struct {
+	from *View
+	gen  int
+}
 
 // scheduleSettle arms the debounce while a data pane is showing.
 func (v *View) scheduleSettle() tea.Cmd {
@@ -735,7 +750,7 @@ func (v *View) scheduleSettle() tea.Cmd {
 	}
 	v.settleGen++
 	gen := v.settleGen
-	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return settleMsg{gen: gen} })
+	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return settleMsg{from: v, gen: gen} })
 }
 
 // paneMode selects the right pane's content for the selected PR.
@@ -856,16 +871,30 @@ func (k viewKeys) binding(action string) key.Binding {
 }
 
 func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store.Store) *View {
+	return newView(cfg, km, n, st, false)
+}
+
+// NewReviews builds the Reviews tab: the PR view with its review-requested
+// section as the entire list, for reviewing without your own PRs in the way.
+func NewReviews(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store.Store) *View {
+	return newView(cfg, km, n, st, true)
+}
+
+func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store.Store, reviewsOnly bool) *View {
 	bind := func(action, desc string, def ...string) key.Binding {
 		return ui.Bind(km.Of("prs", action, def...), "", desc)
 	}
 	v := &View{
-		cfg:        cfg,
-		store:      st,
-		notifier:   n,
-		list:       ui.NewList[pr](),
-		loading:    true,
-		showReview: cfg.ShowReviewRequested != nil && *cfg.ShowReviewRequested,
+		cfg:      cfg,
+		store:    st,
+		notifier: n,
+		list:     ui.NewList[pr](),
+		// The Reviews tab has no own-PR search to clear the tab-wide flag,
+		// so it starts on the review search's own.
+		loading:       !reviewsOnly,
+		reviewLoading: reviewsOnly,
+		showReview:    reviewsOnly || (cfg.ShowReviewRequested != nil && *cfg.ShowReviewRequested),
+		reviewsOnly:   reviewsOnly,
 		keys: viewKeys{
 			Open:       bind("open", "open", "enter"),
 			Copy:       bind("copy_url", "copy url", "y"),
@@ -899,7 +928,13 @@ func New(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *store
 	v.nav = newNavKeys(km)
 
 	// Paint last run's PRs immediately; the live fetch refreshes them.
-	if cached, ok := cache.Load[cachedPRs](cacheName); ok && len(cached.Mine)+len(cached.Review) > 0 {
+	cached, ok := cache.Load[cachedPRs](v.cacheName())
+	if reviewsOnly {
+		// Own PRs have no place here whatever an earlier run wrote: the
+		// tab never fetches them, so a stale row would never be replaced.
+		cached.Mine = nil
+	}
+	if ok && len(cached.Mine)+len(cached.Review) > 0 {
 		v.raw, v.reviewRaw = cached.Mine, cached.Review
 		v.seeded, v.mineSeeded = true, true
 		if len(cached.Unread) > 0 {
@@ -937,9 +972,56 @@ func (v *View) unreadURLs() []string {
 	return out
 }
 
-const cacheName = "prs"
+// cacheName keeps each tab's rows apart: the two tabs fetch different
+// searches, and sharing a file would let each overwrite the other's.
+// DelegateReviews turns the PRs tab's review section over to a Reviews tab:
+// the section is off, 'w' says why, and the review search is never run here.
+func (v *View) DelegateReviews() *View {
+	v.reviewsElsewhere = true
+	v.showReview = false
+	// Rows and marks the cache carried from before the handoff belong to
+	// the other tab now; kept here they would be written back on every
+	// save as a stale second copy.
+	v.reviewRaw = nil
+	for url := range v.unread {
+		if !inPRs(v.raw, url) {
+			delete(v.unread, url)
+		}
+	}
+	v.applySort() // the list was built with the section on
+	return v
+}
 
-func (v *View) Title() string { return "PRs" }
+func inPRs(set []pr, url string) bool {
+	for _, p := range set {
+		if p.URL == url {
+			return true
+		}
+	}
+	return false
+}
+
+// foreign reports a message another PR tab's command produced. The root
+// model broadcasts data messages to every view and the PRs and Reviews tabs
+// are the same type, so each would otherwise act on the other's results:
+// take its rows, show its flash, close its popup, refetch on its filter
+// trial. Shared caches keyed by PR URL are left to flow; nil means local,
+// which is what tests send.
+func (v *View) foreign(from *View) bool { return from != nil && from != v }
+
+func (v *View) cacheName() string {
+	if v.reviewsOnly {
+		return "reviews"
+	}
+	return "prs"
+}
+
+func (v *View) Title() string {
+	if v.reviewsOnly {
+		return "Reviews"
+	}
+	return "PRs"
+}
 
 func (v *View) Init() tea.Cmd {
 	v.loading = true
@@ -1122,6 +1204,16 @@ func searchPRs(q string, size int, after string) (searchPage, error, error) {
 }
 
 func (v *View) fetch() tea.Cmd {
+	if v.reviewsOnly {
+		// No own-PR search will land to clear the tab-wide spinner; the
+		// review search carries its own.
+		v.loading = false
+		cmds := []tea.Cmd{v.fetchReview()}
+		if v.unreadSync {
+			cmds = append(cmds, fetchReadThreads())
+		}
+		return tea.Batch(cmds...)
+	}
 	q := ensurePR(v.cfg.Filter)
 	size := v.pageSize()
 	cmds := []tea.Cmd{func() tea.Msg {
@@ -1129,7 +1221,7 @@ func (v *View) fetch() tea.Cmd {
 		if err == nil {
 			err = hidden
 		}
-		return mineMsg{page: page, err: err}
+		return mineMsg{from: v, page: page, err: err}
 	}}
 	// The review search only runs when something consumes it: the visible
 	// section, or review-request notifications. Otherwise the view does
@@ -1153,7 +1245,7 @@ func (v *View) fetchReview() tea.Cmd {
 		if err == nil {
 			err = hidden
 		}
-		return reviewListMsg{page: page, err: err}
+		return reviewListMsg{from: v, page: page, err: err}
 	}
 }
 
@@ -1184,7 +1276,7 @@ func (v *View) fetchMore() tea.Cmd {
 			if err == nil {
 				err = hidden
 			}
-			return reviewListMsg{page: page, err: err, more: true}
+			return reviewListMsg{from: v, page: page, err: err, more: true}
 		}
 	}
 	if v.minePage.hasMore && !v.minePage.loading {
@@ -1195,7 +1287,7 @@ func (v *View) fetchMore() tea.Cmd {
 			if err == nil {
 				err = hidden
 			}
-			return mineMsg{page: page, err: err, more: true}
+			return mineMsg{from: v, page: page, err: err, more: true}
 		}
 	}
 	return nil
@@ -1204,6 +1296,9 @@ func (v *View) fetchMore() tea.Cmd {
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case mineMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		v.loading = false
 		v.minePage.loading = false
 		// A partly forbidden search returns rows and an error together, so
@@ -1235,9 +1330,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.mineSeeded = true
 		v.applySort()
 		v.publish(append(v.raw, v.reviewRaw...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
+		v.saveCache()
 		return partial
 	case reviewListMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		v.reviewLoading = false
 		v.reviewPage.loading = false
 		if msg.err != nil && len(msg.page.prs) == 0 {
@@ -1270,7 +1368,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.seeded = true
 		v.applySort()
 		v.publish(append(v.raw, next...))
-		_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: next, Unread: v.unreadURLs()})
+		v.saveCache()
 		return cmd
 	case filesMsg:
 		st := v.files[msg.url]
@@ -1287,6 +1385,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
 		return nil
 	case settleMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		if msg.gen != v.settleGen {
 			return nil // superseded by further navigation
 		}
@@ -1296,6 +1397,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case jobsMsg:
 		return v.applyJobs(msg)
 	case jobsTickMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		// Superseded, or the cursor moved on: the watch follows the PR in
 		// front of you and stops when you leave it.
 		if msg.gen != v.jobsGen || msg.url != v.list.Selected().URL {
@@ -1303,8 +1407,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		return v.maybeFetchJobs()
 	case rerunDoneMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		return v.applyRerun(msg)
 	case rowSettleMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		// Superseded, or the cursor moved on: the row that asked for this
 		// is no longer the one in front of you.
 		if msg.gen != v.rowGen || msg.url != v.list.Selected().URL {
@@ -1319,6 +1429,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.bodyKey = "" // checks and review state render in the preview
 		return nil
 	case mergeDoneMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		v.review = nil
 		if msg.err != nil {
 			v.flash = ui.Red.Render("merge failed: " + msg.err.Error())
@@ -1330,6 +1443,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.resetToggles()
 		return tea.Batch(ui.ConcealPreview, v.fetch())
 	case reviewDoneMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		v.review = nil
 		if msg.err != nil {
 			v.flash = ui.Red.Render("review failed: " + msg.err.Error())
@@ -1409,6 +1525,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.applySort()
 		return nil
 	case filterTriedMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		if msg.badAuthor() {
 			// Put the filter back and say why, rather than persisting a
 			// query that empties the list: the editor would then be the
@@ -1625,6 +1744,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.rev = !v.rev
 			v.applySort()
 			return nil
+		case key.Matches(msg, v.keys.Review) && (v.reviewsOnly || v.reviewsElsewhere):
+			// Not silent: someone who bound the key will press it and
+			// expect something to happen.
+			return func() tea.Msg {
+				return ui.ToastMsg{Title: "Review requests", Body: "Toggle disabled while 'Reviews' view is active"}
+			}
 		case key.Matches(msg, v.keys.Review):
 			v.showReview = !v.showReview
 			v.applySort()
@@ -1769,6 +1894,7 @@ func (v *View) TakePreviewJump() (int, bool) {
 }
 
 type reviewDoneMsg struct {
+	from *View
 	what string
 	url  string
 	// state is the ViewerLatestReview state the verdict implies, applied
@@ -2028,6 +2154,7 @@ func (v *View) Overlay() string {
 
 // mergeDoneMsg reports the outcome of a merge.
 type mergeDoneMsg struct {
+	from *View
 	what string
 	url  string
 	// auto is set when this enabled auto-merge rather than merging now, so
@@ -2056,9 +2183,9 @@ func (v *View) submitMerge(auto bool) tea.Cmd {
 	url := r.url
 	return func() tea.Msg {
 		if out, err := exec.Command("gh", args...).CombinedOutput(); err != nil {
-			return mergeDoneMsg{err: ghErr(err, out), auto: auto}
+			return mergeDoneMsg{from: v, err: ghErr(err, out), auto: auto}
 		}
-		return mergeDoneMsg{what: what, url: url, auto: auto}
+		return mergeDoneMsg{from: v, what: what, url: url, auto: auto}
 	}
 }
 
@@ -2095,9 +2222,9 @@ func (v *View) submitReview(verdict string) tea.Cmd {
 	url := r.url
 	return func() tea.Msg {
 		if err := exec.Command("gh", args...).Run(); err != nil {
-			return reviewDoneMsg{err: cmdErr(err)}
+			return reviewDoneMsg{from: v, err: cmdErr(err)}
 		}
-		return reviewDoneMsg{what: what, url: url, state: state}
+		return reviewDoneMsg{from: v, what: what, url: url, state: state}
 	}
 }
 
@@ -2407,6 +2534,9 @@ func (v *View) maybeFetchDiff() tea.Cmd {
 // itself and so keeps its band regardless.
 func (v *View) applySort() {
 	mine := sortPRs(v.raw, v.sort, v.rev)
+	if v.reviewsOnly {
+		mine = nil // the review search is the whole list, whatever raw holds
+	}
 	rev := sortPRs(v.reviewRaw, v.sort, v.rev)
 	// An approved PR is waiting on its author, so hide it by default and
 	// let the toggle bring it back: an approval from someone else does not
@@ -2440,28 +2570,22 @@ func (v *View) applySort() {
 		}
 	}
 
-	// A lone section stays bandless, as it always has: a header costs two
-	// rows to say what the whole screen already is. The query goes with a
-	// band, so a single-section list simply has none.
-	if !v.showReview || (len(rev) == 0 && v.reviewErr == nil) {
-		v.list.SetItems(v.groupSection(mine))
-		return
-	}
-	if len(mine) == 0 && v.reviewErr == nil {
-		v.list.SetItems(v.groupSection(rev))
-		return
-	}
-
+	// Every section keeps its band, with the review section on or off and
+	// in the Reviews tab alike: the band is what says which list this is
+	// and which search produced it, and a header that comes and goes with
+	// the toggle leaves a bare list to be puzzled out.
 	var items []pr
-	if len(mine) > 0 {
+	if !v.reviewsOnly {
 		items = append(items, pr{Separator: v.bandWithQuery(
 			sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total),
 			v.cfg.Filter)})
 		items = append(items, v.groupSection(mine)...)
 	}
-	items = append(items, pr{Separator: v.bandWithQuery(
-		v.reviewLabel(rev), v.cfg.ReviewFilter)})
-	items = append(items, v.groupSection(rev)...)
+	if v.showReview {
+		items = append(items, pr{Separator: v.bandWithQuery(
+			v.reviewLabel(rev), v.cfg.ReviewFilter)})
+		items = append(items, v.groupSection(rev)...)
+	}
 	v.list.SetItems(items)
 }
 
@@ -2622,7 +2746,11 @@ func (v *View) markRead() {
 // saveCache rewrites the cache so a mark cleared (or earned) in this session
 // survives a restart. Cheap: one small JSON file, written atomically.
 func (v *View) saveCache() {
-	_ = cache.Save(cacheName, cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
+	mine := v.raw
+	if v.reviewsOnly {
+		mine = nil
+	}
+	_ = cache.Save(v.cacheName(), cachedPRs{Mine: mine, Review: v.reviewRaw, Unread: v.unreadURLs()})
 }
 
 // notifyNewReviews posts a notification for review requests that appeared
@@ -2745,15 +2873,26 @@ func (v *View) statusText() string {
 		return "Error (ctrl+r to retry)"
 	case v.flash != "":
 		return v.flash
+	case v.reviewsOnly:
+		if v.reviewLoading && len(v.reviewRaw) == 0 {
+			return "Loading review requests…"
+		}
+		s := fmt.Sprintf("%d to review", len(v.reviewRaw))
+		if v.reviewPage.total > len(v.reviewRaw) {
+			s = fmt.Sprintf("%d of %d to review", len(v.reviewRaw), v.reviewPage.total)
+		}
+		return fmt.Sprintf("%s · sort: %s%s", s, sortName[v.sort], ui.RevMarker(v.rev))
 	default:
 		s := fmt.Sprintf("%d PRs", len(v.raw))
 		if v.minePage.total > len(v.raw) {
 			s = fmt.Sprintf("%d of %d PRs", len(v.raw), v.minePage.total)
 		}
 		if v.showReview && len(v.reviewRaw) > 0 {
-			s += fmt.Sprintf(" +%d to review", len(v.reviewRaw))
+			// Same shape as the Reviews tab's own line, so the two read alike.
 			if v.reviewPage.total > len(v.reviewRaw) {
-				s += fmt.Sprintf(" of %d", v.reviewPage.total)
+				s += fmt.Sprintf(" · %d of %d to review", len(v.reviewRaw), v.reviewPage.total)
+			} else {
+				s += fmt.Sprintf(" · %d to review", len(v.reviewRaw))
 			}
 		}
 		return fmt.Sprintf("%s · sort: %s%s", s, sortName[v.sort], ui.RevMarker(v.rev))
@@ -3070,6 +3209,9 @@ func (v *View) Bindings() []key.Binding {
 	}
 	if v.PaneFocused() && v.pane == paneFiles {
 		return v.filesBindings()
+	}
+	if v.reviewsOnly || v.reviewsElsewhere {
+		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.EditFilter}
 	}
 	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
 }

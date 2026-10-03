@@ -18,8 +18,10 @@ func TestMineAndReviewDeliverIndependently(t *testing.T) {
 	if v.loading || v.err != nil {
 		t.Fatalf("mine delivery: loading=%v err=%v", v.loading, v.err)
 	}
-	if v.list.Total() != 1 {
-		t.Fatalf("list rows = %d, want the own PR only", v.list.Total())
+	// Own band, the PR, and the review band already standing for the
+	// section still on its way.
+	if v.list.Total() != 3 {
+		t.Fatalf("list rows = %d, want own band + PR + pending review band", v.list.Total())
 	}
 
 	// Review search fails: the tab stays alive, the section says so.

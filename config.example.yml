@@ -5,9 +5,17 @@
 # and Sessions views work out of the box (PRs reuses your `gh` auth). Only the
 # Linear view needs configuration — a personal API key.
 
-# Which views to show, in tab order. Recognised: prs, sessions, linear.
-# A view can also be dropped with its `enabled: false` flag below, without
-# reordering this list.
+# Which views to show, in tab order. Recognised: prs, reviews, sessions,
+# linear. A view can also be dropped with its `enabled: false` flag below,
+# without reordering this list.
+#
+# `reviews` is opt-in: a tab of just the PRs waiting on your review (the
+# github.review_filter search), for working through a review queue without
+# your own PRs in the way. It shares the PRs keys, settings and refresh
+# interval. Put it first to open on it:
+#   views: [reviews, prs, sessions, linear]
+# With it on, it owns the "PR needs your review" notifications, so the PRs
+# tab does not post each one a second time.
 views: [prs, sessions, linear]
 
 # Check GitHub for a newer release at startup and show it in the tab bar.

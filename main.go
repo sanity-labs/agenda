@@ -65,7 +65,13 @@ func main() {
 	for _, name := range enabled {
 		switch name {
 		case "prs":
-			views = append(views, prs.New(cfg.GitHub, cfg.Keys, notifier, st))
+			pv := prs.New(cfg.GitHub, cfg.Keys, prsNotifier(enabled, notifier), st)
+			if hasReviewsTab(enabled) {
+				pv.DelegateReviews()
+			}
+			views = append(views, pv)
+		case "reviews":
+			views = append(views, prs.NewReviews(cfg.GitHub, cfg.Keys, notifier, st))
 		case "sessions":
 			views = append(views, sessions.New(cfg.Sessions, cfg.Keys, st))
 		case "linear":
@@ -96,6 +102,25 @@ func main() {
 		fmt.Fprintln(os.Stderr, "agenda:", err)
 		os.Exit(1)
 	}
+}
+
+// prsNotifier is the PRs tab's notifier. A Reviews tab watches the same
+// review-requested search, so when one is open it owns those notifications
+// and the PRs tab stays quiet rather than popping each one twice.
+func prsNotifier(enabled []string, n notify.Notifier) notify.Notifier {
+	if hasReviewsTab(enabled) {
+		return nil
+	}
+	return n
+}
+
+func hasReviewsTab(enabled []string) bool {
+	for _, name := range enabled {
+		if name == "reviews" {
+			return true
+		}
+	}
+	return false
 }
 
 // Set by GoReleaser via -ldflags "-X main.version=..." on release builds.

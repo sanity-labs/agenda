@@ -382,7 +382,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.runAction(change.s.path)
 				}
 				change.s.set(&m.cfg, change.val)
-				if err := config.Set(change.s.path, change.fileValue()); err != nil {
+				if err := config.Set(change.s.path, change.fileValue(m.cfg)); err != nil {
 					m.settings.errMsg = err.Error()
 				}
 				return m, m.applyConfigChange(change.s.path)
@@ -687,7 +687,7 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 		return m.runAction(change.s.path)
 	}
 	change.s.set(&m.cfg, change.val)
-	if err := config.Set(change.s.path, change.fileValue()); err != nil {
+	if err := config.Set(change.s.path, change.fileValue(m.cfg)); err != nil {
 		m.settings.errMsg = err.Error()
 	}
 	return m.applyConfigChange(change.s.path)
@@ -1485,7 +1485,7 @@ func (m Model) versionTag() string {
 // means "nothing to show" for that slot.
 func glyphLegend(title string) []string {
 	switch title {
-	case "PRs":
+	case "PRs", "Reviews":
 		return []string{
 			ui.Dim.Render("state  ") + ui.Green.Render(ui.IconOpen) + " open  " +
 				ui.Magenta.Render(ui.IconMerged) + " merged  " +
@@ -1523,6 +1523,8 @@ func tabIcon(title string) string {
 	switch title {
 	case "PRs":
 		return ui.Glyph(ui.IconTabPRs, "")
+	case "Reviews":
+		return ui.Glyph(ui.IconTabReviews, "")
 	case "Sessions":
 		return ui.Glyph(ui.IconTabSessions, "")
 	case "Linear":

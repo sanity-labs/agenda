@@ -54,12 +54,12 @@ func TestGroupingOffOrUngroupableSortStaysFlat(t *testing.T) {
 	v.list.SetRowHeight(2)
 	v.raw = []pr{mkPR("u1", "one", time.Hour)}
 	v.applySort()
-	if v.list.Total() != 1 {
-		t.Errorf("grouping off: want flat list, got %d rows", v.list.Total())
+	if v.list.Total() != 2 {
+		t.Errorf("grouping off: want the section band + PR, got %d rows", v.list.Total())
 	}
 	v.Update(ui.GroupingMsg(true))
-	if v.list.Total() != 2 {
-		t.Errorf("grouping on with date sort: want header + PR, got %d rows", v.list.Total())
+	if v.list.Total() != 3 {
+		t.Errorf("grouping on with date sort: want band + header + PR, got %d rows", v.list.Total())
 	}
 }
 
