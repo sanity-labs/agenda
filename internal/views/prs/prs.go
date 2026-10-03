@@ -979,7 +979,26 @@ func (v *View) unreadURLs() []string {
 func (v *View) DelegateReviews() *View {
 	v.reviewsElsewhere = true
 	v.showReview = false
+	// Rows and marks the cache carried from before the handoff belong to
+	// the other tab now; kept here they would be written back on every
+	// save as a stale second copy.
+	v.reviewRaw = nil
+	for url := range v.unread {
+		if !inPRs(v.raw, url) {
+			delete(v.unread, url)
+		}
+	}
+	v.applySort() // the list was built with the section on
 	return v
+}
+
+func inPRs(set []pr, url string) bool {
+	for _, p := range set {
+		if p.URL == url {
+			return true
+		}
+	}
+	return false
 }
 
 // foreign reports a message another PR tab's command produced. The root

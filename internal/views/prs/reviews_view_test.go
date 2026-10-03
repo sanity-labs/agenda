@@ -94,10 +94,24 @@ func TestReviewsViewCachesSeparately(t *testing.T) {
 // does not offer it. One owner for the search, the cache and the marks.
 func TestPRsTabDelegatesReviewsToTheReviewsTab(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// A cache from before the handoff: own rows, review rows, marks on both.
+	if err := cache.Save("prs", cachedPRs{
+		Mine:   []pr{{Number: 1, URL: "u1", Title: "mine", State: "OPEN"}},
+		Review: []pr{{Number: 2, URL: "u2", Title: "theirs", State: "OPEN"}},
+		Unread: []string{"u1", "u2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	on := true
 	v := New(config.GitHubConfig{ShowReviewRequested: &on}, nil, nil, nil).DelegateReviews()
 	if v.showReview {
 		t.Error("the review section is still on with a Reviews tab owning it")
+	}
+	if len(v.reviewRaw) != 0 || v.unread["u2"] {
+		t.Errorf("the PRs tab kept the review rows or their marks it handed over: rows=%d unread=%v", len(v.reviewRaw), v.unread)
+	}
+	if len(v.raw) != 1 || !v.unread["u1"] {
+		t.Errorf("the handoff touched the PRs tab's own rows or marks: rows=%d unread=%v", len(v.raw), v.unread)
 	}
 	cmd := v.Update(press('w'))
 	if v.showReview {
