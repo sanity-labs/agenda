@@ -395,7 +395,7 @@ func (l *List[T]) move(delta int) {
 	if delta < 0 {
 		dir = -1
 	}
-	l.cursor = clamp(l.cursor+delta, 0, max(0, len(l.filtered)-1))
+	l.cursor = min(max(l.cursor+delta, 0), max(0, len(l.filtered)-1))
 	l.snap(dir)
 }
 
@@ -448,7 +448,7 @@ func (l *List[T]) clampCursor() {
 		l.cursor, l.offset = 0, 0
 		return
 	}
-	l.cursor = clamp(l.cursor, 0, len(l.filtered)-1)
+	l.cursor = min(max(l.cursor, 0), len(l.filtered)-1)
 	if !selectable(l.items[l.filtered[l.cursor]]) {
 		l.snap(1)
 	}
@@ -469,7 +469,7 @@ func (l *List[T]) clampCursor() {
 		l.cursor-l.offset+1 < win {
 		l.offset--
 	}
-	l.offset = clamp(l.offset, 0, max(0, len(l.filtered)-1))
+	l.offset = min(max(l.offset, 0), max(0, len(l.filtered)-1))
 }
 
 func (l *List[T]) applyFilter() {
@@ -645,7 +645,7 @@ func Scrollbar(height, total, visible, offset int) []string {
 	}
 	size := min(max(1, height*visible/total), height)
 	pos := (height - size) * offset / (total - visible)
-	pos = clamp(pos, 0, height-size)
+	pos = min(max(pos, 0), height-size)
 	for i := range out {
 		if i >= pos && i < pos+size {
 			out[i] = thumb
@@ -704,12 +704,6 @@ func RevMarker(reversed bool) string {
 		return " (rev)"
 	}
 	return ""
-}
-
-// --- helpers ---------------------------------------------------------------
-
-func clamp(v, lo, hi int) int {
-	return min(max(v, lo), hi)
 }
 
 // matchesSubsequence reports whether all runes of q appear in s in order.

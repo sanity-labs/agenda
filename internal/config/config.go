@@ -44,7 +44,8 @@ type Config struct {
 
 	// Unread marks rows that arrived since the last fetch with a dot, so a
 	// notification you missed is still visible in the list. Selecting a row
-	// clears its mark. On by default.
+	// clears its mark. On by default. Display only: arrivals are recorded
+	// either way, so turning it on shows what came in while it was off.
 	Unread *bool `yaml:"unread"`
 
 	// UnreadSync keeps unread marks and GitHub notifications in step, both

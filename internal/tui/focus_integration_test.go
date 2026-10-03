@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 	"github.com/sanity-labs/agenda/internal/views/prs"
 )
 
@@ -120,4 +121,38 @@ func runCmdsReversed(t *testing.T, m *Model, cmd tea.Cmd, depth int) {
 	got, next := m.Update(msg)
 	*m = got.(Model)
 	runCmdsReversed(t, m, next, depth+1)
+}
+
+// Preview messages reach every view, so a view that is not on screen hears
+// a float open. Switching tabs closes the float; the close has to reach the
+// views too, or the tab you land on is dimmed for a window that is gone.
+func TestTabSwitchUndimsTheNextView(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cfg := config.Default()
+	cfg.HidePreview = true
+	cfg.GitHub.DiffPane = true
+	pv := prs.New(cfg.GitHub, nil, nil, nil)
+	m := New(cfg, []View{&fatView{title: "Linear"}, pv})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+
+	got, cmd := m.Update(ui.RevealPreviewMsg{}) // 'v' on the Linear tab
+	m = got.(Model)
+	runCmds(t, &m, cmd, 0)
+	if !m.floating() {
+		t.Fatal("setup: the preview did not float")
+	}
+
+	got, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = got.(Model)
+	runCmds(t, &m, cmd, 0)
+	if m.current != 1 {
+		t.Fatalf("setup: tab did not switch to the PRs view (current=%d)", m.current)
+	}
+	if m.floating() {
+		t.Error("the float survived the tab switch")
+	}
+	if pv.PaneFocused() {
+		t.Error("the PRs list is still dimmed after switching to it")
+	}
 }

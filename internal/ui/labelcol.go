@@ -12,9 +12,12 @@ const (
 	// LabelColMargin keeps the column clear of the metadata on its left and
 	// the cells on its right, so nothing reads as one run of text.
 	LabelColMargin = 2
-	// LabelColMaxWidth caps the column so labels cannot dominate a very
-	// wide terminal at the title's expense.
+	// LabelColMaxWidth is the column's cap on a narrow list. Wider lists
+	// get LabelColShare of their width instead, so a big terminal shows
+	// more labels rather than the same two with a "+N".
 	LabelColMaxWidth = 40
+	// LabelColShare is the percentage of the row a wide list gives labels.
+	LabelColShare = 40
 	// LabelColMinRow is the narrowest list that gets a label column at all;
 	// below it the metadata needs every column.
 	LabelColMinRow = 110
@@ -75,9 +78,22 @@ func FitLabels(pills []string, budget int) string {
 	return strings.Join(out, " ")
 }
 
+// LabelColumn prefixes right with a fixed-width label column: the pills
+// packed into the budget the row allows, padded so labels start at the same
+// column on every row, then the margin. right comes back untouched when
+// there is no room. A view supplies its own cell widths, metadata reserve
+// and pill style; the geometry is the same everywhere.
+func LabelColumn(rowWidth, cellsWidth, metaReserve int, pills []string, right string) string {
+	budget := LabelColWidth(rowWidth, cellsWidth, metaReserve)
+	if budget <= 0 {
+		return right
+	}
+	return PadCell(FitLabels(pills, budget), budget) + strings.Repeat(" ", LabelColMargin) + right
+}
+
 // LabelColWidth is the label column's width for a row of this width, given
 // what the row's own cells and metadata already need.
 func LabelColWidth(rowWidth, cellsWidth, metaReserve int) int {
 	avail := rowWidth - cellsWidth - LabelColMargin*2 - metaReserve
-	return min(avail, LabelColMaxWidth)
+	return min(avail, max(LabelColMaxWidth, rowWidth*LabelColShare/100))
 }

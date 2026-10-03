@@ -271,7 +271,9 @@ func settingsTable() []setting {
 			set:  func(c *config.Config, v string) { c.Views = config.WithReviewsTab(c.Views, v == "on") },
 			file: func(c config.Config) any { return c.Views },
 		},
-		header("PRs"),
+		// The PRs tab is four sections so it skims: what is searched for,
+		// how it is fetched, how the list reads, and what review can do.
+		header("Search"),
 		{
 			label: "search filter", path: "github.filter", kind: kindText,
 			note: "restart",
@@ -290,36 +292,42 @@ func settingsTable() []setting {
 			get: func(config.Config) string { return "" },
 			set: func(*config.Config, string) {},
 		},
-		sortSetting("github.sort", config.PRSortNames,
-			func(c config.Config) string { return c.GitHub.Sort },
-			func(c *config.Config, v string) { c.GitHub.Sort = v }),
-		boolSetting("reverse sort", "github.reverse", "restart",
-			func(c config.Config) bool { return c.GitHub.Reverse },
-			func(c *config.Config, v bool) { c.GitHub.Reverse = v }),
 		boolSetting("show review-requested", "github.show_review_requested", "restart",
 			func(c config.Config) bool { return c.ShowReviewRequested() },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.ShowReviewRequested, v) }),
+		boolSetting("hide dependency bots", "github.hide_dependency_bots", "restart",
+			func(c config.Config) bool { return c.GitHub.HideDependencyBots },
+			func(c *config.Config, v bool) { c.GitHub.HideDependencyBots = v }),
+		header("Fetching"),
 		boolSetting("lazy paging", "github.lazy_paging", "restart",
 			func(c config.Config) bool { return c.GitHub.LazyPagingEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.LazyPaging, v) }),
 		numSetting("page size", "github.page_size", "restart",
 			func(c config.Config) int { return c.GitHub.ResolvedPageSize() },
 			func(c *config.Config, v int) { c.GitHub.PageSize = v }),
-		numSetting("summary lines", "github.summary_lines", "restart",
-			func(c config.Config) int { return c.GitHub.SummaryLines },
-			func(c *config.Config, v int) { c.GitHub.SummaryLines = v }),
+		boolSetting("refresh row on settle", "github.refresh_row", "restart",
+			func(c config.Config) bool { return c.GitHub.RefreshRowEnabled() },
+			func(c *config.Config, v bool) { setOptBool(&c.GitHub.RefreshRow, v) }),
+		header("List"),
+		sortSetting("github.sort", config.PRSortNames,
+			func(c config.Config) string { return c.GitHub.Sort },
+			func(c *config.Config, v string) { c.GitHub.Sort = v }),
+		boolSetting("reverse sort", "github.reverse", "restart",
+			func(c config.Config) bool { return c.GitHub.Reverse },
+			func(c *config.Config, v bool) { c.GitHub.Reverse = v }),
 		boolSetting("mark reviewed PRs", "github.mark_reviewed", "restart",
 			func(c config.Config) bool { return c.GitHub.MarkReviewed },
 			func(c *config.Config, v bool) { c.GitHub.MarkReviewed = v }),
 		boolSetting("hide approved PRs", "github.hide_approved", "restart",
 			func(c config.Config) bool { return c.GitHub.HideApproved },
 			func(c *config.Config, v bool) { c.GitHub.HideApproved = v }),
-		boolSetting("hide dependency bots", "github.hide_dependency_bots", "restart",
-			func(c config.Config) bool { return c.GitHub.HideDependencyBots },
-			func(c *config.Config, v bool) { c.GitHub.HideDependencyBots = v }),
-		boolSetting("refresh row on settle", "github.refresh_row", "restart",
-			func(c config.Config) bool { return c.GitHub.RefreshRowEnabled() },
-			func(c *config.Config, v bool) { setOptBool(&c.GitHub.RefreshRow, v) }),
+		numSetting("summary lines", "github.summary_lines", "restart",
+			func(c config.Config) int { return c.GitHub.SummaryLines },
+			func(c *config.Config, v int) { c.GitHub.SummaryLines = v }),
+		header("Review"),
+		boolSetting("inline diff pane", "github.diff_pane", "restart",
+			func(c config.Config) bool { return c.GitHub.DiffPane },
+			func(c *config.Config, v bool) { c.GitHub.DiffPane = v }),
 		boolSetting("merge from review popup", "github.merge", "restart",
 			func(c config.Config) bool { return c.GitHub.Merge },
 			func(c *config.Config, v bool) { c.GitHub.Merge = v }),
@@ -332,9 +340,6 @@ func settingsTable() []setting {
 		boolSetting("delete branch after merge", "github.merge_delete_branch", "restart",
 			func(c config.Config) bool { return c.GitHub.MergeDeleteBranch },
 			func(c *config.Config, v bool) { c.GitHub.MergeDeleteBranch = v }),
-		boolSetting("inline diff pane", "github.diff_pane", "restart",
-			func(c config.Config) bool { return c.GitHub.DiffPane },
-			func(c *config.Config, v bool) { c.GitHub.DiffPane = v }),
 		header("Linear"),
 		sortSetting("linear.sort", config.LinearSortNames,
 			func(c config.Config) string { return c.Linear.Sort },
@@ -342,6 +347,9 @@ func settingsTable() []setting {
 		boolSetting("reverse sort", "linear.reverse", "restart",
 			func(c config.Config) bool { return c.Linear.Reverse },
 			func(c *config.Config, v bool) { c.Linear.Reverse = v }),
+		boolSetting("project pane", "linear.nav", "restart",
+			func(c config.Config) bool { return c.Linear.Nav },
+			func(c *config.Config, v bool) { c.Linear.Nav = v }),
 		header("Sessions"),
 		sortSetting("sessions.sort", config.SessionsSortNames,
 			func(c config.Config) string { return c.Sessions.Sort },
@@ -392,7 +400,7 @@ var settingsTabs = []struct {
 	{"general", []string{"Behavior", "Views", "Keybinds"}},
 	{"appearance", []string{"Theme"}},
 	{"alerts", []string{"Auto-refresh", "Notifications"}},
-	{"prs", []string{"PRs"}},
+	{"prs", []string{"Search", "Fetching", "List", "Review"}},
 	{"linear", []string{"Linear", "Linear filter"}},
 	{"sessions", []string{"Sessions"}},
 }
@@ -576,16 +584,6 @@ func (o *configOverlay) visible() []int {
 		}
 	}
 	return out
-}
-
-// inTab reports whether a section header belongs to the active tab.
-func (o *configOverlay) inTab(section string) bool {
-	for _, want := range settingsTabs[o.tab].sections {
-		if want == section {
-			return true
-		}
-	}
-	return false
 }
 
 // setTab switches tabs and puts the cursor on that tab's first setting.

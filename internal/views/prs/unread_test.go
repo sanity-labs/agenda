@@ -89,12 +89,14 @@ func lineWidth(s string) int {
 	return lipgloss.Width(strings.Split(s, "\n")[0])
 }
 
-func TestUnreadOffClearsMarks(t *testing.T) {
+// The toggle is display only: turning it off hides the marks and keeps
+// them, so turning it back on shows what you had not looked at yet.
+func TestUnreadOffKeepsMarks(t *testing.T) {
 	v := unreadView(t)
 	v.unread = map[string]bool{"u1": true}
 	v.Update(ui.UnreadMsg(false))
-	if len(v.unread) != 0 {
-		t.Errorf("unread = %v after turning the feature off, want cleared", v.unread)
+	if !v.unread["u1"] {
+		t.Errorf("unread = %v after turning the feature off, want the mark kept", v.unread)
 	}
 }
 

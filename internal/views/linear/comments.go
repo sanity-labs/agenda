@@ -109,29 +109,24 @@ func (v *View) maybeFetchComments() tea.Cmd {
 	}
 }
 
-// renderComments renders the preview's comments section for the selected
-// issue: header with count, then each comment as author · age over its
-// markdown body.
+// renderComments renders the body of the preview's comments section for
+// the selected issue, each comment as author · age over its markdown body.
+// The section header is the preview's, shared with the description.
 func (v *View) renderComments(id string, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.Dim.Render(strings.Repeat("─", min(width, 60))))
-	b.WriteByte('\n')
-
 	st, ok := v.comments[id]
 	switch {
 	case !ok || !st.done:
-		b.WriteString(ui.Faint.Render("Loading comments…"))
+		b.WriteString(ui.Faint.Render("  Loading comments…"))
 		return b.String()
 	case st.err != nil:
-		b.WriteString(ui.Red.Render("comments: " + st.err.Error()))
+		b.WriteString(ui.Red.Render("  comments: " + st.err.Error()))
 		return b.String()
 	case len(st.list) == 0:
-		b.WriteString(ui.Faint.Render("(no comments)"))
+		b.WriteString(ui.Faint.Render("  none yet"))
 		return b.String()
 	}
 
-	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s Comments (%d)", ui.Glyph(ui.IconComment, ""), len(st.list))))
-	b.WriteString("\n\n")
 	for i, c := range st.list {
 		if i > 0 {
 			b.WriteByte('\n')

@@ -419,23 +419,10 @@ var sortName = map[sortMode]string{
 // sortByName resolves a configured sort name to its mode. An unknown name
 // falls back to the default rather than failing: a typo in the config
 // should not stop the view opening.
-func sortByName(name string) (sortMode, bool) {
-	for mode, n := range sortName {
-		if n == name {
-			return mode, true
-		}
-	}
-	return sortRecent, false
-}
+func sortByName(name string) (sortMode, bool) { return ui.SortByName(sortName, sortRecent, name) }
 
 // SortNames lists the sorts this view accepts, for the settings overlay.
-func SortNames() []string {
-	out := make([]string, 0, len(sortOrder))
-	for _, mode := range sortOrder {
-		out = append(out, sortName[mode])
-	}
-	return out
-}
+func SortNames() []string { return ui.SortNames(sortOrder, sortName) }
 
 func groupLabelFn(mode sortMode) func(pr) string {
 	switch mode {
@@ -1474,10 +1461,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.togglesPersist = bool(msg)
 		return nil
 	case ui.UnreadMsg:
+		// Display only: marks keep being recorded while this is off, so
+		// turning it on shows what arrived in the meantime.
 		v.unreadOn = bool(msg)
-		if !v.unreadOn {
-			v.unread = nil
-		}
 		v.applySort()
 		return nil
 	case ui.UnreadSyncMsg:
@@ -2564,7 +2550,7 @@ func (v *View) applySort() {
 	labels := !v.previewShown && v.listW >= labelColMinWidth
 	for _, set := range [][]pr{mine, rev} {
 		for i := range set {
-			set[i].Unread = v.unread[set[i].URL]
+			set[i].Unread = v.unreadOn && v.unread[set[i].URL]
 			set[i].UnreadGutter = v.unreadOn
 			set[i].ShowLabels = labels
 		}
@@ -2685,12 +2671,13 @@ func (v *View) groupSection(items []pr) []pr {
 }
 
 // markUnread records rows that were not in the previous set. It runs whether
-// or not notifications are on: the mark is how you catch up on what arrived
-// while you were not looking, which is exactly when a notification is missed.
+// or not notifications or the marks themselves are on: the mark is how you
+// catch up on what arrived while you were not looking, and the toggle only
+// decides whether it is drawn.
 func (v *View) markUnread(prev, next []pr, seeded bool) {
 	// The first load of a section is everything, not "new": marking it
 	// would light up the whole list on startup.
-	if !v.unreadOn || !seeded {
+	if !seeded {
 		return
 	}
 	known := make(map[string]bool, len(prev))
@@ -2734,13 +2721,6 @@ func (v *View) drainSync() tea.Cmd {
 	cmds := v.syncPending
 	v.syncPending = nil
 	return tea.Batch(cmds...)
-}
-
-// markRead clears the selected row's mark when the preview is off and you
-// asked for the detail explicitly. Hovering is enough only while the detail
-// is on screen; with it hidden, a row you never opened is not read.
-func (v *View) markRead() {
-	v.clearUnread()
 }
 
 // saveCache rewrites the cache so a mark cleared (or earned) in this session
@@ -2955,12 +2935,12 @@ func (v *View) PreviewView() string {
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
 		// comments) staying bare because they are already the detail.
-		b.WriteString(blockHeader("Description"))
+		b.WriteString(ui.BlockHeader("Description"))
 		b.WriteString("\n")
 		b.WriteString(v.renderedBody(p))
 		if blk := v.checksBlock(p); blk != "" {
 			b.WriteString("\n\n")
-			b.WriteString(blockHeader("Checks"))
+			b.WriteString(ui.BlockHeader("Checks"))
 			b.WriteString("\n")
 			b.WriteString(blk)
 			if _, _, _, total := p.checkCounts(); total > 0 {
@@ -2976,12 +2956,6 @@ func (v *View) PreviewView() string {
 
 // blockHeader labels a preview section. One style for all of them, so the
 // pane reads as a list of sections rather than three unrelated widgets.
-func blockHeader(name string) string {
-	// Glyph gated like the other decorative icons, so a plain-font setup
-	// gets the label without a tofu box.
-	return ui.Dim.Render(ui.Glyph(ui.IconSection, "") + name)
-}
-
 // checksBlock is the bordered CI summary: what is blocking the merge, and how
 // the checks are doing. Bordered in the colour of the worst state, so a
 // glance at the frame says whether anything needs attention.
@@ -3038,7 +3012,7 @@ func (v *View) checksBlock(p pr) string {
 // commentsBlock closes the summary with whether there is a conversation to
 // read, and which key opens it.
 func (v *View) commentsBlock(p pr) string {
-	head := blockHeader("Comments")
+	head := ui.BlockHeader("Comments")
 	if p.Comments.TotalCount == 0 {
 		return head + "\n" + ui.Faint.Render("  none yet")
 	}

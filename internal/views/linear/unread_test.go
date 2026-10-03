@@ -29,13 +29,18 @@ func TestFreshRendersAndKeepsAlignment(t *testing.T) {
 	}
 }
 
-// Turning the feature off drops existing marks rather than freezing them.
-func TestUnreadMsgClearsFresh(t *testing.T) {
+// The toggle is display only: marks are kept while it is off, and new
+// arrivals keep being recorded, so turning it on shows what came in.
+func TestUnreadOffKeepsAndRecordsFresh(t *testing.T) {
 	v := &View{fresh: map[string]bool{"SRE-1": true}, unreadOn: true}
 	v.list = ui.NewList[issue]()
 	v.Update(ui.UnreadMsg(false))
-	if len(v.fresh) != 0 {
-		t.Errorf("fresh = %v after turning unread off, want cleared", v.fresh)
+	if !v.fresh["SRE-1"] {
+		t.Errorf("fresh = %v after turning unread off, want the mark kept", v.fresh)
+	}
+	v.markFresh([]issue{{Identifier: "SRE-1"}}, []issue{{Identifier: "SRE-1"}, {Identifier: "SRE-2"}})
+	if !v.fresh["SRE-2"] {
+		t.Errorf("an issue that arrived with marks off was not recorded: %v", v.fresh)
 	}
 }
 

@@ -57,3 +57,8 @@ const (
 	IconStar        = "\uf005" //  star
 	IconBell        = "\uf0f3" //  bell
 )
+
+// BlockHeader is a preview section's heading, the same in every view so
+// the panes read alike. Glyph gated like the other decorative icons, so a
+// plain-font setup gets the label without a tofu box.
+func BlockHeader(name string) string { return Dim.Render(Glyph(IconSection, "") + name) }
