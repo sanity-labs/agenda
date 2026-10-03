@@ -133,6 +133,19 @@ is the one key that is always "get me out of this window".
 A preview pane you configured on is never closed by `esc`: it undoes what
 was opened over the list, not the configured state.
 
+## Settings that need a reload
+
+A row marked `reload required` changed in the `ctrl+s` overlay is
+*pending* until applied. The panel shows a boxed notice and offers `r`,
+which quits and execs the binary again: a real restart, so the option
+takes effect exactly as it would after quitting by hand, with no second
+code path to keep in step. Leaving the panel with something pending
+(`esc`, or a click outside) collapses it to a single warning box: `r`
+reloads, `esc` reverts the pending rows in the live config and the file
+and closes, any other key returns to the panel. The file never says one
+thing while the running app does another. Changing a row back to its
+original value clears its pending state.
+
 ## Panes
 
 Each pane is one way of looking at the selected row, not a mode. They are

@@ -40,7 +40,7 @@ type setting struct {
 	label   string
 	path    string // dotted path for config.Set; also keys live re-apply
 	kind    settingKind
-	note    string // extra hint, e.g. "restart"
+	note    string // extra hint, e.g. noteReload
 	options func() []string
 	get     func(c config.Config) string
 	set     func(c *config.Config, v string)
@@ -51,12 +51,16 @@ type setting struct {
 
 func header(label string) setting { return setting{kind: kindHeader, label: label} }
 
+// noteReload marks a row whose change only takes effect after a reload;
+// the overlay tracks such changes and offers to reload or revert them.
+const noteReload = "reload required"
+
 // sortSetting is a view's startup sort. "default" means the view's own,
 // which is also what an empty config value means, so the row reads the
 // same as the file.
 func sortSetting(path string, names []string, get func(config.Config) string, set func(*config.Config, string)) setting {
 	return setting{
-		label: "sort on open", path: path, kind: kindEnum, note: "restart",
+		label: "sort on open", path: path, kind: kindEnum, note: noteReload,
 		options: func() []string { return append([]string{"default"}, names...) },
 		get: func(c config.Config) string {
 			if v := get(c); v != "" {
@@ -195,7 +199,7 @@ func settingsTable() []setting {
 		numSetting("list jump (pgup/pgdn, ⇧↑↓)", "list_jump", "",
 			func(c config.Config) int { return c.ListJumpSize() },
 			func(c *config.Config, v int) { c.ListJump = v }),
-		boolSetting("check for updates", "update_check", "restart",
+		boolSetting("check for updates", "update_check", noteReload,
 			func(c config.Config) bool { return c.UpdateCheckEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.UpdateCheck, v) }),
 		{
@@ -227,13 +231,13 @@ func settingsTable() []setting {
 			func(c *config.Config, d config.Duration) { c.Refresh.Sessions = &d }),
 		header("Notifications"),
 		{
-			label: "notification click", path: "notifications.click", kind: kindEnum, note: "restart",
+			label: "notification click", path: "notifications.click", kind: kindEnum, note: noteReload,
 			options: func() []string { return []string{"url", "none"} },
 			get:     func(c config.Config) string { return c.Notify.ClickAction() },
 			set:     func(c *config.Config, v string) { c.Notify.Click = v },
 		},
 		{
-			label: "popup", path: "notifications.popup", kind: kindEnum, note: "restart",
+			label: "popup", path: "notifications.popup", kind: kindEnum, note: noteReload,
 			options: func() []string { return []string{"off", "terminal", "desktop"} },
 			get: func(c config.Config) string {
 				if c.Notify.Enabled() {
@@ -243,7 +247,7 @@ func settingsTable() []setting {
 			},
 			set: func(c *config.Config, v string) { c.Notify.Popup = v },
 		},
-		boolSetting("sound", "notifications.sound", "restart",
+		boolSetting("sound", "notifications.sound", noteReload,
 			func(c config.Config) bool { return optBool(c.Notify.Sound) },
 			func(c *config.Config, v bool) { setOptBool(&c.Notify.Sound, v) }),
 		{
@@ -252,19 +256,19 @@ func settingsTable() []setting {
 			set: func(*config.Config, string) {},
 		},
 		header("Views"),
-		boolSetting("prs", "github.enabled", "restart",
+		boolSetting("prs", "github.enabled", noteReload,
 			func(c config.Config) bool { return optBool(c.GitHub.Enabled) },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.Enabled, v) }),
-		boolSetting("sessions", "sessions.enabled", "restart",
+		boolSetting("sessions", "sessions.enabled", noteReload,
 			func(c config.Config) bool { return optBool(c.Sessions.Enabled) },
 			func(c *config.Config, v bool) { setOptBool(&c.Sessions.Enabled, v) }),
-		boolSetting("linear", "linear.enabled", "restart",
+		boolSetting("linear", "linear.enabled", noteReload,
 			func(c config.Config) bool { return optBool(c.Linear.Enabled) },
 			func(c *config.Config, v bool) { setOptBool(&c.Linear.Enabled, v) }),
 		{
 			// Opt-in through the views list rather than an enabled flag, so
 			// the row edits that list: the tab is off unless listed.
-			label: "reviews", path: "views", kind: kindBool, note: "restart",
+			label: "reviews", path: "views", kind: kindBool, note: noteReload,
 			get: func(c config.Config) string {
 				if slices.Contains(c.Views, "reviews") {
 					return "on"
@@ -279,13 +283,13 @@ func settingsTable() []setting {
 		header("Search"),
 		{
 			label: "search filter", path: "github.filter", kind: kindText,
-			note: "restart",
+			note: noteReload,
 			get:  func(c config.Config) string { return c.GitHub.Filter },
 			set:  func(c *config.Config, v string) { c.GitHub.Filter = v },
 		},
 		{
 			label: "review search filter", path: "github.review_filter",
-			kind: kindText, note: "restart",
+			kind: kindText, note: noteReload,
 			get: func(c config.Config) string { return c.GitHub.ReviewFilter },
 			set: func(c *config.Config, v string) { c.GitHub.ReviewFilter = v },
 		},
@@ -295,43 +299,43 @@ func settingsTable() []setting {
 			get: func(config.Config) string { return "" },
 			set: func(*config.Config, string) {},
 		},
-		boolSetting("show review-requested", "github.show_review_requested", "restart",
+		boolSetting("show review-requested", "github.show_review_requested", noteReload,
 			func(c config.Config) bool { return c.ShowReviewRequested() },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.ShowReviewRequested, v) }),
-		boolSetting("hide dependency bots", "github.hide_dependency_bots", "restart",
+		boolSetting("hide dependency bots", "github.hide_dependency_bots", noteReload,
 			func(c config.Config) bool { return c.GitHub.HideDependencyBots },
 			func(c *config.Config, v bool) { c.GitHub.HideDependencyBots = v }),
 		header("Fetching"),
-		boolSetting("lazy paging", "github.lazy_paging", "restart",
+		boolSetting("lazy paging", "github.lazy_paging", noteReload,
 			func(c config.Config) bool { return c.GitHub.LazyPagingEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.LazyPaging, v) }),
-		numSetting("page size", "github.page_size", "restart",
+		numSetting("page size", "github.page_size", noteReload,
 			func(c config.Config) int { return c.GitHub.ResolvedPageSize() },
 			func(c *config.Config, v int) { c.GitHub.PageSize = v }),
-		boolSetting("refresh row on settle", "github.refresh_row", "restart",
+		boolSetting("refresh row on settle", "github.refresh_row", noteReload,
 			func(c config.Config) bool { return c.GitHub.RefreshRowEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.GitHub.RefreshRow, v) }),
 		header("List"),
 		sortSetting("github.sort", config.PRSortNames,
 			func(c config.Config) string { return c.GitHub.Sort },
 			func(c *config.Config, v string) { c.GitHub.Sort = v }),
-		boolSetting("reverse sort", "github.reverse", "restart",
+		boolSetting("reverse sort", "github.reverse", noteReload,
 			func(c config.Config) bool { return c.GitHub.Reverse },
 			func(c *config.Config, v bool) { c.GitHub.Reverse = v }),
-		boolSetting("mark reviewed PRs", "github.mark_reviewed", "restart",
+		boolSetting("mark reviewed PRs", "github.mark_reviewed", noteReload,
 			func(c config.Config) bool { return c.GitHub.MarkReviewed },
 			func(c *config.Config, v bool) { c.GitHub.MarkReviewed = v }),
-		boolSetting("hide approved PRs", "github.hide_approved", "restart",
+		boolSetting("hide approved PRs", "github.hide_approved", noteReload,
 			func(c config.Config) bool { return c.GitHub.HideApproved },
 			func(c *config.Config, v bool) { c.GitHub.HideApproved = v }),
-		numSetting("summary lines", "github.summary_lines", "restart",
+		numSetting("summary lines", "github.summary_lines", noteReload,
 			func(c config.Config) int { return c.GitHub.SummaryLines },
 			func(c *config.Config, v int) { c.GitHub.SummaryLines = v }),
 		header("Review"),
-		boolSetting("inline diff pane", "github.diff_pane", "restart",
+		boolSetting("inline diff pane", "github.diff_pane", noteReload,
 			func(c config.Config) bool { return c.GitHub.DiffPane },
 			func(c *config.Config, v bool) { c.GitHub.DiffPane = v }),
-		boolSetting("merge from review popup", "github.merge", "restart",
+		boolSetting("merge from review popup", "github.merge", noteReload,
 			func(c config.Config) bool { return c.GitHub.Merge },
 			func(c *config.Config, v bool) { c.GitHub.Merge = v }),
 		{
@@ -340,34 +344,34 @@ func settingsTable() []setting {
 			get:     func(c config.Config) string { return c.GitHub.ResolvedMergeMethod() },
 			set:     func(c *config.Config, v string) { c.GitHub.MergeMethod = v },
 		},
-		boolSetting("delete branch after merge", "github.merge_delete_branch", "restart",
+		boolSetting("delete branch after merge", "github.merge_delete_branch", noteReload,
 			func(c config.Config) bool { return c.GitHub.MergeDeleteBranch },
 			func(c *config.Config, v bool) { c.GitHub.MergeDeleteBranch = v }),
 		header("Linear"),
 		sortSetting("linear.sort", config.LinearSortNames,
 			func(c config.Config) string { return c.Linear.Sort },
 			func(c *config.Config, v string) { c.Linear.Sort = v }),
-		boolSetting("reverse sort", "linear.reverse", "restart",
+		boolSetting("reverse sort", "linear.reverse", noteReload,
 			func(c config.Config) bool { return c.Linear.Reverse },
 			func(c *config.Config, v bool) { c.Linear.Reverse = v }),
-		boolSetting("project pane", "linear.nav", "restart",
+		boolSetting("project pane", "linear.nav", noteReload,
 			func(c config.Config) bool { return c.Linear.Nav },
 			func(c *config.Config, v bool) { c.Linear.Nav = v }),
 		header("Sessions"),
 		sortSetting("sessions.sort", config.SessionsSortNames,
 			func(c config.Config) string { return c.Sessions.Sort },
 			func(c *config.Config, v string) { c.Sessions.Sort = v }),
-		boolSetting("reverse sort", "sessions.reverse", "restart",
+		boolSetting("reverse sort", "sessions.reverse", noteReload,
 			func(c config.Config) bool { return c.Sessions.Reverse },
 			func(c *config.Config, v bool) { c.Sessions.Reverse = v }),
 		header("Linear filter"),
-		boolSetting("include completed", "linear.filter.include_completed", "restart",
+		boolSetting("include completed", "linear.filter.include_completed", noteReload,
 			func(c config.Config) bool { return c.Linear.Filter.IncludeCompleted },
 			func(c *config.Config, v bool) { c.Linear.Filter.IncludeCompleted = v }),
-		boolSetting("show comments", "linear.show_comments", "restart",
+		boolSetting("show comments", "linear.show_comments", noteReload,
 			func(c config.Config) bool { return c.Linear.ShowComments },
 			func(c *config.Config, v bool) { c.Linear.ShowComments = v }),
-		boolSetting("include canceled", "linear.filter.include_canceled", "restart",
+		boolSetting("include canceled", "linear.filter.include_canceled", noteReload,
 			func(c config.Config) bool { return c.Linear.Filter.IncludeCanceled },
 			func(c *config.Config, v bool) { c.Linear.Filter.IncludeCanceled = v }),
 	}
@@ -550,6 +554,48 @@ type configOverlay struct {
 	editing bool
 	buf     string
 	errMsg  string
+	// pending are the restart-marked rows changed in this overlay, by path,
+	// with the value each had before: what 'r' applies by reloading, and
+	// what esc puts back. warned is the first esc with something pending;
+	// reload and revert say how the overlay closed.
+	pending map[string]pendingChange
+	warned  bool
+	reload  bool
+	revert  bool
+}
+
+type pendingChange struct {
+	s    *setting
+	prev string
+}
+
+// warningBox replaces the panel once you try to leave with reload-required
+// changes unapplied: one box, one question.
+func (o *configOverlay) warningBox() string {
+	msg := fmt.Sprintf("%syou have %d unapplied option(s). Press 'r' to reload, 'esc' to cancel and revert",
+		ui.Glyph(ui.IconIssue, "! "), len(o.pending))
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(ui.Pal().Yellow)).
+		Padding(1, 2).
+		Render(ui.Yellow.Render(msg))
+}
+
+// markPending records a change to a restart-marked row. Changing it back to
+// what it was clears the entry: nothing is then waiting on a restart.
+func (o *configOverlay) markPending(s *setting, prev, now string) {
+	if o.pending == nil {
+		o.pending = map[string]pendingChange{}
+	}
+	if p, ok := o.pending[s.path]; ok {
+		if p.prev == now {
+			delete(o.pending, s.path)
+		}
+		return
+	}
+	if prev != now {
+		o.pending[s.path] = pendingChange{s: s, prev: prev}
+	}
 }
 
 func newConfigOverlay() *configOverlay {
@@ -630,6 +676,21 @@ func (o *configOverlay) next(i, d int) int {
 func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChange, bool) {
 	s := &o.rows[o.cursor]
 
+	// The leave warning is its own screen: r reloads, esc reverts and
+	// closes, anything else goes back to the panel.
+	if o.warned {
+		switch msg.String() {
+		case "r":
+			o.reload = true
+			return nil, true
+		case "esc", "q", "ctrl+s":
+			o.revert = true
+			return nil, true
+		}
+		o.warned = false
+		return nil, false
+	}
+
 	if o.editing {
 		switch msg.String() {
 		case "esc":
@@ -669,7 +730,19 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 
 	switch msg.String() {
 	case "esc", "q", "ctrl+s":
+		// Leaving with restart-marked changes unapplied: say so once, then
+		// the next press reverts them rather than leaving the file saying
+		// one thing and the running app another.
+		if len(o.pending) > 0 {
+			o.warned = true
+			return nil, false
+		}
 		return nil, true
+	case "r":
+		if len(o.pending) > 0 {
+			o.reload = true
+			return nil, true
+		}
 	case "tab":
 		o.setTab(+1)
 	case "shift+tab":
@@ -722,6 +795,9 @@ func cycle(opts []string, cur string, d int) string {
 
 // View renders the overlay box.
 func (o *configOverlay) View(cfg config.Config) string {
+	if o.warned {
+		return o.warningBox()
+	}
 	vis := o.visible()
 	labelW := 0
 	for _, idx := range vis {
@@ -799,7 +875,20 @@ func (o *configOverlay) View(cfg config.Config) string {
 	path, _ := config.Path()
 	b.WriteString(ui.Faint.Render(path))
 	b.WriteByte('\n')
-	b.WriteString(ui.Dim.Render("↑↓ move · tab section · ←→ change · enter edit · esc close"))
+	hint := "↑↓ move · tab section · ←→ change · enter edit · esc close"
+	if n := len(o.pending); n > 0 {
+		// Boxed and centred, with a blank line each side: a plain line here
+		// read as part of the navigation hint under it.
+		notice := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(ui.Pal().Yellow)).
+			Padding(0, 1).
+			Render(ui.Yellow.Render(fmt.Sprintf("%d option(s) need a reload: press 'r' to reload", n)))
+		b.WriteString(lipgloss.PlaceHorizontal(overlayContent, lipgloss.Center, notice))
+		b.WriteString("\n\n")
+		hint = "↑↓ move · tab section · ←→ change · enter edit · r reload · esc revert"
+	}
+	b.WriteString(ui.Dim.Render(hint))
 
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
