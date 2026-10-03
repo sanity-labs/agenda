@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,9 @@ type setting struct {
 	options func() []string
 	get     func(c config.Config) string
 	set     func(c *config.Config, v string)
+	// file, when set, is what config.Set writes instead of the row's own
+	// value: for a row that edits one entry of a list, the whole list.
+	file func(c config.Config) any
 }
 
 func header(label string) setting { return setting{kind: kindHeader, label: label} }
@@ -254,6 +258,19 @@ func settingsTable() []setting {
 		boolSetting("linear", "linear.enabled", "restart",
 			func(c config.Config) bool { return optBool(c.Linear.Enabled) },
 			func(c *config.Config, v bool) { setOptBool(&c.Linear.Enabled, v) }),
+		{
+			// Opt-in through the views list rather than an enabled flag, so
+			// the row edits that list: the tab is off unless listed.
+			label: "reviews", path: "views", kind: kindBool, note: "restart",
+			get: func(c config.Config) string {
+				if slices.Contains(c.Views, "reviews") {
+					return "on"
+				}
+				return "off"
+			},
+			set:  func(c *config.Config, v string) { c.Views = config.WithReviewsTab(c.Views, v == "on") },
+			file: func(c config.Config) any { return c.Views },
+		},
 		header("PRs"),
 		{
 			label: "search filter", path: "github.filter", kind: kindText,
@@ -349,8 +366,12 @@ type settingChange struct {
 	val string
 }
 
-// fileValue is what config.Set writes for this change.
-func (sc settingChange) fileValue() any {
+// fileValue is what config.Set writes for this change, after set has
+// applied it to cfg: a row's own value, or the list it is one entry of.
+func (sc settingChange) fileValue(cfg config.Config) any {
+	if sc.s.file != nil {
+		return sc.s.file(cfg)
+	}
 	if sc.s.kind == kindBool {
 		return sc.val == "on"
 	}

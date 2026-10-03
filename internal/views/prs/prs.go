@@ -594,12 +594,15 @@ type View struct {
 	reviewRaw  []pr // PRs waiting on the user's review
 	showReview bool // render the review section (toggled with 'w')
 	// reviewsOnly makes this the Reviews tab: the review-requested search is
-	// the whole list, and the own-PR search never runs.
-	reviewsOnly bool
-	grouping    bool // swimlanes derived from the active sort
-	sort        sortMode
-	rev         bool // sort order reversed
-	store       *store.Store
+	// the whole list, and the own-PR search never runs. reviewsElsewhere is
+	// the PRs tab beside one: its review section is off and stays off, since
+	// that tab owns the search, the cache and the unread marks.
+	reviewsOnly      bool
+	reviewsElsewhere bool
+	grouping         bool // swimlanes derived from the active sort
+	sort             sortMode
+	rev              bool // sort order reversed
+	store            *store.Store
 
 	// notifier posts "needs your review" notifications (nil = off); seeded
 	// gates them so the first data never fires a storm.
@@ -956,6 +959,14 @@ func (v *View) unreadURLs() []string {
 
 // cacheName keeps each tab's rows apart: the two tabs fetch different
 // searches, and sharing a file would let each overwrite the other's.
+// DelegateReviews turns the PRs tab's review section over to a Reviews tab:
+// the section is off, 'w' says why, and the review search is never run here.
+func (v *View) DelegateReviews() *View {
+	v.reviewsElsewhere = true
+	v.showReview = false
+	return v
+}
+
 func (v *View) cacheName() string {
 	if v.reviewsOnly {
 		return "reviews"
@@ -1664,7 +1675,15 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.rev = !v.rev
 			v.applySort()
 			return nil
-		case key.Matches(msg, v.keys.Review) && !v.reviewsOnly:
+		case key.Matches(msg, v.keys.Review) && (v.reviewsOnly || v.reviewsElsewhere):
+			// Not silent: someone who bound the key will press it and
+			// expect something to happen.
+			body := "This tab is the review section."
+			if v.reviewsElsewhere {
+				body = "The Reviews tab owns review requests."
+			}
+			return func() tea.Msg { return ui.ToastMsg{Title: "Review requests", Body: body} }
+		case key.Matches(msg, v.keys.Review):
 			v.showReview = !v.showReview
 			v.applySort()
 			// The review search isn't fetched while the section is off
@@ -3119,7 +3138,7 @@ func (v *View) Bindings() []key.Binding {
 	if v.PaneFocused() && v.pane == paneFiles {
 		return v.filesBindings()
 	}
-	if v.reviewsOnly {
+	if v.reviewsOnly || v.reviewsElsewhere {
 		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.EditFilter}
 	}
 	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}

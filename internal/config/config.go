@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -632,4 +633,28 @@ func (k Keymap) Has(scope, action string) bool {
 	}
 	_, ok = actions[action]
 	return ok
+}
+
+// WithReviewsTab adds the reviews tab to a views list or takes it out. An
+// empty list means the default views, so it is spelled out first rather
+// than written back as a one-entry list that would drop the others. Added,
+// it goes before prs: the point of the tab is to open on it.
+func WithReviewsTab(views []string, on bool) []string {
+	if len(views) == 0 {
+		views = append([]string(nil), Default().Views...)
+	}
+	out := make([]string, 0, len(views)+1)
+	for _, v := range views {
+		if v == "reviews" {
+			continue
+		}
+		if v == "prs" && on {
+			out = append(out, "reviews")
+		}
+		out = append(out, v)
+	}
+	if on && !slices.Contains(out, "reviews") {
+		out = append([]string{"reviews"}, out...)
+	}
+	return out
 }

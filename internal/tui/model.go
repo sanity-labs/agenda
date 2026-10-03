@@ -382,7 +382,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.runAction(change.s.path)
 				}
 				change.s.set(&m.cfg, change.val)
-				if err := config.Set(change.s.path, change.fileValue()); err != nil {
+				if err := config.Set(change.s.path, change.fileValue(m.cfg)); err != nil {
 					m.settings.errMsg = err.Error()
 				}
 				return m, m.applyConfigChange(change.s.path)
@@ -687,7 +687,7 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 		return m.runAction(change.s.path)
 	}
 	change.s.set(&m.cfg, change.val)
-	if err := config.Set(change.s.path, change.fileValue()); err != nil {
+	if err := config.Set(change.s.path, change.fileValue(m.cfg)); err != nil {
 		m.settings.errMsg = err.Error()
 	}
 	return m.applyConfigChange(change.s.path)

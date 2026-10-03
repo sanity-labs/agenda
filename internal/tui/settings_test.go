@@ -90,7 +90,7 @@ func TestOverlayToggleAndCycle(t *testing.T) {
 	}
 	before := o.rows[o.cursor].get(cfg) == "on"
 	change, _ = o.Update(special(tea.KeyEnter), cfg)
-	if change == nil || change.fileValue() != !before {
+	if change == nil || change.fileValue(config.Default()) != !before {
 		t.Fatalf("toggling a bool should commit its inverse (was %v), got %+v", before, change)
 	}
 }
@@ -211,4 +211,32 @@ func seekPath(o *configOverlay, cfg config.Config, path string) bool {
 		o.Update(special(tea.KeyTab), cfg)
 	}
 	return o.rows[o.cursor].path == path
+}
+
+// The reviews row is one entry of the views list: toggling it edits the
+// list on the live config and writes the whole list to the file, never a
+// bare true/false under "views".
+func TestReviewsRowEditsTheViewsList(t *testing.T) {
+	var row *setting
+	for i := range settingsTable() {
+		if s := &settingsTable()[i]; s.path == "views" {
+			row = s
+		}
+	}
+	if row == nil {
+		t.Fatal("no settings row for the reviews tab")
+	}
+	cfg := config.Default()
+	if row.get(cfg) != "off" {
+		t.Errorf("reviews reads %q on the default config, want off", row.get(cfg))
+	}
+	row.set(&cfg, "on")
+	if row.get(cfg) != "on" {
+		t.Error("turning reviews on did not show in the row")
+	}
+	fv := settingChange{s: row, val: "on"}.fileValue(cfg)
+	list, ok := fv.([]string)
+	if !ok || len(list) != 4 || list[0] != "reviews" {
+		t.Errorf("file value = %#v, want the full views list led by reviews", fv)
+	}
 }

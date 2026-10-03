@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func newReviewsView(t *testing.T) *View {
@@ -79,5 +80,44 @@ func TestReviewsViewCachesSeparately(t *testing.T) {
 	}
 	if v := NewReviews(config.GitHubConfig{}, nil, nil, nil); len(v.reviewRaw) != 1 {
 		t.Error("the Reviews tab did not restore its own cache")
+	}
+}
+
+// With a Reviews tab beside it, the PRs tab hands the review section over:
+// the section is off, 'w' explains rather than toggling, and the footer
+// does not offer it. One owner for the search, the cache and the marks.
+func TestPRsTabDelegatesReviewsToTheReviewsTab(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	on := true
+	v := New(config.GitHubConfig{ShowReviewRequested: &on}, nil, nil, nil).DelegateReviews()
+	if v.showReview {
+		t.Error("the review section is still on with a Reviews tab owning it")
+	}
+	cmd := v.Update(press('w'))
+	if v.showReview {
+		t.Error("'w' turned the delegated review section back on")
+	}
+	if cmd == nil {
+		t.Fatal("'w' was silent on the delegating PRs tab")
+	}
+	if _, ok := cmd().(ui.ToastMsg); !ok {
+		t.Error("'w' did not explain itself with a toast")
+	}
+	for _, b := range v.Bindings() {
+		if b.Help().Desc == "review reqs" {
+			t.Error("the footer offers 'w' on the delegating PRs tab")
+		}
+	}
+}
+
+// 'w' in the Reviews tab says why it does nothing instead of doing nothing.
+func TestReviewsViewExplainsSectionToggle(t *testing.T) {
+	v := newReviewsView(t)
+	cmd := v.Update(press('w'))
+	if cmd == nil {
+		t.Fatal("'w' was silent in the Reviews tab")
+	}
+	if _, ok := cmd().(ui.ToastMsg); !ok {
+		t.Error("'w' did not explain itself with a toast")
 	}
 }

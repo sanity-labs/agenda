@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -260,5 +261,27 @@ func TestReviewsView(t *testing.T) {
 	cfg.GitHub.Enabled = &off
 	if got := cfg.EnabledViews(); len(got) != 0 {
 		t.Errorf("EnabledViews() with github off = %v, want none", got)
+	}
+}
+
+// The reviews row edits the views list. An empty list means the defaults,
+// so adding to it spells them out rather than writing back [reviews] alone;
+// the tab goes before prs so the app opens on it; removing leaves the rest.
+func TestWithReviewsTab(t *testing.T) {
+	got := WithReviewsTab(nil, true)
+	want := []string{"reviews", "prs", "sessions", "linear"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("add to empty = %v, want %v", got, want)
+	}
+	got = WithReviewsTab([]string{"linear", "prs"}, true)
+	if strings.Join(got, ",") != "linear,reviews,prs" {
+		t.Errorf("add before prs = %v", got)
+	}
+	got = WithReviewsTab([]string{"reviews", "prs", "linear"}, false)
+	if strings.Join(got, ",") != "prs,linear" {
+		t.Errorf("remove = %v", got)
+	}
+	if got = WithReviewsTab([]string{"prs"}, true); strings.Join(WithReviewsTab(got, true), ",") != "reviews,prs" {
+		t.Errorf("adding twice duplicated: %v", WithReviewsTab(got, true))
 	}
 }
