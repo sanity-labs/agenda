@@ -550,6 +550,36 @@ type configOverlay struct {
 	editing bool
 	buf     string
 	errMsg  string
+	// pending are the restart-marked rows changed in this overlay, by path,
+	// with the value each had before: what 'r' applies by reloading, and
+	// what esc puts back. warned is the first esc with something pending;
+	// reload and revert say how the overlay closed.
+	pending map[string]pendingChange
+	warned  bool
+	reload  bool
+	revert  bool
+}
+
+type pendingChange struct {
+	s    *setting
+	prev string
+}
+
+// markPending records a change to a restart-marked row. Changing it back to
+// what it was clears the entry: nothing is then waiting on a restart.
+func (o *configOverlay) markPending(s *setting, prev, now string) {
+	if o.pending == nil {
+		o.pending = map[string]pendingChange{}
+	}
+	if p, ok := o.pending[s.path]; ok {
+		if p.prev == now {
+			delete(o.pending, s.path)
+		}
+		return
+	}
+	if prev != now {
+		o.pending[s.path] = pendingChange{s: s, prev: prev}
+	}
 }
 
 func newConfigOverlay() *configOverlay {
@@ -669,7 +699,22 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 
 	switch msg.String() {
 	case "esc", "q", "ctrl+s":
+		// Leaving with restart-marked changes unapplied: say so once, then
+		// the next press reverts them rather than leaving the file saying
+		// one thing and the running app another.
+		if len(o.pending) > 0 {
+			if !o.warned {
+				o.warned = true
+				return nil, false
+			}
+			o.revert = true
+		}
 		return nil, true
+	case "r":
+		if len(o.pending) > 0 {
+			o.reload = true
+			return nil, true
+		}
 	case "tab":
 		o.setTab(+1)
 	case "shift+tab":
@@ -799,7 +844,19 @@ func (o *configOverlay) View(cfg config.Config) string {
 	path, _ := config.Path()
 	b.WriteString(ui.Faint.Render(path))
 	b.WriteByte('\n')
-	b.WriteString(ui.Dim.Render("↑↓ move · tab section · ←→ change · enter edit · esc close"))
+	switch {
+	case o.warned:
+		b.WriteString(ui.Yellow.Render("Unapplied options: r reloads agenda now, esc reverts them"))
+		b.WriteByte('\n')
+	case len(o.pending) > 0:
+		b.WriteString(ui.Yellow.Render(fmt.Sprintf("%d option(s) need a restart: r reloads agenda now", len(o.pending))))
+		b.WriteByte('\n')
+	}
+	hint := "↑↓ move · tab section · ←→ change · enter edit · esc close"
+	if len(o.pending) > 0 {
+		hint = "↑↓ move · tab section · ←→ change · enter edit · r reload · esc revert"
+	}
+	b.WriteString(ui.Dim.Render(hint))
 
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).

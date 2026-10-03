@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -98,7 +99,21 @@ func main() {
 	}
 
 	p := tea.NewProgram(tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial))
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err == nil {
+		if m, ok := final.(tui.Model); ok && m.Restart() {
+			// The settings overlay asked for a reload. Exec rather than
+			// loop: it is a full restart, so every option takes effect the
+			// way it would after quitting and running agenda again.
+			exe, err := os.Executable()
+			if err == nil {
+				err = syscall.Exec(exe, os.Args, os.Environ())
+			}
+			fmt.Fprintln(os.Stderr, "reload failed:", err)
+			os.Exit(1)
+		}
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "agenda:", err)
 		os.Exit(1)
 	}
