@@ -1728,11 +1728,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Review) && (v.reviewsOnly || v.reviewsElsewhere):
 			// Not silent: someone who bound the key will press it and
 			// expect something to happen.
-			body := "This tab is the review section."
-			if v.reviewsElsewhere {
-				body = "The Reviews tab owns review requests."
+			return func() tea.Msg {
+				return ui.ToastMsg{Title: "Review requests", Body: "Toggle disabled while 'Reviews' view is active"}
 			}
-			return func() tea.Msg { return ui.ToastMsg{Title: "Review requests", Body: body} }
 		case key.Matches(msg, v.keys.Review):
 			v.showReview = !v.showReview
 			v.applySort()
@@ -2553,28 +2551,22 @@ func (v *View) applySort() {
 		}
 	}
 
-	// A lone section stays bandless, as it always has: a header costs two
-	// rows to say what the whole screen already is. The query goes with a
-	// band, so a single-section list simply has none.
-	if !v.showReview || (len(rev) == 0 && v.reviewErr == nil) {
-		v.list.SetItems(v.groupSection(mine))
-		return
-	}
-	if len(mine) == 0 && v.reviewErr == nil {
-		v.list.SetItems(v.groupSection(rev))
-		return
-	}
-
+	// Every section keeps its band, with the review section on or off and
+	// in the Reviews tab alike: the band is what says which list this is
+	// and which search produced it, and a header that comes and goes with
+	// the toggle leaves a bare list to be puzzled out.
 	var items []pr
-	if len(mine) > 0 {
+	if !v.reviewsOnly {
 		items = append(items, pr{Separator: v.bandWithQuery(
 			sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total),
 			v.cfg.Filter)})
 		items = append(items, v.groupSection(mine)...)
 	}
-	items = append(items, pr{Separator: v.bandWithQuery(
-		v.reviewLabel(rev), v.cfg.ReviewFilter)})
-	items = append(items, v.groupSection(rev)...)
+	if v.showReview {
+		items = append(items, pr{Separator: v.bandWithQuery(
+			v.reviewLabel(rev), v.cfg.ReviewFilter)})
+		items = append(items, v.groupSection(rev)...)
+	}
 	v.list.SetItems(items)
 }
 
@@ -2877,9 +2869,11 @@ func (v *View) statusText() string {
 			s = fmt.Sprintf("%d of %d PRs", len(v.raw), v.minePage.total)
 		}
 		if v.showReview && len(v.reviewRaw) > 0 {
-			s += fmt.Sprintf(" +%d to review", len(v.reviewRaw))
+			// Same shape as the Reviews tab's own line, so the two read alike.
 			if v.reviewPage.total > len(v.reviewRaw) {
-				s += fmt.Sprintf(" of %d", v.reviewPage.total)
+				s += fmt.Sprintf(" · %d of %d to review", len(v.reviewRaw), v.reviewPage.total)
+			} else {
+				s += fmt.Sprintf(" · %d to review", len(v.reviewRaw))
 			}
 		}
 		return fmt.Sprintf("%s · sort: %s%s", s, sortName[v.sort], ui.RevMarker(v.rev))

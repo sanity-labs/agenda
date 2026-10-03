@@ -41,25 +41,27 @@ func TestApplySortBuildsReviewSection(t *testing.T) {
 		t.Errorf("first selection = %q, want the newest own PR", v.list.Selected().Title)
 	}
 
-	// Toggled off, the review section disappears entirely.
+	// Toggled off, the review section goes but the own band stays: it is
+	// what names the list and shows the search behind it.
 	v.showReview = false
 	v.applySort()
-	if got := v.list.Total(); got != 2 {
-		t.Errorf("Total after toggle = %d, want 2", got)
+	if got := v.list.Total(); got != 3 {
+		t.Errorf("Total after toggle = %d, want the own band + 2", got)
 	}
 
-	// No review PRs: no dangling separator, and with only one section left
-	// no bands either.
+	// No review PRs yet: the band still stands, counting zero, so the
+	// section is visibly there and empty rather than silently absent.
 	v.showReview, v.reviewRaw = true, nil
 	v.applySort()
-	if v.list.Any(func(p pr) bool { return p.Separator != "" }) {
-		t.Error("band rendered with an empty review section")
+	if !v.list.Any(func(p pr) bool { return strings.HasPrefix(p.Separator, "REVIEW REQUESTED") }) {
+		t.Error("no review band with an empty review section")
 	}
 }
 
-// A band earns its two rows only by telling the sections apart, so a list
-// that holds just one section stays flat.
-func TestSingleSectionRendersNoBands(t *testing.T) {
+// Every section keeps its band whatever the other holds: the band names
+// the list and carries its search, so a header that came and went with the
+// toggle left a bare list to be puzzled out.
+func TestEverySectionKeepsItsBand(t *testing.T) {
 	mine := []pr{mkPR("u1", "mine", time.Hour)}
 	theirs := []pr{mkPR("u2", "theirs", time.Hour)}
 	cases := []struct {
@@ -68,9 +70,9 @@ func TestSingleSectionRendersNoBands(t *testing.T) {
 		showReview bool
 		wantBands  int
 	}{
-		{"own PRs only, toggle off", mine, theirs, false, 0},
-		{"own PRs only, empty review", mine, nil, true, 0},
-		{"review only, no own PRs", nil, theirs, true, 0},
+		{"own PRs only, toggle off", mine, theirs, false, 1},
+		{"own PRs only, empty review", mine, nil, true, 2},
+		{"review only, no own PRs", nil, theirs, true, 2},
 		{"both sections", mine, theirs, true, 2},
 	}
 	for _, c := range cases {
@@ -88,7 +90,11 @@ func TestSingleSectionRendersNoBands(t *testing.T) {
 			if bands != c.wantBands {
 				t.Errorf("bands = %d, want %d", bands, c.wantBands)
 			}
-			if got, want := v.list.Total(), len(c.mine)+len(c.rev)+c.wantBands; c.showReview && got != want {
+			rev := c.rev
+			if !c.showReview {
+				rev = nil
+			}
+			if got, want := v.list.Total(), len(c.mine)+len(rev)+c.wantBands; got != want {
 				t.Errorf("rows = %d, want %d", got, want)
 			}
 		})
@@ -107,8 +113,8 @@ func TestReviewFetchErrorAlwaysBanded(t *testing.T) {
 			bands = append(bands, p.Separator)
 		}
 	}
-	if len(bands) != 1 || !strings.Contains(bands[0], "fetch failed") {
-		t.Errorf("bands = %v, want one reporting the failed fetch", bands)
+	if len(bands) != 2 || !strings.Contains(bands[1], "fetch failed") {
+		t.Errorf("bands = %v, want the review band reporting the failed fetch", bands)
 	}
 }
 

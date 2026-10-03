@@ -38,8 +38,11 @@ func TestReviewsViewListsOnlyReviewRequests(t *testing.T) {
 	if v.Loading() {
 		t.Error("still loading after the review search landed: the own-PR search never runs here")
 	}
-	if got := v.list.Total(); got != 2 {
-		t.Fatalf("rows = %d, want the 2 review requests with no section band", got)
+	if got := v.list.Total(); got != 3 {
+		t.Fatalf("rows = %d, want the review band + 2 review requests", got)
+	}
+	if band := v.list.Items()[0]; !strings.HasPrefix(band.Separator, "REVIEW REQUESTED") {
+		t.Errorf("the tab does not lead with its band: %q", band.Separator)
 	}
 	if v.list.Selected().Title != "theirs-new" {
 		t.Errorf("selection = %q, want the newest review request", v.list.Selected().Title)

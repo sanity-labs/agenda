@@ -1524,7 +1524,7 @@ func tabIcon(title string) string {
 	case "PRs":
 		return ui.Glyph(ui.IconTabPRs, "")
 	case "Reviews":
-		return ui.Glyph(ui.IconReviewReq, "")
+		return ui.Glyph(ui.IconTabReviews, "")
 	case "Sessions":
 		return ui.Glyph(ui.IconTabSessions, "")
 	case "Linear":
