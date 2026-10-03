@@ -14,7 +14,7 @@ func restartRow(t *testing.T, o *configOverlay, path string) *setting {
 	t.Helper()
 	for i := range o.rows {
 		if o.rows[i].path == path {
-			if o.rows[i].note != "restart" {
+			if o.rows[i].note != noteReload {
 				t.Fatalf("%s is not a restart row", path)
 			}
 			return &o.rows[i]
@@ -48,9 +48,18 @@ func TestRestartRowsWarnThenRevert(t *testing.T) {
 	if m.settings == nil {
 		t.Fatal("the first esc closed the overlay without warning")
 	}
-	if view := ansi.Strip(m.settings.View(m.cfg)); !strings.Contains(view, "Unapplied") {
-		t.Errorf("the first esc did not warn:\n%s", view)
+	view := ansi.Strip(m.settings.View(m.cfg))
+	if !strings.Contains(view, "unapplied option") || strings.Contains(view, "tab section") {
+		t.Errorf("the first esc did not collapse the panel to the warning box:\n%s", view)
 	}
+	// Any other key goes back to the panel; esc again is what reverts.
+	got, _ = m.Update(special(tea.KeyDown))
+	m = got.(Model)
+	if m.settings == nil || m.settings.warned {
+		t.Fatal("a stray key did not return to the panel")
+	}
+	got, _ = m.Update(special(tea.KeyEscape))
+	m = got.(Model)
 
 	got, _ = m.Update(special(tea.KeyEscape))
 	m = got.(Model)
