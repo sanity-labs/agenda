@@ -73,7 +73,7 @@ func (v *View) updateFilterEdit(msg tea.KeyMsg) tea.Cmd {
 		}
 		v.loading = true
 		v.applySort()
-		return tryFilter(path, q, prev)
+		return tryFilter(v, path, q, prev)
 	case "backspace":
 		if f.query != "" {
 			f.query = f.query[:len(f.query)-1]
@@ -104,6 +104,7 @@ func (v *View) filterPromptLine() string {
 // what the same search returns without its author terms: a query that is
 // empty only because of an author is a name GitHub could not resolve.
 type filterTriedMsg struct {
+	from              *View
 	path, query, prev string
 	got, without      int
 	err               error
@@ -116,10 +117,10 @@ var authorTermRe = regexp.MustCompile(`(?i)-?author:\S+`)
 // tryFilter runs an edited query, and when it comes back empty runs it
 // again without its author terms to tell "nothing matches" apart from "no
 // such author". Only the first page, since the count is all this needs.
-func tryFilter(path, q, prev string) tea.Cmd {
+func tryFilter(from *View, path, q, prev string) tea.Cmd {
 	return func() tea.Msg {
 		page, err, _ := searchPRs(ensurePR(q), 1, "")
-		msg := filterTriedMsg{path: path, query: q, prev: prev,
+		msg := filterTriedMsg{from: from, path: path, query: q, prev: prev,
 			got: page.total, err: err}
 		if err != nil || page.total > 0 || !authorTermRe.MatchString(q) {
 			return msg

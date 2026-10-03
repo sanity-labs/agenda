@@ -738,7 +738,10 @@ type View struct {
 }
 
 // settleMsg fires after navigation pauses; only the newest generation acts.
-type settleMsg struct{ gen int }
+type settleMsg struct {
+	from *View
+	gen  int
+}
 
 // scheduleSettle arms the debounce while a data pane is showing.
 func (v *View) scheduleSettle() tea.Cmd {
@@ -747,7 +750,7 @@ func (v *View) scheduleSettle() tea.Cmd {
 	}
 	v.settleGen++
 	gen := v.settleGen
-	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return settleMsg{gen: gen} })
+	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return settleMsg{from: v, gen: gen} })
 }
 
 // paneMode selects the right pane's content for the selected PR.
@@ -925,7 +928,13 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 	v.nav = newNavKeys(km)
 
 	// Paint last run's PRs immediately; the live fetch refreshes them.
-	if cached, ok := cache.Load[cachedPRs](v.cacheName()); ok && len(cached.Mine)+len(cached.Review) > 0 {
+	cached, ok := cache.Load[cachedPRs](v.cacheName())
+	if reviewsOnly {
+		// Own PRs have no place here whatever an earlier run wrote: the
+		// tab never fetches them, so a stale row would never be replaced.
+		cached.Mine = nil
+	}
+	if ok && len(cached.Mine)+len(cached.Review) > 0 {
 		v.raw, v.reviewRaw = cached.Mine, cached.Review
 		v.seeded, v.mineSeeded = true, true
 		if len(cached.Unread) > 0 {
@@ -972,6 +981,14 @@ func (v *View) DelegateReviews() *View {
 	v.showReview = false
 	return v
 }
+
+// foreign reports a message another PR tab's command produced. The root
+// model broadcasts data messages to every view and the PRs and Reviews tabs
+// are the same type, so each would otherwise act on the other's results:
+// take its rows, show its flash, close its popup, refetch on its filter
+// trial. Shared caches keyed by PR URL are left to flow; nil means local,
+// which is what tests send.
+func (v *View) foreign(from *View) bool { return from != nil && from != v }
 
 func (v *View) cacheName() string {
 	if v.reviewsOnly {
@@ -1260,8 +1277,8 @@ func (v *View) fetchMore() tea.Cmd {
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case mineMsg:
-		if msg.from != nil && msg.from != v {
-			return nil // another PR tab's search
+		if v.foreign(msg.from) {
+			return nil
 		}
 		v.loading = false
 		v.minePage.loading = false
@@ -1297,8 +1314,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.saveCache()
 		return partial
 	case reviewListMsg:
-		if msg.from != nil && msg.from != v {
-			return nil // another PR tab's search
+		if v.foreign(msg.from) {
+			return nil
 		}
 		v.reviewLoading = false
 		v.reviewPage.loading = false
@@ -1349,6 +1366,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
 		return nil
 	case settleMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		if msg.gen != v.settleGen {
 			return nil // superseded by further navigation
 		}
@@ -1358,6 +1378,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case jobsMsg:
 		return v.applyJobs(msg)
 	case jobsTickMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		// Superseded, or the cursor moved on: the watch follows the PR in
 		// front of you and stops when you leave it.
 		if msg.gen != v.jobsGen || msg.url != v.list.Selected().URL {
@@ -1365,8 +1388,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		return v.maybeFetchJobs()
 	case rerunDoneMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		return v.applyRerun(msg)
 	case rowSettleMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		// Superseded, or the cursor moved on: the row that asked for this
 		// is no longer the one in front of you.
 		if msg.gen != v.rowGen || msg.url != v.list.Selected().URL {
@@ -1381,6 +1410,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.bodyKey = "" // checks and review state render in the preview
 		return nil
 	case mergeDoneMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		v.review = nil
 		if msg.err != nil {
 			v.flash = ui.Red.Render("merge failed: " + msg.err.Error())
@@ -1392,6 +1424,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.resetToggles()
 		return tea.Batch(ui.ConcealPreview, v.fetch())
 	case reviewDoneMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		v.review = nil
 		if msg.err != nil {
 			v.flash = ui.Red.Render("review failed: " + msg.err.Error())
@@ -1471,6 +1506,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.applySort()
 		return nil
 	case filterTriedMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		if msg.badAuthor() {
 			// Put the filter back and say why, rather than persisting a
 			// query that empties the list: the editor would then be the
@@ -1839,6 +1877,7 @@ func (v *View) TakePreviewJump() (int, bool) {
 }
 
 type reviewDoneMsg struct {
+	from *View
 	what string
 	url  string
 	// state is the ViewerLatestReview state the verdict implies, applied
@@ -2098,6 +2137,7 @@ func (v *View) Overlay() string {
 
 // mergeDoneMsg reports the outcome of a merge.
 type mergeDoneMsg struct {
+	from *View
 	what string
 	url  string
 	// auto is set when this enabled auto-merge rather than merging now, so
@@ -2126,9 +2166,9 @@ func (v *View) submitMerge(auto bool) tea.Cmd {
 	url := r.url
 	return func() tea.Msg {
 		if out, err := exec.Command("gh", args...).CombinedOutput(); err != nil {
-			return mergeDoneMsg{err: ghErr(err, out), auto: auto}
+			return mergeDoneMsg{from: v, err: ghErr(err, out), auto: auto}
 		}
-		return mergeDoneMsg{what: what, url: url, auto: auto}
+		return mergeDoneMsg{from: v, what: what, url: url, auto: auto}
 	}
 }
 
@@ -2165,9 +2205,9 @@ func (v *View) submitReview(verdict string) tea.Cmd {
 	url := r.url
 	return func() tea.Msg {
 		if err := exec.Command("gh", args...).Run(); err != nil {
-			return reviewDoneMsg{err: cmdErr(err)}
+			return reviewDoneMsg{from: v, err: cmdErr(err)}
 		}
-		return reviewDoneMsg{what: what, url: url, state: state}
+		return reviewDoneMsg{from: v, what: what, url: url, state: state}
 	}
 }
 
@@ -2477,6 +2517,9 @@ func (v *View) maybeFetchDiff() tea.Cmd {
 // itself and so keeps its band regardless.
 func (v *View) applySort() {
 	mine := sortPRs(v.raw, v.sort, v.rev)
+	if v.reviewsOnly {
+		mine = nil // the review search is the whole list, whatever raw holds
+	}
 	rev := sortPRs(v.reviewRaw, v.sort, v.rev)
 	// An approved PR is waiting on its author, so hide it by default and
 	// let the toggle bring it back: an approval from someone else does not
@@ -2692,7 +2735,11 @@ func (v *View) markRead() {
 // saveCache rewrites the cache so a mark cleared (or earned) in this session
 // survives a restart. Cheap: one small JSON file, written atomically.
 func (v *View) saveCache() {
-	_ = cache.Save(v.cacheName(), cachedPRs{Mine: v.raw, Review: v.reviewRaw, Unread: v.unreadURLs()})
+	mine := v.raw
+	if v.reviewsOnly {
+		mine = nil
+	}
+	_ = cache.Save(v.cacheName(), cachedPRs{Mine: mine, Review: v.reviewRaw, Unread: v.unreadURLs()})
 }
 
 // notifyNewReviews posts a notification for review requests that appeared

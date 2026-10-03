@@ -11,8 +11,9 @@ import (
 // row under the cursor. Generation-stamped like settleMsg: cycling through
 // a list supersedes every earlier tick, so twenty rows cost one request.
 type rowSettleMsg struct {
-	gen int
-	url string
+	from *View
+	gen  int
+	url  string
 }
 
 // rowFreshMsg carries a re-read of one PR.
@@ -40,7 +41,7 @@ func (v *View) scheduleRowRefresh() tea.Cmd {
 	v.rowGen++
 	gen := v.rowGen
 	return tea.Tick(rowSettleDelay, func(time.Time) tea.Msg {
-		return rowSettleMsg{gen: gen, url: url}
+		return rowSettleMsg{from: v, gen: gen, url: url}
 	})
 }
 

@@ -190,8 +190,9 @@ type jobsMsg struct {
 
 // jobsTickMsg drives the watch; only the newest generation acts.
 type jobsTickMsg struct {
-	url string
-	gen int
+	from *View
+	url  string
+	gen  int
 }
 
 // jobsQuery reads the head commit's checks. Steps come along for every check
@@ -559,7 +560,7 @@ func (v *View) applyJobs(msg jobsMsg) tea.Cmd {
 func (v *View) scheduleJobsWatch(url string, after time.Duration) tea.Cmd {
 	v.jobsGen++
 	gen := v.jobsGen
-	return tea.Tick(after, func(time.Time) tea.Msg { return jobsTickMsg{url: url, gen: gen} })
+	return tea.Tick(after, func(time.Time) tea.Msg { return jobsTickMsg{from: v, url: url, gen: gen} })
 }
 
 // selectedJobs is the jobs state for the selected PR, nil when none is loaded.
@@ -1315,6 +1316,7 @@ type rerunOption struct {
 }
 
 type rerunDoneMsg struct {
+	from *View
 	url  string
 	what string
 	err  error
@@ -1454,10 +1456,10 @@ func (v *View) activateRerun(o rerunOption) tea.Cmd {
 	return func() tea.Msg {
 		for _, a := range args {
 			if out, err := ghCombined(a...); err != nil {
-				return rerunDoneMsg{url: url, err: ghErr(err, out)}
+				return rerunDoneMsg{from: v, url: url, err: ghErr(err, out)}
 			}
 		}
-		return rerunDoneMsg{url: url, what: what}
+		return rerunDoneMsg{from: v, url: url, what: what}
 	}
 }
 

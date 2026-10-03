@@ -1,10 +1,13 @@
 package prs
 
 import (
+	tea "charm.land/bubbletea/v2"
+
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
@@ -144,5 +147,63 @@ func TestListResultsStayWithTheirTab(t *testing.T) {
 	}
 	if len(own.raw) != 1 || len(rev.reviewRaw) != 1 {
 		t.Errorf("each tab should keep its own result: own=%d rev=%d", len(own.raw), len(rev.reviewRaw))
+	}
+}
+
+// A run of the broadcast bug wrote own PRs into the reviews cache. The tab
+// never fetches own PRs, so a stale cached row would otherwise outlive
+// every refresh: cached own rows are dropped on load and never written.
+func TestReviewsTabIgnoresCachedOwnPRs(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	stale := cachedPRs{
+		Mine:   []pr{{Number: 1, URL: "u1", Title: "mine", State: "OPEN"}},
+		Review: []pr{{Number: 2, URL: "u2", Title: "theirs", State: "OPEN"}},
+	}
+	if err := cache.Save("reviews", stale); err != nil {
+		t.Fatal(err)
+	}
+	v := NewReviews(config.GitHubConfig{}, nil, nil, nil)
+	if len(v.raw) != 0 {
+		t.Errorf("the Reviews tab loaded %d own PRs from the cache", len(v.raw))
+	}
+	if len(v.reviewRaw) != 1 {
+		t.Errorf("the Reviews tab lost its cached review requests: %d", len(v.reviewRaw))
+	}
+	v.raw = stale.Mine // however they get in
+	v.applySort()
+	for _, p := range v.list.Items() {
+		if p.URL == "u1" {
+			t.Error("an own PR rendered in the Reviews tab")
+		}
+	}
+	v.saveCache()
+	saved, _ := cache.Load[cachedPRs]("reviews")
+	if len(saved.Mine) != 0 {
+		t.Errorf("the Reviews tab wrote %d own PRs back to its cache", len(saved.Mine))
+	}
+}
+
+// Beyond list results, the other tab's review verdicts, merges and filter
+// trials stay with it: they would otherwise close this tab's popup, flash
+// here, and refetch on a filter this tab is not editing.
+func TestTabActionsStayWithTheirTab(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	own := New(config.GitHubConfig{}, nil, nil, nil)
+	rev := NewReviews(config.GitHubConfig{}, nil, nil, nil)
+	rev.review = &reviewFlow{url: "u2"}
+	for _, msg := range []tea.Msg{
+		reviewDoneMsg{from: own, url: "u1", what: "approved", state: "APPROVED"},
+		mergeDoneMsg{from: own, url: "u1", what: "merged"},
+		filterTriedMsg{from: own, path: "github.filter", query: "is:open", got: 3},
+	} {
+		if cmd := rev.Update(msg); cmd != nil {
+			t.Errorf("%T from the PRs tab made the Reviews tab act", msg)
+		}
+	}
+	if rev.flash != "" {
+		t.Errorf("the PRs tab's result flashed in the Reviews tab: %q", rev.flash)
+	}
+	if rev.review == nil {
+		t.Error("the PRs tab's verdict closed the Reviews tab's review popup")
 	}
 }
