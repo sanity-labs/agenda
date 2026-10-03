@@ -2,6 +2,7 @@ package prs
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"errors"
 	"strings"
@@ -139,3 +140,29 @@ func TestNotifyNewReviewsGating(t *testing.T) {
 type fakeNotifier struct{}
 
 func (fakeNotifier) Notify(title, body, _ string) tea.Msg { return nil }
+
+// The band shows the query as sent, not as typed: with the bot exclusions
+// on, the search carries terms the filter does not, and a band that hid
+// them would say the list is wider than it is.
+func TestReviewBandShowsTheEffectiveQuery(t *testing.T) {
+	v := &View{showReview: true, listW: 140}
+	v.list.SetRowHeight(2)
+	v.cfg.ReviewFilter = "review-requested:@me is:open"
+	v.cfg.HideDependencyBots = true
+	v.raw = []pr{mkPR("u1", "mine", time.Minute)}
+	v.reviewRaw = []pr{mkPR("u3", "theirs", time.Hour)}
+	v.applySort()
+
+	var band string
+	for _, p := range v.list.Items() {
+		if p.Separator != "" && strings.Contains(ansi.Strip(p.Separator), "REVIEW") {
+			band = p.Separator
+		}
+	}
+	if band == "" {
+		t.Fatal("no review band rendered")
+	}
+	if !strings.Contains(ansi.Strip(band), "-author:app/renovate") {
+		t.Errorf("the band hides the bot exclusion the search sends:\n%s", ansi.Strip(band))
+	}
+}

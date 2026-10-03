@@ -1237,7 +1237,7 @@ func (v *View) fetch() tea.Cmd {
 
 // fetchReview runs just the review-requested search.
 func (v *View) fetchReview() tea.Cmd {
-	rq := ensurePR(v.cfg.ReviewFilter)
+	rq := ensurePR(v.cfg.ReviewQuery())
 	size := v.pageSize()
 	v.reviewLoading = true
 	return func() tea.Msg {
@@ -1270,7 +1270,7 @@ func (v *View) fetchMore() tea.Cmd {
 	// when it is showing.
 	if v.showReview && v.reviewPage.hasMore && !v.reviewPage.loading {
 		v.reviewPage.loading = true
-		rq, cursor := ensurePR(v.cfg.ReviewFilter), v.reviewPage.cursor
+		rq, cursor := ensurePR(v.cfg.ReviewQuery()), v.reviewPage.cursor
 		return func() tea.Msg {
 			page, err, hidden := searchPRs(rq, size, cursor)
 			if err == nil {
@@ -2583,7 +2583,7 @@ func (v *View) applySort() {
 	}
 	if v.showReview {
 		items = append(items, pr{Separator: v.bandWithQuery(
-			v.reviewLabel(rev), v.cfg.ReviewFilter)})
+			v.reviewLabel(rev), v.cfg.ReviewQuery())})
 		items = append(items, v.groupSection(rev)...)
 	}
 	v.list.SetItems(items)

@@ -186,6 +186,11 @@ github:
   # else approving is no reason for you to stop looking. Merged PRs are
   # handled by review_filter's is:open, not by this.
   hide_approved: false
+  # Leave Renovate and Dependabot PRs out of the review-requested list. They
+  # are excluded in the search itself (-author:app/renovate
+  # -author:app/dependabot), so counts and paging only see the rest. Off by
+  # default: some teams do review them.
+  hide_dependency_bots: false
   # Re-read the selected PR once the cursor stops moving, so check state and
   # review decisions are current on the row you are about to act on rather
   # than as of the last full refresh. On by default: one request for a single
