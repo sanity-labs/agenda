@@ -962,18 +962,27 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// The nav pane toggle works regardless of focus; while the tree has
 		// focus it takes the navigation keys.
 		if key.Matches(msg, v.keys.Nav) {
-			v.navShown = !v.navShown
-			if !v.navShown {
-				v.navFocus = false
+			// ctrl+p is "take me to the tree": it shows the tree and puts the
+			// keys in it, or just focuses it when the tree is already up (a
+			// permanently-on tree included). Pressed with the tree focused,
+			// it hides the tree.
+			switch {
+			case !v.navShown:
+				v.navShown, v.navFocus = true, true
+			case !v.navFocus:
+				v.navFocus = true
+			default:
+				v.navShown, v.navFocus = false, false
 			}
 			// The tree is a different place to be: whatever pane was open
-			// closes and the list lights up, rather than three things
-			// competing for the arrows.
+			// closes rather than three things competing for the arrows.
 			var cmds []tea.Cmd
-			if v.floatReveal {
-				cmds = append(cmds, v.closeFloat())
-			} else {
-				v.showComments, v.commentsJumped, v.paneFocus = v.cfgShowComments, false, false
+			if v.navFocus {
+				if v.floatReveal {
+					cmds = append(cmds, v.closeFloat())
+				} else {
+					v.showComments, v.commentsJumped, v.paneFocus = v.cfgShowComments, false, false
+				}
 			}
 			v.resizeList()
 			if v.navShown && !v.favsLoaded {

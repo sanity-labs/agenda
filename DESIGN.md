@@ -101,8 +101,11 @@ levels as the PRs view (`v` is the description, `c` over it is level two,
 `←` steps down, `esc` closes). Beside a visible list three places can hold
 the keys, tree · list · pane, and `←` walks them right to left: a focused
 pane hands the keys to the list, and only the list hands them to the tree.
-Toggling the tree (`ctrl+p`) closes whatever pane or float is open, so it
-never becomes a fourth thing to arrow between. Stepping an open comments
+`ctrl+p` is "take me to the tree": it shows the tree and puts the keys in
+it, or just focuses it when it is already up (a permanently-on tree
+included); pressed with the tree focused, it hides it. Taking the keys
+there closes whatever pane or float is open, so the tree never becomes a
+fourth thing to arrow between. Stepping an open comments
 pane back to the description beside a list is `esc`. The two previews are headed alike (Description, Comments),
 and the comments hint is clickable in both.
 

@@ -267,8 +267,8 @@ func TestNavToggleClosesPanes(t *testing.T) {
 	if v.showComments || v.PaneFocused() {
 		t.Errorf("ctrl+p left comments=%v focused=%v", v.showComments, v.PaneFocused())
 	}
-	if !v.navShown {
-		t.Fatal("setup: ctrl+p did not show the tree")
+	if !v.navShown || !v.navFocus {
+		t.Fatalf("ctrl+p showed the tree without focusing it: shown=%v focus=%v", v.navShown, v.navFocus)
 	}
 
 	f := floatIssue(t, 0)
@@ -279,5 +279,22 @@ func TestNavToggleClosesPanes(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("ctrl+p over a float returned nothing to close it")
+	}
+}
+
+// ctrl+p is "take me to the tree": with the tree already up (a permanently
+// on tree, say) it moves the keys there rather than hiding it; pressed
+// again with the tree focused, it hides it and the list has the keys.
+func TestCtrlPFocusesAnOpenTree(t *testing.T) {
+	v := focusView(t)
+	v.navShown = true // as linear.nav: true leaves it
+	v.resizeList()
+	v.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	if !v.navShown || !v.navFocus {
+		t.Errorf("ctrl+p on an open tree: shown=%v focus=%v, want it focused", v.navShown, v.navFocus)
+	}
+	v.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	if v.navShown || v.navFocus {
+		t.Errorf("ctrl+p on a focused tree: shown=%v focus=%v, want it hidden", v.navShown, v.navFocus)
 	}
 }
