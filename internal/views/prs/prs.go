@@ -1460,6 +1460,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
 		return nil
+	case ui.ListJumpMsg:
+		v.list.SetJump(int(msg))
+		return nil
 	case ui.UnreadMsg:
 		// Display only: marks keep being recorded while this is off, so
 		// turning it on shows what arrived in the meantime.

@@ -218,6 +218,8 @@ func (m Model) Init() tea.Cmd {
 	if m.cfg.UnreadEnabled() {
 		cmds = append(cmds, func() tea.Msg { return ui.UnreadMsg(true) })
 	}
+	jump := m.cfg.ListJumpSize()
+	cmds = append(cmds, func() tea.Msg { return ui.ListJumpMsg(jump) })
 	if m.previewHidden {
 		cmds = append(cmds, func() tea.Msg { return ui.PreviewShownMsg(false) })
 	}
@@ -967,6 +969,9 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "toggles":
 		persist := m.cfg.TogglesPersist()
 		return func() tea.Msg { return ui.TogglesPersistMsg(persist) }
+	case path == "list_jump":
+		jump := m.cfg.ListJumpSize()
+		return func() tea.Msg { return ui.ListJumpMsg(jump) }
 	case path == "unread":
 		on := m.cfg.UnreadEnabled()
 		return func() tea.Msg { return ui.UnreadMsg(on) }

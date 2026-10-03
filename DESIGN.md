@@ -49,6 +49,10 @@ is the one the arrows will move.
   keys on the list and a pane open, it takes the pane back to the
   description. The configured pane is the floor and never closes, since it
   is the state you asked for.
+- **Jump keys.** `pgup`/`pgdn` and `shift+↑`/`shift+↓` move the list by
+  `list_jump` rows (5 by default). Once a pane has the keys the same keys
+  page it, so there is no separate "scroll the preview from the list" key
+  by default; `global.preview_*` stay bindable for anyone who wants one.
 - A **float takes the keys on open**, whatever opened it and whatever it
   holds, including a floated description. The list is behind it, so there
   is nothing else the arrows could belong to.

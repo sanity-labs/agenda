@@ -73,6 +73,8 @@ type List[T Item] struct {
 	caseSensitive bool
 
 	keys listKeys
+	// jump is the jump keys' step; 0 means DefaultListJump.
+	jump int
 
 	// selFirst/selN are where the selected item landed in the last View:
 	// its first line and line count (selN 0 when it was off screen).
@@ -80,8 +82,12 @@ type List[T Item] struct {
 }
 
 type listKeys struct {
-	Up, Down, Top, Bottom, HalfUp, HalfDown, Filter, Clear key.Binding
+	Up, Down, Top, Bottom, HalfUp, HalfDown, JumpUp, JumpDown, Filter, Clear key.Binding
 }
+
+// DefaultListJump is how many rows a jump key moves when config says
+// nothing: far enough to skim, near enough to keep your place.
+const DefaultListJump = 5
 
 func defaultListKeys() listKeys {
 	return listKeys{
@@ -91,6 +97,8 @@ func defaultListKeys() listKeys {
 		Bottom:   key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
 		HalfUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "½ page up")),
 		HalfDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "½ page down")),
+		JumpUp:   key.NewBinding(key.WithKeys("shift+up", "pgup"), key.WithHelp("⇧↑/pgup", "jump up")),
+		JumpDown: key.NewBinding(key.WithKeys("shift+down", "pgdown"), key.WithHelp("⇧↓/pgdn", "jump down")),
 		Filter:   key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		Clear:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "clear filter")),
 	}
@@ -115,9 +123,22 @@ func (l *List[T]) Rebind(of KeyResolver) {
 		Bottom:   bind("bottom", "G", "end"),
 		HalfUp:   bind("half_up", "ctrl+u"),
 		HalfDown: bind("half_down", "ctrl+d"),
+		JumpUp:   bind("jump_up", "shift+up", "pgup"),
+		JumpDown: bind("jump_down", "shift+down", "pgdown"),
 		Filter:   bind("quick_filter", "/"),
 		Clear:    bind("clear_filter", "esc"),
 	}
+}
+
+// SetJump sets how many rows the jump keys move; 0 or less restores the
+// default.
+func (l *List[T]) SetJump(n int) { l.jump = n }
+
+func (l *List[T]) jumpSize() int {
+	if l.jump <= 0 {
+		return DefaultListJump
+	}
+	return l.jump
 }
 
 // SetRowHeight declares how many lines each item's Render produces, so the
@@ -341,6 +362,10 @@ func (l *List[T]) Update(msg tea.Msg) (consumed bool, cmd tea.Cmd) {
 			l.move(-l.visibleItems() / 2)
 		case "ctrl+d":
 			l.move(l.visibleItems() / 2)
+		case "shift+up", "pgup":
+			l.move(-l.jumpSize())
+		case "shift+down", "pgdown":
+			l.move(l.jumpSize())
 		case "home":
 			l.cursor = 0
 		case "end":
@@ -369,6 +394,10 @@ func (l *List[T]) Update(msg tea.Msg) (consumed bool, cmd tea.Cmd) {
 		l.move(-l.visibleItems() / 2)
 	case key.Matches(km, l.keys.HalfDown):
 		l.move(l.visibleItems() / 2)
+	case key.Matches(km, l.keys.JumpUp):
+		l.move(-l.jumpSize())
+	case key.Matches(km, l.keys.JumpDown):
+		l.move(l.jumpSize())
 	case key.Matches(km, l.keys.Top):
 		l.cursor = 0
 	case key.Matches(km, l.keys.Bottom):

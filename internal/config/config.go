@@ -67,6 +67,11 @@ type Config struct {
 	// with no feasible grouping stay flat either way.
 	Grouping bool `yaml:"grouping"`
 
+	// ListJump is how many rows pgup/pgdn and shift+arrows move in a list.
+	// 5 when unset. The preview pane pages with the same keys once it has
+	// the keys (right arrow), so these are list keys.
+	ListJump int `yaml:"list_jump"`
+
 	// HidePreview starts with the preview (detail) pane hidden, leaving the
 	// list full-width — friendlier to narrow terminals. Off by default; the
 	// toggle_preview key (default "v") flips it at runtime either way.
@@ -451,6 +456,14 @@ func Load() (Config, error) {
 		cfg.Linear.Filter.Limit = 250
 	}
 	return cfg, nil
+}
+
+// ListJumpSize is the list jump step, defaulting to 5.
+func (c Config) ListJumpSize() int {
+	if c.ListJump <= 0 {
+		return 5
+	}
+	return c.ListJump
 }
 
 // SessionsEnabled reports whether the sessions view is on (default true).

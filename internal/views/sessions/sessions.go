@@ -331,6 +331,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case resumedMsg:
 		// Resuming likely appended new turns; rescan so order/age stay accurate.
 		return v.fetch()
+	case ui.ListJumpMsg:
+		v.list.SetJump(int(msg))
+		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applyView()

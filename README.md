@@ -166,7 +166,7 @@ the full keymap in-app.
 | Global | `/` | fuzzy filter (all fields) |
 | Global | `f` | field-scoped filter popup |
 | Global | `j`/`k`, `g`/`G`, `ctrl+d`/`ctrl+u` | navigate list |
-| Global | `shift+↑`/`shift+↓`, `PgUp`/`PgDn` | scroll preview |
+| List | `shift+↑`/`shift+↓`, `PgUp`/`PgDn` | jump 5 rows (`list_jump`); the same keys page a focused pane |
 | Global | `z` | zoom the preview pane to full width (tmux-style) |
 | Global | `v` | show/hide the preview pane (nav-only, for narrow terminals) |
 | Global | `l` | follow references — opens a picker of related items |
