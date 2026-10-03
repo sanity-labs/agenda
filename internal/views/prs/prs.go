@@ -2583,7 +2583,7 @@ func (v *View) applySort() {
 	}
 	if v.showReview {
 		items = append(items, pr{Separator: v.bandWithQuery(
-			v.reviewLabel(rev), v.cfg.ReviewFilter)})
+			v.reviewLabel(rev), v.cfg.ReviewQuery())})
 		items = append(items, v.groupSection(rev)...)
 	}
 	v.list.SetItems(items)
