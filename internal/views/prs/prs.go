@@ -572,6 +572,11 @@ func sortPRs(in []pr, mode sortMode, rev bool) []pr {
 // timeout, streams into its section later and fails on its own without
 // taking the tab down.
 type mineMsg struct {
+	// from is the view whose search this answers. The root model
+	// broadcasts data messages to every view, and the PRs and Reviews tabs
+	// are the same type, so each would otherwise take the other's rows.
+	// nil (tests) means mine.
+	from *View
 	page searchPage
 	err  error
 	// more marks a page fetched after the first, appended rather than
@@ -580,6 +585,7 @@ type mineMsg struct {
 }
 
 type reviewListMsg struct {
+	from *View
 	page searchPage
 	err  error
 	more bool
@@ -1179,7 +1185,7 @@ func (v *View) fetch() tea.Cmd {
 		if err == nil {
 			err = hidden
 		}
-		return mineMsg{page: page, err: err}
+		return mineMsg{from: v, page: page, err: err}
 	}}
 	// The review search only runs when something consumes it: the visible
 	// section, or review-request notifications. Otherwise the view does
@@ -1203,7 +1209,7 @@ func (v *View) fetchReview() tea.Cmd {
 		if err == nil {
 			err = hidden
 		}
-		return reviewListMsg{page: page, err: err}
+		return reviewListMsg{from: v, page: page, err: err}
 	}
 }
 
@@ -1234,7 +1240,7 @@ func (v *View) fetchMore() tea.Cmd {
 			if err == nil {
 				err = hidden
 			}
-			return reviewListMsg{page: page, err: err, more: true}
+			return reviewListMsg{from: v, page: page, err: err, more: true}
 		}
 	}
 	if v.minePage.hasMore && !v.minePage.loading {
@@ -1245,7 +1251,7 @@ func (v *View) fetchMore() tea.Cmd {
 			if err == nil {
 				err = hidden
 			}
-			return mineMsg{page: page, err: err, more: true}
+			return mineMsg{from: v, page: page, err: err, more: true}
 		}
 	}
 	return nil
@@ -1254,6 +1260,9 @@ func (v *View) fetchMore() tea.Cmd {
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case mineMsg:
+		if msg.from != nil && msg.from != v {
+			return nil // another PR tab's search
+		}
 		v.loading = false
 		v.minePage.loading = false
 		// A partly forbidden search returns rows and an error together, so
@@ -1288,6 +1297,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.saveCache()
 		return partial
 	case reviewListMsg:
+		if msg.from != nil && msg.from != v {
+			return nil // another PR tab's search
+		}
 		v.reviewLoading = false
 		v.reviewPage.loading = false
 		if msg.err != nil && len(msg.page.prs) == 0 {

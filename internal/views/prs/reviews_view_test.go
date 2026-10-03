@@ -121,3 +121,28 @@ func TestReviewsViewExplainsSectionToggle(t *testing.T) {
 		t.Error("'w' did not explain itself with a toast")
 	}
 }
+
+// The root model broadcasts data messages to every view, and both tabs are
+// this type. A search result stays with the tab that ran it: without this
+// the Reviews tab showed the PRs tab's own PRs, which is exactly the list
+// it exists to leave out.
+func TestListResultsStayWithTheirTab(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	own := New(config.GitHubConfig{}, nil, nil, nil)
+	rev := NewReviews(config.GitHubConfig{}, nil, nil, nil)
+	mine := mineMsg{from: own, page: searchPage{prs: []pr{{Number: 1, URL: "u1", Title: "mine", State: "OPEN"}}}}
+	theirs := reviewListMsg{from: rev, page: searchPage{prs: []pr{{Number: 2, URL: "u2", Title: "theirs", State: "OPEN"}}}}
+	for _, v := range []*View{own, rev} {
+		v.Update(mine)
+		v.Update(theirs)
+	}
+	if len(rev.raw) != 0 {
+		t.Errorf("the Reviews tab took the PRs tab's own PRs: %d rows", len(rev.raw))
+	}
+	if len(own.reviewRaw) != 0 {
+		t.Errorf("the PRs tab took the Reviews tab's results: %d rows", len(own.reviewRaw))
+	}
+	if len(own.raw) != 1 || len(rev.reviewRaw) != 1 {
+		t.Errorf("each tab should keep its own result: own=%d rev=%d", len(own.raw), len(rev.reviewRaw))
+	}
+}
