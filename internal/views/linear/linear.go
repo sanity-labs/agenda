@@ -525,6 +525,8 @@ type View struct {
 	// cleared per issue when you select it.
 	fresh    map[string]bool
 	unreadOn bool
+	// jump is the jump keys' step for the tree; the list keeps its own copy.
+	jump int
 	// floatReveal says the detail is a float over the list rather than a
 	// pane beside it; floatBase that the float was opened on the description
 	// with 'v', so comments toggled over it have a level to step back to.
@@ -934,7 +936,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.togglesPersist = bool(msg)
 		return nil
 	case ui.ListJumpMsg:
-		v.list.SetJump(int(msg))
+		v.jump = int(msg)
+		v.list.SetJump(v.jump)
 		return nil
 	case ui.UnreadMsg:
 		// Display only: marks keep being recorded while this is off.

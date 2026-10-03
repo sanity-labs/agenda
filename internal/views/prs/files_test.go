@@ -271,3 +271,29 @@ func TestThreadsOnlyShowWhereTheyAnchor(t *testing.T) {
 		t.Errorf("a thread showed on a line it is not anchored to:\n%s", out)
 	}
 }
+
+// Jump keys move the file cursor by list_jump files, skipping expanded
+// hunks like the arrows, and clamp at the ends.
+func TestJumpKeysMoveTheFileCursor(t *testing.T) {
+	files := make([]prFile, 12)
+	for i := range files {
+		files[i] = prFile{Filename: string(rune('a'+i)) + ".go", Additions: 1, Patch: "@@ -1 +1 @@\n+x"}
+	}
+	v := filesView(t, files...)
+	st := v.files["u"]
+	v.Update(tea.KeyPressMsg{Code: '+'}) // expand a.go: its hunk rows are not targets
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if name := st.files[st.rows()[st.sel].file].Filename; name != "f.go" {
+		t.Errorf("pgdn landed on %q, want f.go (5 files down)", name)
+	}
+	v.Update(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
+	v.Update(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
+	if name := st.files[st.rows()[st.sel].file].Filename; name != "l.go" {
+		t.Errorf("two shift+downs past the end landed on %q, want the last file", name)
+	}
+	v.Update(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
+	if name := st.files[st.rows()[st.sel].file].Filename; name != "g.go" {
+		t.Errorf("shift+up landed on %q, want g.go", name)
+	}
+}

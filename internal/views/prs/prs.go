@@ -637,6 +637,9 @@ type View struct {
 	// previewShown tracks whether the detail pane is on screen, which
 	// decides what marks a row read: hovering, or asking for the detail.
 	previewShown bool
+	// jump is the jump keys' step for the panes that hold their own cursor
+	// (jobs, files, the log); the list keeps its own copy.
+	jump int
 	// floatBase records that the float was opened on the description with
 	// 'v', so a pane toggled over it has a level to step back to.
 	floatBase bool
@@ -1461,7 +1464,8 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.togglesPersist = bool(msg)
 		return nil
 	case ui.ListJumpMsg:
-		v.list.SetJump(int(msg))
+		v.jump = int(msg)
+		v.list.SetJump(v.jump)
 		return nil
 	case ui.UnreadMsg:
 		// Display only: marks keep being recorded while this is off, so
@@ -2403,6 +2407,13 @@ func (v *View) maybeFetchFiles() tea.Cmd {
 	return fetchFiles(p.URL, p.repo(), p.Number)
 }
 
+func (v *View) jumpSize() int {
+	if v.jump <= 0 {
+		return ui.DefaultListJump
+	}
+	return v.jump
+}
+
 // updateFiles handles keys while the file list has the keys. Reports
 // whether it consumed the key, like the jobs pane.
 func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
@@ -2437,6 +2448,18 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 				return
 			}
 		}
+	}
+	// Jump keys move the file cursor like the arrows do, one file at a
+	// time so expanded hunks are skipped the same way.
+	if key.Matches(msg, v.nav.JumpUp) || key.Matches(msg, v.nav.JumpDown) {
+		d := 1
+		if key.Matches(msg, v.nav.JumpUp) {
+			d = -1
+		}
+		for range v.jumpSize() {
+			move(d)
+		}
+		return nil, true
 	}
 	cur := fileAt(st.sel)
 	if cur < 0 {

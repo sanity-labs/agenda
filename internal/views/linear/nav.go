@@ -167,6 +167,17 @@ func (v *View) updateNav(msg tea.KeyMsg) tea.Cmd {
 		v.navMove(-1)
 	case "down", "j":
 		v.navMove(1)
+	case "shift+up", "pgup", "shift+down", "pgdown":
+		// One row at a time so a jump near an edge lands on it rather
+		// than staying put, which is what navMove does for a step it
+		// cannot take whole.
+		d := 1
+		if msg.String() == "shift+up" || msg.String() == "pgup" {
+			d = -1
+		}
+		for range max(v.jump, 1) {
+			v.navMove(d)
+		}
 	case "right", "esc":
 		v.navFocus = false
 	case "enter":

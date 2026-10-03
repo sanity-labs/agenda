@@ -35,6 +35,7 @@ const (
 type Model struct {
 	cfg     config.Config
 	keys    globalKeys
+	jump    jumpKeys
 	theme   theme
 	views   []View
 	current int
@@ -143,6 +144,7 @@ func New(cfg config.Config, views []View) Model {
 	return Model{
 		cfg:           cfg,
 		keys:          newKeys(cfg.Keys),
+		jump:          newJumpKeys(cfg.Keys),
 		previewHidden: cfg.HidePreview,
 		theme:         defaultTheme(),
 		views:         views,
@@ -511,6 +513,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d := 1
 			if msg.String() == "up" {
 				d = -1
+			}
+			m.scrollPreview(d)
+			return m, nil
+		case m.paneFocused() && (key.Matches(msg, m.jump.Up) || key.Matches(msg, m.jump.Down)):
+			// The jump keys move whatever has the keys: list_jump rows of
+			// the list, list_jump lines of a focused pane.
+			d := m.cfg.ListJumpSize()
+			if key.Matches(msg, m.jump.Up) {
+				d = -d
 			}
 			m.scrollPreview(d)
 			return m, nil
@@ -912,6 +923,7 @@ func (m *Model) applyKeybind(change *keybindChange) {
 	}
 	if e.scope == "global" {
 		m.keys = newKeys(m.cfg.Keys)
+		m.jump = newJumpKeys(m.cfg.Keys)
 	}
 }
 

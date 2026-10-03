@@ -156,3 +156,45 @@ func TestTabSwitchUndimsTheNextView(t *testing.T) {
 		t.Error("the PRs list is still dimmed after switching to it")
 	}
 }
+
+// jumpPaneView is a tall, scrolling pane that always has the keys: what a
+// floated description looks like to the root model.
+type jumpPaneView struct{ tallView }
+
+func (v *jumpPaneView) PaneFocused() bool   { return true }
+func (v *jumpPaneView) FocusPane(bool) bool { return false }
+func (v *jumpPaneView) PaneScrolls() bool   { return true }
+
+// Jump keys move whatever has the keys. In a focused float they scroll the
+// pane by list_jump lines; before this the root let shift+arrows through to
+// the view, where the list moved, the selection changed and the float
+// closed from under you.
+func TestJumpKeysScrollAFocusedFloat(t *testing.T) {
+	cfg := config.Default()
+	cfg.HidePreview = true
+	v := &jumpPaneView{tallView{fatView: fatView{title: "PRs"}, lines: 80}}
+	m := New(cfg, []View{v})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	got, _ := m.Update(ui.RevealPreviewMsg{})
+	m = got.(Model)
+	if !m.floating() || !m.paneFocused() {
+		t.Fatalf("setup: float=%v paneFocused=%v", m.floating(), m.paneFocused())
+	}
+
+	got, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
+	m = got.(Model)
+	if m.previewScroll != cfg.ListJumpSize() {
+		t.Errorf("shift+down scrolled the float by %d, want %d", m.previewScroll, cfg.ListJumpSize())
+	}
+	got, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	m = got.(Model)
+	if m.previewScroll != 2*cfg.ListJumpSize() {
+		t.Errorf("pgdn scrolled the float to %d, want %d", m.previewScroll, 2*cfg.ListJumpSize())
+	}
+	got, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift})
+	m = got.(Model)
+	if m.previewScroll != cfg.ListJumpSize() || !m.floating() {
+		t.Errorf("shift+up: scroll=%d float=%v, want %d and still floating", m.previewScroll, m.floating(), cfg.ListJumpSize())
+	}
+}

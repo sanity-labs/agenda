@@ -26,6 +26,18 @@ type globalKeys struct {
 	PreviewPgDn   key.Binding
 }
 
+// jumpKeys are the list scope's jump bindings, resolved at the root as
+// well: a focused scrolling pane takes them before the list can, so they
+// move whatever has the keys, like the arrows do.
+type jumpKeys struct{ Up, Down key.Binding }
+
+func newJumpKeys(km config.Keymap) jumpKeys {
+	return jumpKeys{
+		Up:   ui.Bind(km.Of("list", "jump_up", "shift+up", "pgup"), "", ""),
+		Down: ui.Bind(km.Of("list", "jump_down", "shift+down", "pgdown"), "", ""),
+	}
+}
+
 // newKeys resolves the global bindings from config overrides (scope "global"),
 // falling back to the defaults.
 func newKeys(km config.Keymap) globalKeys {
