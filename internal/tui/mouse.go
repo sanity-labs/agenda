@@ -281,7 +281,13 @@ func (m Model) clickSettings(x, y int) (tea.Model, tea.Cmd) {
 	bx := max(0, (m.width-w)/2)
 	by := m.settings.TopY(m.cfg, m.height)
 	if x < bx || x >= bx+w || y < by || y >= by+h {
-		m.settings = nil // a click outside closes, like the other modals
+		// A click outside closes, like the other modals, unless something
+		// reload-required is pending: then it asks, as esc does.
+		if len(m.settings.pending) > 0 {
+			m.settings.warned = true
+			return m, nil
+		}
+		m.settings = nil
 		return m, nil
 	}
 	if t := m.settings.TabAt(bx, by, x, y); t >= 0 {

@@ -50,7 +50,7 @@ the conventions and the interaction rules.
 optional. [`config.example.yml`](./config.example.yml) documents every key.
 `ctrl+s` edits all of them in-app, grouped in tabs, and writes back to the
 file without touching your comments; it also has a keybind editor. Options
-marked `(restart)` offer `r` in the overlay to reload agenda in place;
+marked `(reload required)` offer `r` in the overlay to reload agenda in place;
 leaving without reloading warns once, and `esc` then reverts them.
 
 The one thing that needs setup is Linear:

@@ -716,7 +716,7 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 	if err := config.Set(change.s.path, change.fileValue(m.cfg)); err != nil {
 		m.settings.errMsg = err.Error()
 	}
-	if change.s.note == "restart" {
+	if change.s.note == noteReload {
 		m.settings.markPending(change.s, prev, change.s.get(m.cfg))
 	}
 	return m.applyConfigChange(change.s.path)
