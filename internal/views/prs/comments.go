@@ -311,6 +311,7 @@ type threadFlow struct {
 }
 
 type threadDoneMsg struct {
+	from *View
 	url  string
 	what string
 	err  error
@@ -331,7 +332,7 @@ const unresolveMutation = `mutation($thread: ID!) {
 }`
 
 // submitThreadReply posts a reply into an inline review thread.
-func submitThreadReply(url, threadID, body string) tea.Cmd {
+func submitThreadReply(from *View, url, threadID, body string) tea.Cmd {
 	return func() tea.Msg {
 		err := exec.Command("gh", "api", "graphql",
 			"-f", "query="+replyMutation,
@@ -339,25 +340,25 @@ func submitThreadReply(url, threadID, body string) tea.Cmd {
 			"-f", "body="+body,
 		).Run()
 		if err != nil {
-			return threadDoneMsg{url: url, err: cmdErr(err)}
+			return threadDoneMsg{from: from, url: url, err: cmdErr(err)}
 		}
-		return threadDoneMsg{url: url, what: "replied"}
+		return threadDoneMsg{from: from, url: url, what: "replied"}
 	}
 }
 
 // submitTopComment posts a top-level PR comment via gh pr comment.
-func submitTopComment(url, repo string, num int, body string) tea.Cmd {
+func submitTopComment(from *View, url, repo string, num int, body string) tea.Cmd {
 	return func() tea.Msg {
 		err := exec.Command("gh", "pr", "comment", strconv.Itoa(num), "-R", repo, "--body", body).Run()
 		if err != nil {
-			return threadDoneMsg{url: url, err: cmdErr(err)}
+			return threadDoneMsg{from: from, url: url, err: cmdErr(err)}
 		}
-		return threadDoneMsg{url: url, what: "commented"}
+		return threadDoneMsg{from: from, url: url, what: "commented"}
 	}
 }
 
 // toggleResolve resolves or unresolves an inline thread.
-func toggleResolve(url, threadID string, resolved bool) tea.Cmd {
+func toggleResolve(from *View, url, threadID string, resolved bool) tea.Cmd {
 	mutation := resolveMutation
 	what := "resolved thread"
 	if resolved {
@@ -370,9 +371,9 @@ func toggleResolve(url, threadID string, resolved bool) tea.Cmd {
 			"-f", "thread="+threadID,
 		).Run()
 		if err != nil {
-			return threadDoneMsg{url: url, err: cmdErr(err)}
+			return threadDoneMsg{from: from, url: url, err: cmdErr(err)}
 		}
-		return threadDoneMsg{url: url, what: what}
+		return threadDoneMsg{from: from, url: url, what: what}
 	}
 }
 
@@ -415,9 +416,9 @@ func (v *View) updateThreadInput(msg tea.KeyMsg) tea.Cmd {
 		f.submitting = true
 		p := v.list.Selected()
 		if f.kind == "reply" {
-			return submitThreadReply(p.URL, f.threadID, f.body)
+			return submitThreadReply(v, p.URL, f.threadID, f.body)
 		}
-		return submitTopComment(p.URL, p.repo(), p.Number, f.body)
+		return submitTopComment(v, p.URL, p.repo(), p.Number, f.body)
 	case "backspace":
 		if f.body != "" {
 			f.body = f.body[:len(f.body)-1]

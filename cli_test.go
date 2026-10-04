@@ -67,3 +67,20 @@ func TestViewCommandsHaveNoRunFunc(t *testing.T) {
 		}
 	}
 }
+
+// The zsh script is used two ways: autoloaded from fpath, where the file is
+// the function and must run itself, and sourced, where it must only define
+// the function (calling _arguments outside a completion errors). The guard
+// on the call is what makes both work; an unguarded call breaks sourcing.
+func TestZshCompletionOnlyDefinesWhenSourced(t *testing.T) {
+	script, _ := completionScript("zsh")
+	if !strings.Contains(script, `if [ "$funcstack[1]" = "_agenda" ]; then`) {
+		t.Error("the zsh script calls _agenda without checking it is being autoloaded")
+	}
+	if !strings.Contains(script, "compdef _agenda agenda") {
+		t.Error("the zsh script does not register itself for a sourced install")
+	}
+	if strings.Contains(script, "\n_agenda \"$@\"\n") {
+		t.Error("the zsh script still calls _agenda unguarded at top level")
+	}
+}

@@ -54,6 +54,7 @@ type pr struct {
 	IsDraft        bool      `json:"isDraft"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 	HeadRefName    string    `json:"headRefName"`
+	BaseRefName    string    `json:"baseRefName"`
 	Additions      int       `json:"additions"`
 	Deletions      int       `json:"deletions"`
 	Mergeable      string    `json:"mergeable"`
@@ -419,23 +420,10 @@ var sortName = map[sortMode]string{
 // sortByName resolves a configured sort name to its mode. An unknown name
 // falls back to the default rather than failing: a typo in the config
 // should not stop the view opening.
-func sortByName(name string) (sortMode, bool) {
-	for mode, n := range sortName {
-		if n == name {
-			return mode, true
-		}
-	}
-	return sortRecent, false
-}
+func sortByName(name string) (sortMode, bool) { return ui.SortByName(sortName, sortRecent, name) }
 
 // SortNames lists the sorts this view accepts, for the settings overlay.
-func SortNames() []string {
-	out := make([]string, 0, len(sortOrder))
-	for _, mode := range sortOrder {
-		out = append(out, sortName[mode])
-	}
-	return out
-}
+func SortNames() []string { return ui.SortNames(sortOrder, sortName) }
 
 func groupLabelFn(mode sortMode) func(pr) string {
 	switch mode {
@@ -650,6 +638,13 @@ type View struct {
 	// previewShown tracks whether the detail pane is on screen, which
 	// decides what marks a row read: hovering, or asking for the detail.
 	previewShown bool
+	// jump is the jump keys' step for the panes that hold their own cursor
+	// (jobs, files, the log); the list keeps its own copy.
+	jump int
+	// vpOffset and vpRows are the preview lines on screen as of the last
+	// render, from the root model, so the file list can tell whether the
+	// next file is visible before moving to it.
+	vpOffset, vpRows int
 	// floatBase records that the float was opened on the description with
 	// 'v', so a pane toggled over it has a level to step back to.
 	floatBase bool
@@ -1046,7 +1041,7 @@ const graphqlQuery = `query($q: String!, $n: Int!, $after: String) {
   }
 }
 fragment prFields on PullRequest {
-  number title url state isDraft updatedAt headRefName
+  number title url state isDraft updatedAt headRefName baseRefName
   additions deletions mergeable reviewDecision body
   viewerLatestReview { state }
   author { login }
@@ -1382,7 +1377,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case diffMsg:
-		v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
+		// Only a diff this tab asked for: the message reaches every PR tab,
+		// and one that never fetched has no map to write into.
+		if _, started := v.diffs[msg.url]; started {
+			v.diffs[msg.url] = diffState{text: msg.text, err: msg.err, done: true}
+		}
 		return nil
 	case settleMsg:
 		if v.foreign(msg.from) {
@@ -1473,11 +1472,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
 		return nil
+	case ui.ListJumpMsg:
+		v.jump = int(msg)
+		v.list.SetJump(v.jump)
+		return nil
 	case ui.UnreadMsg:
+		// Display only: marks keep being recorded while this is off, so
+		// turning it on shows what arrived in the meantime.
 		v.unreadOn = bool(msg)
-		if !v.unreadOn {
-			v.unread = nil
-		}
 		v.applySort()
 		return nil
 	case ui.UnreadSyncMsg:
@@ -1554,6 +1556,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.fetch(),
 		)
 	case threadDoneMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
 		v.input = nil
 		if msg.err != nil {
 			v.flash = ui.Red.Render("failed: " + msg.err.Error())
@@ -1728,7 +1733,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		case key.Matches(msg, v.keys.Resolve):
 			if t, ok := v.currentThread(); ok {
-				return toggleResolve(v.list.Selected().URL, t.ID, t.IsResolved)
+				return toggleResolve(v, v.list.Selected().URL, t.ID, t.IsResolved)
 			}
 			return nil
 		case key.Matches(msg, v.keys.TopComment):
@@ -2414,6 +2419,36 @@ func (v *View) maybeFetchFiles() tea.Cmd {
 	return fetchFiles(p.URL, p.repo(), p.Number)
 }
 
+// SetPreviewViewport is the root model's note of what the preview shows.
+func (v *View) SetPreviewViewport(offset, rows int) { v.vpOffset, v.vpRows = offset, rows }
+
+// fileRowVisible reports whether a file-list row was on screen in the last
+// frame. With nothing known yet it says yes, so the keys are never trapped.
+func (v *View) fileRowVisible(st *filesState, row int) bool {
+	if row < 0 || row >= len(st.rowLine) || v.vpRows <= 0 {
+		return true
+	}
+	line := v.paneHeader + st.rowLine[row]
+	return line >= v.vpOffset && line < v.vpOffset+v.vpRows
+}
+
+// showFileRow asks the root model to scroll the selected file into view
+// when it is not, a third of the way down so the lines under it show too.
+func (v *View) showFileRow(st *filesState) {
+	if st.sel < 0 || st.sel >= len(st.rowLine) || v.fileRowVisible(st, st.sel) {
+		return
+	}
+	l := max(0, v.paneHeader+st.rowLine[st.sel]-v.vpRows/3)
+	v.pendingJump = &l
+}
+
+func (v *View) jumpSize() int {
+	if v.jump <= 0 {
+		return ui.DefaultListJump
+	}
+	return v.jump
+}
+
 // updateFiles handles keys while the file list has the keys. Reports
 // whether it consumed the key, like the jobs pane.
 func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
@@ -2449,6 +2484,36 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 			}
 		}
 	}
+	// Jump keys scroll the pane and never move the cursor: inside a diff
+	// taller than the pane they are how you read it, and the files are
+	// reached with the plain arrows.
+	if key.Matches(msg, v.nav.JumpUp) || key.Matches(msg, v.nav.JumpDown) {
+		d := v.jumpSize()
+		if key.Matches(msg, v.nav.JumpUp) {
+			d = -d
+		}
+		v.scrollBy += d
+		return nil, true
+	}
+	// nextFile is the file row in direction d, or -1 at the end.
+	nextFile := func(d int) int {
+		for i := st.sel + d; i >= 0 && i < len(rows); i += d {
+			if rows[i].patch == "" {
+				return i
+			}
+		}
+		return -1
+	}
+	// step is the arrows' contextual move: to the neighbouring file when
+	// it is on screen, otherwise a line of scroll, so an expanded diff
+	// taller than the pane can be read without the cursor leaving it.
+	step := func(d int) {
+		if t := nextFile(d); t >= 0 && v.fileRowVisible(st, t) {
+			st.sel = t
+			return
+		}
+		v.scrollBy += d
+	}
 	cur := fileAt(st.sel)
 	if cur < 0 {
 		cur = fileAt(0)
@@ -2460,9 +2525,9 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 
 	switch msg.String() {
 	case "up", "k":
-		move(-1)
+		step(-1)
 	case "down", "j":
-		move(1)
+		step(1)
 	case "+", "right", "l":
 		if name != "" && !st.open[name] {
 			st.open[name] = true
@@ -2490,6 +2555,7 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 			st.reviewed[name] = !st.reviewed[name]
 			if st.reviewed[name] {
 				move(1)
+				v.showFileRow(st) // the next file may be below a tall diff
 			}
 		}
 	default:
@@ -2564,7 +2630,7 @@ func (v *View) applySort() {
 	labels := !v.previewShown && v.listW >= labelColMinWidth
 	for _, set := range [][]pr{mine, rev} {
 		for i := range set {
-			set[i].Unread = v.unread[set[i].URL]
+			set[i].Unread = v.unreadOn && v.unread[set[i].URL]
 			set[i].UnreadGutter = v.unreadOn
 			set[i].ShowLabels = labels
 		}
@@ -2685,12 +2751,13 @@ func (v *View) groupSection(items []pr) []pr {
 }
 
 // markUnread records rows that were not in the previous set. It runs whether
-// or not notifications are on: the mark is how you catch up on what arrived
-// while you were not looking, which is exactly when a notification is missed.
+// or not notifications or the marks themselves are on: the mark is how you
+// catch up on what arrived while you were not looking, and the toggle only
+// decides whether it is drawn.
 func (v *View) markUnread(prev, next []pr, seeded bool) {
 	// The first load of a section is everything, not "new": marking it
 	// would light up the whole list on startup.
-	if !v.unreadOn || !seeded {
+	if !seeded {
 		return
 	}
 	known := make(map[string]bool, len(prev))
@@ -2734,13 +2801,6 @@ func (v *View) drainSync() tea.Cmd {
 	cmds := v.syncPending
 	v.syncPending = nil
 	return tea.Batch(cmds...)
-}
-
-// markRead clears the selected row's mark when the preview is off and you
-// asked for the detail explicitly. Hovering is enough only while the detail
-// is on screen; with it hidden, a row you never opened is not read.
-func (v *View) markRead() {
-	v.clearUnread()
 }
 
 // saveCache rewrites the cache so a mark cleared (or earned) in this session
@@ -2909,29 +2969,38 @@ func (v *View) PreviewView() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(ui.Bold.Width(v.prevW).Render(p.Title))
-	b.WriteString("\n")
+	// The same order as the list row: metadata over the title.
 	b.WriteString(ui.Dim.Render(fmt.Sprintf("%s #%d  ·  @%s  ·  %s ago",
 		p.repo(), p.Number, p.Author.Login, ui.Age(p.UpdatedAt))))
+	b.WriteString("\n")
+	b.WriteString(ui.Bold.Width(v.prevW).Render(p.Title))
 	b.WriteString("\n\n")
 
-	// Status line: state · CI · review · diff · comments.
-	fmt.Fprintf(&b, "%s %s   %s %s   %s %s\n",
-		p.stateIcon(), stateWord(p), p.ciIcon(), ciWord(p), p.reviewIcon(), reviewWord(p))
-	if d := p.diffCell(); d != "" {
-		b.WriteString(d)
-		b.WriteString("   ")
-	}
-	if c := p.commentsCell(); c != "" {
-		b.WriteString(c)
+	// What the PR is: state, where it is going, whether it can get there.
+	status := p.stateIcon() + " " + stateWord(p)
+	if p.BaseRefName != "" && p.HeadRefName != "" {
+		status += ui.Dim.Render("  ·  ") + ui.Faint.Italic(true).Render(p.BaseRefName+" ← "+p.HeadRefName)
 	}
 	if p.Mergeable == "CONFLICTING" {
-		b.WriteString("   ")
-		b.WriteString(ui.Red.Render("⚠ conflicts"))
+		status += ui.Dim.Render("  ·  ") + ui.Red.Render("⚠ conflicts")
 	}
+	b.WriteString(status)
+	b.WriteString("\n")
+	// How it is doing: checks and review, with the diff and comment counts
+	// at the right edge.
+	health := fmt.Sprintf("%s %s   %s %s", p.ciIcon(), ciWord(p), p.reviewIcon(), reviewWord(p))
+	var counts []string
+	if d := p.diffCell(); d != "" {
+		counts = append(counts, d)
+	}
+	if c := p.commentsCell(); c != "" {
+		counts = append(counts, c)
+	}
+	b.WriteString(rightAligned(health, strings.Join(counts, "  "), v.prevW))
 	b.WriteString("\n")
 
 	if pills := labelPills(p.Labels.Nodes); pills != "" {
+		b.WriteByte('\n')
 		b.WriteString(pills)
 		b.WriteByte('\n')
 	}
@@ -2955,12 +3024,12 @@ func (v *View) PreviewView() string {
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
 		// comments) staying bare because they are already the detail.
-		b.WriteString(blockHeader("Description"))
+		b.WriteString(ui.BlockHeader("Description"))
 		b.WriteString("\n")
 		b.WriteString(v.renderedBody(p))
 		if blk := v.checksBlock(p); blk != "" {
 			b.WriteString("\n\n")
-			b.WriteString(blockHeader("Checks"))
+			b.WriteString(ui.BlockHeader("Checks"))
 			b.WriteString("\n")
 			b.WriteString(blk)
 			if _, _, _, total := p.checkCounts(); total > 0 {
@@ -2976,12 +3045,6 @@ func (v *View) PreviewView() string {
 
 // blockHeader labels a preview section. One style for all of them, so the
 // pane reads as a list of sections rather than three unrelated widgets.
-func blockHeader(name string) string {
-	// Glyph gated like the other decorative icons, so a plain-font setup
-	// gets the label without a tofu box.
-	return ui.Dim.Render(ui.Glyph(ui.IconSection, "") + name)
-}
-
 // checksBlock is the bordered CI summary: what is blocking the merge, and how
 // the checks are doing. Bordered in the colour of the worst state, so a
 // glance at the frame says whether anything needs attention.
@@ -3038,7 +3101,7 @@ func (v *View) checksBlock(p pr) string {
 // commentsBlock closes the summary with whether there is a conversation to
 // read, and which key opens it.
 func (v *View) commentsBlock(p pr) string {
-	head := blockHeader("Comments")
+	head := ui.BlockHeader("Comments")
 	if p.Comments.TotalCount == 0 {
 		return head + "\n" + ui.Faint.Render("  none yet")
 	}
@@ -3175,6 +3238,19 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 		return v.setPane(paneJobs)
 	}
 	return nil
+}
+
+// rightAligned puts right at the far edge of a width-wide line after left,
+// or on the next line when the two do not fit side by side.
+func rightAligned(left, right string, width int) string {
+	if right == "" {
+		return left
+	}
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 2 {
+		return left + "\n" + right
+	}
+	return left + strings.Repeat(" ", gap) + right
 }
 
 // truncateSummary clips a rendered description to limit lines and says how to

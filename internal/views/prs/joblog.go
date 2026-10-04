@@ -279,6 +279,10 @@ func (v *View) updateLogKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
 		v.scrollBy -= max(1, v.height/2)
 	case key.Matches(msg, v.nav.HalfDown):
 		v.scrollBy += max(1, v.height/2)
+	case key.Matches(msg, v.nav.JumpUp):
+		v.scrollBy -= v.jumpSize()
+	case key.Matches(msg, v.nav.JumpDown):
+		v.scrollBy += v.jumpSize()
 	case key.Matches(msg, v.nav.Top):
 		line := 1
 		v.pendingJump = &line

@@ -90,6 +90,18 @@ func (m Model) wheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil // ignore horizontal wheel
 	}
+	// Under a float the list spans the full width, so the x test below
+	// would hand the wheel to it; over the box it scrolls the box, and
+	// outside it does nothing, since moving the list would close the float.
+	if m.floating() {
+		bx, by, bw, bh, _, _ := m.floatBox()
+		if msg.X >= bx && msg.X < bx+bw && msg.Y >= by && msg.Y < by+bh {
+			if !m.scrollPreview(dir * m.previewStep()) {
+				m.keepFrame()
+			}
+		}
+		return m, nil
+	}
 	listW, _, _ := m.dims()
 	if msg.X >= listW {
 		if !m.scrollPreview(dir * m.previewStep()) {

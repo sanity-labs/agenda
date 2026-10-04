@@ -224,3 +224,22 @@ func TestTabActionsStayWithTheirTab(t *testing.T) {
 		t.Error("the PRs tab's verdict closed the Reviews tab's review popup")
 	}
 }
+
+// Shared caches reach both tabs, and the one that never fetched has no map
+// for them: with the Reviews tab on, 'r' (which opens the diff) crashed on
+// a nil-map write in the other tab. Results a tab did not ask for are
+// ignored, and thread actions stay with the tab that ran them.
+func TestOtherTabsResultsDoNotPanicOrLeak(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	own := New(config.GitHubConfig{}, nil, nil, nil)
+	rev := NewReviews(config.GitHubConfig{}, nil, nil, nil) // never fetched anything
+	rev.Update(diffMsg{url: "u1", text: "+x"})
+	if rev.diffs != nil {
+		t.Error("the Reviews tab cached a diff it never asked for")
+	}
+	rev.input = &threadFlow{}
+	rev.Update(threadDoneMsg{from: own, what: "replied"})
+	if rev.input == nil || rev.flash != "" {
+		t.Errorf("the PRs tab's thread action closed or flashed the Reviews tab: input=%v flash=%q", rev.input != nil, rev.flash)
+	}
+}

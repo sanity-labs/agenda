@@ -61,3 +61,19 @@ func TestPadCellMeasuresDisplayWidth(t *testing.T) {
 		t.Errorf("PadCell shortened an over-wide cell: %q", got)
 	}
 }
+
+// The cap scales with the row: a wide list shows more labels, a narrow one
+// keeps the fixed cap so the metadata is not squeezed out.
+func TestLabelColumnGrowsWithTheRow(t *testing.T) {
+	narrow := LabelColWidth(90, 9, 30)
+	if narrow != LabelColMaxWidth {
+		t.Errorf("90-wide row: budget %d, want the %d floor", narrow, LabelColMaxWidth)
+	}
+	wide := LabelColWidth(200, 9, 30)
+	if wide <= LabelColMaxWidth {
+		t.Errorf("200-wide row: budget %d did not grow past the narrow cap", wide)
+	}
+	if wide > 200-9-LabelColMargin*2-30 {
+		t.Errorf("200-wide row: budget %d eats into the metadata reserve", wide)
+	}
+}

@@ -124,6 +124,8 @@ complete -F _agenda agenda
 		b.WriteString("#compdef agenda\n")
 		b.WriteString("# agenda completion for zsh\n")
 		b.WriteString("# install: agenda completion zsh > \"${fpath[1]}/_agenda\"\n")
+		b.WriteString("#      or: source <(agenda completion zsh)\n")
+		b.WriteString("compdef _agenda agenda\n")
 		b.WriteString("_agenda() {\n  local -a commands\n  commands=(\n")
 		for _, c := range commands() {
 			b.WriteString(fmt.Sprintf("    '%s:%s'\n", c.name, c.summary))
@@ -140,7 +142,11 @@ complete -F _agenda agenda
       ;;
   esac
 }
-_agenda "$@"
+# Autoloaded from fpath, this file is the function, so run it. Sourced or
+# eval-ed it must only define it: _arguments outside a completion errors.
+if [ "$funcstack[1]" = "_agenda" ]; then
+  _agenda "$@"
+fi
 `)
 		return b.String(), true
 

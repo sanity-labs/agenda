@@ -711,7 +711,7 @@ func (v *View) moveJob(d int) tea.Cmd {
 	if i < 0 {
 		return nil
 	}
-	return v.selectRow(st, rows, i+d)
+	return v.selectRow(st, rows, min(max(i+d, 0), len(rows)-1))
 }
 
 // jumpFailed moves to the next (d=1) or previous (d=-1) failed job, wrapping;
@@ -814,6 +814,10 @@ func (v *View) updateJobsFocus(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return v.moveJob(-1), true
 	case key.Matches(msg, v.nav.Down):
 		return v.moveJob(1), true
+	case key.Matches(msg, v.nav.JumpUp):
+		return v.moveJob(-v.jumpSize()), true
+	case key.Matches(msg, v.nav.JumpDown):
+		return v.moveJob(v.jumpSize()), true
 	case key.Matches(msg, v.nav.Top):
 		return v.moveJob(-len(rows)), true
 	case key.Matches(msg, v.nav.Bottom):
@@ -851,7 +855,7 @@ func (v *View) clickJobRow(line int) (tea.Cmd, bool) {
 // navKeys are the list's movement keys (keys.list.*), which the jobs pane
 // honours too so a remap applies in both.
 type navKeys struct {
-	Up, Down, Top, Bottom, HalfUp, HalfDown key.Binding
+	Up, Down, Top, Bottom, HalfUp, HalfDown, JumpUp, JumpDown key.Binding
 }
 
 func newNavKeys(km config.Keymap) navKeys {
@@ -865,6 +869,8 @@ func newNavKeys(km config.Keymap) navKeys {
 		Bottom:   bind("bottom", "G", "end"),
 		HalfUp:   bind("half_up", "ctrl+u"),
 		HalfDown: bind("half_down", "ctrl+d"),
+		JumpUp:   bind("jump_up", "shift+up", "pgup"),
+		JumpDown: bind("jump_down", "shift+down", "pgdown"),
 	}
 }
 
