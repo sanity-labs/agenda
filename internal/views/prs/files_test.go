@@ -333,3 +333,42 @@ func TestSpaceBringsTheNextFileIntoView(t *testing.T) {
 		t.Error("space advanced to a file off screen without asking the pane to show it")
 	}
 }
+
+// Collapsing a file from partway down its hunk brings its row back into
+// view rather than leaving the pane pointing at whatever moved up into
+// the space; collapsing a file whose row is already on screen moves
+// nothing. Marking a file reviewed folds it, as GitHub does.
+func TestCollapseResetsTheViewAndReviewedFolds(t *testing.T) {
+	files := []prFile{
+		{Filename: "a.go", Additions: 40, Patch: "@@ -1 +1 @@\n" + strings.Repeat("+x\n", 40)},
+		{Filename: "b.go", Additions: 1, Patch: "@@ -1 +1 @@\n+y"},
+	}
+	v := filesView(t, files...)
+	st := v.files["u"]
+	v.Update(tea.KeyPressMsg{Code: '+'})
+	v.PreviewView()
+	v.SetPreviewViewport(20, 8) // scrolled into a.go's hunk: its row is above the viewport
+	v.pendingJump = nil
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if st.open["a.go"] {
+		t.Fatal("left did not collapse the file")
+	}
+	if v.pendingJump == nil {
+		t.Error("collapsing from mid-hunk did not bring the file's row back into view")
+	}
+
+	v.SetPreviewViewport(0, 20) // row on screen (header is six lines): collapsing again must not move the pane
+	v.Update(tea.KeyPressMsg{Code: '+'})
+	v.pendingJump = nil
+	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if v.pendingJump != nil {
+		t.Error("collapsing a visible file moved the pane")
+	}
+
+	v.Update(tea.KeyPressMsg{Code: '+'})
+	v.Update(tea.KeyPressMsg{Code: ' '})
+	if st.open["a.go"] || !st.reviewed["a.go"] {
+		t.Errorf("space should mark and fold: open=%v reviewed=%v", st.open["a.go"], st.reviewed["a.go"])
+	}
+}

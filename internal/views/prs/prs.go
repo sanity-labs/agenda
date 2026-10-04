@@ -2539,6 +2539,10 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case "-", "left", "h":
 		if name != "" && st.open[name] {
 			st.open[name] = false
+			// Collapsed from partway down its hunk, the pane would be left
+			// pointing at whatever moved up into that space; its own row
+			// is the sensible place to be.
+			v.showFileRow(st)
 			return nil, true
 		}
 		if msg.String() == "left" || msg.String() == "h" {
@@ -2554,7 +2558,19 @@ func (v *View) updateFiles(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if name != "" {
 			st.reviewed[name] = !st.reviewed[name]
 			if st.reviewed[name] {
+				// Reviewed folds away, as on GitHub. The fold changes the
+				// row layout, so find this file again before moving on, and
+				// re-render so the row positions the follow uses are current.
+				st.open[name] = false
+				rows = st.rows()
+				for i, r := range rows {
+					if r.patch == "" && st.files[r.file].Filename == name {
+						st.sel = i
+						break
+					}
+				}
 				move(1)
+				v.PreviewView()
 				v.showFileRow(st) // the next file may be below a tall diff
 			}
 		}
