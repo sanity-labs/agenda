@@ -3,11 +3,13 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func restartRow(t *testing.T, o *configOverlay, path string) *setting {
@@ -107,4 +109,63 @@ func TestRestartRowsReloadOnR(t *testing.T) {
 	if !m.Restart() {
 		t.Error("the model does not report the restart main should perform")
 	}
+	if !strings.HasPrefix(m.RestartState(), "panel:") {
+		t.Errorf("reload from the panel should ask the next process to reopen it, got %q", m.RestartState())
+	}
+}
+
+// The reloaded process picks up where the last one left off: the panel
+// reopens on the same tab (not after the leave warning, which closed it)
+// and a green toast says the reload went through.
+func TestReloadedProcessReopensThePanelAndConfirms(t *testing.T) {
+	cfg := config.Default()
+	cfg.Refresh.Every = 0 // no tick commands to wait on
+	m := New(cfg, []View{&stubView{"PRs"}}).WithReloaded("panel:3")
+	if m.settings == nil || m.settings.tab != 3 {
+		t.Fatalf("panel not reopened on tab 3: settings=%v", m.settings != nil)
+	}
+	if !hasSuccessToast(t, m.Init()) {
+		t.Error("no success toast after a reload from the panel")
+	}
+
+	w := New(cfg, []View{&stubView{"PRs"}}).WithReloaded("warning")
+	if w.settings != nil {
+		t.Error("a reload from the leave warning reopened the panel")
+	}
+	if !hasSuccessToast(t, w.Init()) {
+		t.Error("no success toast after a reload from the warning")
+	}
+	if New(cfg, []View{&stubView{"PRs"}}).WithReloaded("").settings != nil {
+		t.Error("a plain launch opened the settings")
+	}
+}
+
+// hasSuccessToast runs the command tree and reports a green toast among the
+// messages, giving each leaf a moment so a stray timer cannot hang the test.
+func hasSuccessToast(t *testing.T, cmd tea.Cmd) bool {
+	t.Helper()
+	var walk func(tea.Cmd) bool
+	walk = func(c tea.Cmd) bool {
+		if c == nil {
+			return false
+		}
+		done := make(chan tea.Msg, 1)
+		go func() { done <- c() }()
+		select {
+		case msg := <-done:
+			switch v := msg.(type) {
+			case tea.BatchMsg:
+				for _, sub := range v {
+					if walk(sub) {
+						return true
+					}
+				}
+			case ui.ToastMsg:
+				return v.Success && strings.Contains(v.Body, "Reload successful")
+			}
+		case <-time.After(200 * time.Millisecond):
+		}
+		return false
+	}
+	return walk(cmd)
 }

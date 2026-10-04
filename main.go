@@ -98,7 +98,11 @@ func main() {
 		}
 	}
 
-	p := tea.NewProgram(tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial))
+	// A reload execs the binary with a note of where it left off; read and
+	// clear it so a later manual launch does not reopen the settings.
+	reloaded := os.Getenv(reloadEnv)
+	os.Unsetenv(reloadEnv)
+	p := tea.NewProgram(tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithReloaded(reloaded))
 	final, err := p.Run()
 	if err == nil {
 		if m, ok := final.(tui.Model); ok && m.Restart() {
@@ -107,7 +111,7 @@ func main() {
 			// way it would after quitting and running agenda again.
 			exe, err := os.Executable()
 			if err == nil {
-				err = syscall.Exec(exe, os.Args, os.Environ())
+				err = syscall.Exec(exe, os.Args, append(os.Environ(), reloadEnv+"="+m.RestartState()))
 			}
 			fmt.Fprintln(os.Stderr, "reload failed:", err)
 			os.Exit(1)
@@ -137,6 +141,9 @@ func hasReviewsTab(enabled []string) bool {
 	}
 	return false
 }
+
+// reloadEnv carries the settings panel's state across a reload.
+const reloadEnv = "AGENDA_RELOAD"
 
 // Set by GoReleaser via -ldflags "-X main.version=..." on release builds.
 // go-install and source builds leave them empty and fall back to the

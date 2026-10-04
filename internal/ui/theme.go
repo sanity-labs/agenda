@@ -159,6 +159,8 @@ func PaletteGen() int { return paletteGen }
 // ToastMsg asks the root model to show an in-app notification toast.
 type ToastMsg struct {
 	Title, Body string
+	// Success renders the toast green: an outcome, not an alert.
+	Success bool
 }
 
 // glyphsOn gates the decorative Nerd Font icons (tab and nav-tree icons);
