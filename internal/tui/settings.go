@@ -884,6 +884,7 @@ func (o *configOverlay) View(cfg config.Config) string {
 			BorderForeground(lipgloss.Color(ui.Pal().Yellow)).
 			Padding(0, 1).
 			Render(ui.Yellow.Render(fmt.Sprintf("%d option(s) need a reload: press 'r' to reload", n)))
+		b.WriteByte('\n')
 		b.WriteString(lipgloss.PlaceHorizontal(overlayContent, lipgloss.Center, notice))
 		b.WriteString("\n\n")
 		hint = "↑↓ move · tab section · ←→ change · enter edit · r reload · esc revert"
