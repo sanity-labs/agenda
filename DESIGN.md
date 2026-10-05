@@ -153,6 +153,16 @@ and closes, any other key returns to the panel. The file never says one
 thing while the running app does another. Changing a row back to its
 original value clears its pending state.
 
+## Selection across refreshes
+
+The list keeps the selection on the same *item*, not the same row: rows
+carry a stable identity (`Key`: a PR's URL, an issue's identifier, a
+session's transcript path) that `SetItems` follows, so a re-sort, a rename
+or a status change does not move the cursor onto something else. When the
+selected item leaves the list (approved and hidden, merged, filtered out),
+the cursor stays at its index, on the row that slid into its place, rather
+than jumping to the top and leaving you somewhere else entirely.
+
 ## Cross-references
 
 `l` from a list raises the picker of what the selection links to, and

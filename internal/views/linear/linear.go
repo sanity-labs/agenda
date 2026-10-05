@@ -184,6 +184,15 @@ func (i issue) Filter() string {
 	return fmt.Sprintf("%s %s %s %s", i.Identifier, i.State.Name, i.Project.Name, i.Title)
 }
 
+// Key is the row's identity across refreshes: the identifier, which a
+// status or project change does not touch.
+func (i issue) Key() string {
+	if i.Separator != "" {
+		return "\x00sep:" + i.Separator
+	}
+	return i.Identifier
+}
+
 func (i issue) Fields() []ui.Field {
 	if i.Separator != "" {
 		return nil

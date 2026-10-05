@@ -108,12 +108,15 @@ func TestListSelectionPreservedAcrossSetItems(t *testing.T) {
 	}
 }
 
-func TestListSelectionResetsWhenItemGone(t *testing.T) {
+// A selected item that is gone leaves the cursor where it was, clamped to
+// the list, rather than jumping to the top: the row that slid into its
+// place is where the eye still is.
+func TestListSelectionStaysPutWhenItemGone(t *testing.T) {
 	l := newTestList("a", "b", "c")
 	l.cursor = 2
 	l.SetItems([]strItem{"x", "y"}) // "c" no longer present
-	if got := l.Selected(); got != "x" {
-		t.Errorf("Selected() = %q, want clamped to first %q", got, "x")
+	if got := l.Selected(); got != "y" {
+		t.Errorf("Selected() = %q, want the row at the old index, clamped (%q)", got, "y")
 	}
 }
 

@@ -67,6 +67,15 @@ func (s session) Filter() string {
 	return fmt.Sprintf("%s %s %s %s", s.Tool, shortenPath(s.Cwd), s.Title, s.Model)
 }
 
+// Key is the row's identity across rescans: the transcript path, which a
+// session's title and model can change under.
+func (s session) Key() string {
+	if s.Separator != "" {
+		return "\x00sep:" + s.Separator
+	}
+	return s.Path
+}
+
 func (s session) Fields() []ui.Field {
 	if s.Separator != "" {
 		return nil

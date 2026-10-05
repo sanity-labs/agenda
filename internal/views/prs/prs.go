@@ -175,6 +175,15 @@ func (p pr) Filter() string {
 	return fmt.Sprintf("%s #%d %s", p.repo(), p.Number, p.Title)
 }
 
+// Key is the row's identity across refreshes: the URL, which a title edit
+// or a review does not change.
+func (p pr) Key() string {
+	if p.Separator != "" {
+		return "\x00sep:" + p.Separator
+	}
+	return p.URL
+}
+
 func (p pr) Fields() []ui.Field {
 	if p.Separator != "" {
 		return nil
