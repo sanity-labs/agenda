@@ -315,7 +315,7 @@ type LinearFilter struct {
 	Teams            []string `yaml:"teams"`    // team keys, e.g. [SRE]
 	Projects         []string `yaml:"projects"` // project names
 	States           []string `yaml:"states"`   // workflow state names, e.g. [In Progress]
-	Limit            int      `yaml:"limit"`    // max issues fetched (default 100, max 250)
+	Limit            int      `yaml:"limit"`    // issues per page (default 100, max 250); the next loads at the end of the list
 }
 
 // UnmarshalYAML tolerates the historical form of this key, a raw GraphQL

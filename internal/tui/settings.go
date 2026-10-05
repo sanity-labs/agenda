@@ -363,6 +363,14 @@ func settingsTable() []setting {
 		boolSetting("project pane", "linear.nav", noteReload,
 			func(c config.Config) bool { return c.Linear.Nav },
 			func(c *config.Config, v bool) { c.Linear.Nav = v }),
+		numSetting("page size", "linear.filter.limit", "",
+			func(c config.Config) int {
+				if c.Linear.Filter.Limit <= 0 {
+					return 100
+				}
+				return c.Linear.Filter.Limit
+			},
+			func(c *config.Config, v int) { c.Linear.Filter.Limit = v }),
 		header("Sessions"),
 		sortSetting("sessions.sort", config.SessionsSortNames,
 			func(c config.Config) string { return c.Sessions.Sort },

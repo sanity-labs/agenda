@@ -473,6 +473,23 @@ func groupLabelFn(mode sortMode) func(issue) string {
 type loadedMsg struct {
 	issues []issue
 	source navSource
+	// after is the cursor this page was fetched from ("" for the first),
+	// cursor and hasMore say whether and where the next one starts.
+	after, cursor string
+	hasMore       bool
+}
+
+// pageState is where the list's paging stands for the current source:
+// Linear connections carry no total, so "more" is all that is known.
+type pageState struct {
+	cursor  string
+	hasMore bool
+	loading bool
+}
+
+type pageInfo struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
 }
 
 type errMsg struct{ err error }
@@ -504,7 +521,9 @@ type View struct {
 	navErr        error
 	source        navSource
 	defaultSource navSource
-	lastLoaded    navSource
+	// page is the paging state of the list on screen; a new source resets it.
+	page       pageState
+	lastLoaded navSource
 	// projectMine narrows a project source to your own issues ('m'). It is
 	// meaningless for My Issues (already yours) and All Issues (the point
 	// is everyone's), so it only applies to project sources.
@@ -695,19 +714,21 @@ const issueFields = `
 
 // assignedQuery fetches your assigned issues (the default scope); allQuery
 // fetches every issue the token can see, for filter.scope: all.
-const assignedQuery = `query($first: Int!, $filter: IssueFilter) {
+const assignedQuery = `query($first: Int!, $after: String, $filter: IssueFilter) {
   viewer {
-    assignedIssues(first: $first, filter: $filter) {
+    assignedIssues(first: $first, after: $after, filter: $filter) {
       nodes {` + issueFields + `
       }
+      pageInfo { hasNextPage endCursor }
     }
   }
 }`
 
-const allQuery = `query($first: Int!, $filter: IssueFilter) {
-  issues(first: $first, filter: $filter, orderBy: updatedAt) {
+const allQuery = `query($first: Int!, $after: String, $filter: IssueFilter) {
+  issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {
     nodes {` + issueFields + `
     }
+    pageInfo { hasNextPage endCursor }
   }
 }`
 
@@ -786,7 +807,22 @@ func buildFilter(f config.LinearFilter) map[string]any {
 	return filter
 }
 
+// fetch loads the first page of the current source; fetchMore the next.
 func (v *View) fetch() tea.Cmd {
+	v.page = pageState{}
+	return v.fetchFrom("")
+}
+
+// fetchMore loads the page after the one on screen, once, when there is one.
+func (v *View) fetchMore() tea.Cmd {
+	if !v.page.hasMore || v.page.loading {
+		return nil
+	}
+	v.page.loading = true
+	return v.fetchFrom(v.page.cursor)
+}
+
+func (v *View) fetchFrom(after string) tea.Cmd {
 	token := v.token
 	first := v.cfg.Filter.Limit
 	if first <= 0 {
@@ -815,6 +851,9 @@ func (v *View) fetch() tea.Cmd {
 	default:
 		vars = map[string]any{"first": first, "filter": filter}
 	}
+	if vars != nil && after != "" {
+		vars["after"] = after
+	}
 	return func() tea.Msg {
 		payload := map[string]any{"query": query}
 		if vars != nil {
@@ -841,11 +880,13 @@ func (v *View) fetch() tea.Cmd {
 			Data struct {
 				Viewer struct {
 					AssignedIssues struct {
-						Nodes []issue `json:"nodes"`
+						Nodes    []issue  `json:"nodes"`
+						PageInfo pageInfo `json:"pageInfo"`
 					} `json:"assignedIssues"`
 				} `json:"viewer"`
 				Issues struct {
-					Nodes []issue `json:"nodes"`
+					Nodes    []issue  `json:"nodes"`
+					PageInfo pageInfo `json:"pageInfo"`
 				} `json:"issues"`
 				Notifications struct {
 					Nodes []struct {
@@ -870,9 +911,9 @@ func (v *View) fetch() tea.Cmd {
 			return errMsg{fmt.Errorf("linear: %s", out.Errors[0].Message)}
 		}
 
-		nodes := out.Data.Viewer.AssignedIssues.Nodes
+		nodes, pi := out.Data.Viewer.AssignedIssues.Nodes, out.Data.Viewer.AssignedIssues.PageInfo
 		if len(out.Data.Issues.Nodes) > 0 {
-			nodes = out.Data.Issues.Nodes
+			nodes, pi = out.Data.Issues.Nodes, out.Data.Issues.PageInfo
 		}
 		if src.Kind == "inbox" {
 			// One row per issue, keeping its latest event (the API returns
@@ -893,8 +934,26 @@ func (v *View) fetch() tea.Cmd {
 				nodes = append(nodes, it)
 			}
 		}
-		return loadedMsg{issues: nodes, source: src}
+		if src.Kind == "inbox" {
+			pi = pageInfo{} // the inbox is one query, not paged
+		}
+		return loadedMsg{issues: nodes, source: src, after: after, cursor: pi.EndCursor, hasMore: pi.HasNextPage}
 	}
+}
+
+// appendIssues adds a later page, skipping issues already on screen: an
+// issue updated between two page fetches can appear in both.
+func appendIssues(have, more []issue) []issue {
+	seen := make(map[string]bool, len(have))
+	for _, i := range have {
+		seen[i.Identifier] = true
+	}
+	for _, i := range more {
+		if !seen[i.Identifier] {
+			have = append(have, i)
+		}
+	}
+	return have
 }
 
 func (v *View) Update(msg tea.Msg) tea.Cmd {
@@ -902,6 +961,23 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case loadedMsg:
 		v.loading = false
 		v.err = nil
+		if msg.after != "" {
+			// A later page: append to what is on screen, unless the source
+			// changed while it was in flight.
+			v.page.loading = false
+			if msg.source != v.lastLoaded {
+				return nil
+			}
+			v.raw = appendIssues(v.raw, msg.issues)
+			v.page.cursor, v.page.hasMore = msg.cursor, msg.hasMore
+			v.applySort()
+			v.publish(v.raw)
+			if msg.source == v.defaultSource {
+				_ = cache.Save(cacheName, v.raw)
+			}
+			return nil
+		}
+		v.page = pageState{cursor: msg.cursor, hasMore: msg.hasMore}
 		var cmd tea.Cmd
 		if msg.source == v.lastLoaded {
 			v.markFresh(v.raw, msg.issues)
@@ -929,6 +1005,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case errMsg:
+		if v.page.loading {
+			// A later page failed: keep what is on screen rather than
+			// replacing a full list with an error.
+			v.page.loading = false
+			return nil
+		}
 		v.loading = false
 		v.err = msg.err
 		return nil
@@ -1020,6 +1102,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		before := v.list.Selected().Identifier
 		if consumed, cmd := v.list.Update(msg); consumed {
+			// Reaching the end is the signal to load the next page, so the
+			// first paint stays one fast request.
+			var more tea.Cmd
+			if v.list.AtEnd() {
+				more = v.fetchMore()
+			}
 			// Selection may have moved with the comments section showing:
 			// fetch the newly-selected issue's comments if uncached, and
 			// restart the 'c' jump cycle.
@@ -1033,9 +1121,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				if v.previewShown {
 					v.clearFreshFor(before)
 				}
-				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview)
+				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview, more)
 			}
-			return tea.Batch(cmd, v.maybeFetchComments())
+			return tea.Batch(cmd, v.maybeFetchComments(), more)
 		}
 		if v.list.Filtering() {
 			return nil
@@ -1221,11 +1309,15 @@ func (v *View) Activate() tea.Cmd { return ui.OpenURL(v.list.Selected().URL) }
 // fetch the new issue's comments if that section is showing, restart the 'c'
 // jump cycle, and end a transient preview reveal.
 func (v *View) mouseMoved(before string) tea.Cmd {
+	var more tea.Cmd
+	if v.list.AtEnd() {
+		more = v.fetchMore()
+	}
 	if v.list.Selected().Identifier == before {
-		return nil
+		return more
 	}
 	v.resetToggles()
-	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview)
+	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview, more)
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
@@ -1286,8 +1378,14 @@ func (v *View) statusText() string {
 		if v.source.Kind == "project" && v.projectMine {
 			src += " (mine)"
 		}
-		return fmt.Sprintf("%d issues · %s · sort: %s%s",
-			len(v.raw), src, sortName[v.sort], ui.RevMarker(v.rev))
+		count := fmt.Sprintf("%d issues", len(v.raw))
+		if v.page.hasMore {
+			// Linear connections carry no total, so "more" is all there is
+			// to say until the last page is in.
+			count = fmt.Sprintf("%d loaded · more", len(v.raw))
+		}
+		return fmt.Sprintf("%s · %s · sort: %s%s",
+			count, src, sortName[v.sort], ui.RevMarker(v.rev))
 	}
 }
 
