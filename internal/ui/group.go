@@ -102,8 +102,13 @@ func ConcealPreview() tea.Msg { return ConcealPreviewMsg{} }
 // Broadcast by the root model at startup and when the setting changes.
 type TogglesPersistMsg bool
 
-// UnreadMsg tells every view whether to mark rows that arrived since the
-// last fetch. Broadcast by the root model at startup and on change.
+// ListJumpMsg tells every view how many rows the list jump keys (pgup,
+// pgdn, shift+arrows) move. Broadcast at startup and on change.
+type ListJumpMsg int
+
+// UnreadMsg tells every view whether to draw the marks on rows that arrived
+// since the last fetch; the marks are recorded regardless. Broadcast by the
+// root model at startup and on change.
 type UnreadMsg bool
 
 // PreviewShownMsg tells every view whether the detail pane is on screen.

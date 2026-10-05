@@ -18,10 +18,6 @@ import (
 // checkboxes, a gutter bar marking code blocks, and inline code recolored
 // for contrast (the stock red-on-grey is hard to read).
 
-func strPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool    { return &b }
-func uintPtr(u uint) *uint    { return &u }
-
 // mdStyle derives the glamour style config from the current palette.
 func mdStyle() glamouransi.StyleConfig {
 	p := Pal()
@@ -29,12 +25,12 @@ func mdStyle() glamouransi.StyleConfig {
 
 	// Headings: nerd-font level icons instead of ## prefixes (when the
 	// glyphs toggle allows them); H1 gets an accent band either way.
-	s.Heading.StylePrimitive.Color = strPtr(p.Accent)
+	s.Heading.StylePrimitive.Color = new(p.Accent)
 	s.H1.StylePrimitive = glamouransi.StylePrimitive{
 		Prefix: " ", Suffix: " ",
-		Color:           strPtr("0"),
-		BackgroundColor: strPtr(p.Accent),
-		Bold:            boolPtr(true),
+		Color:           new("0"),
+		BackgroundColor: new(p.Accent),
+		Bold:            new(true),
 	}
 	if glyphsOn {
 		s.H1.StylePrimitive.Prefix = " 󰲡 "
@@ -42,31 +38,31 @@ func mdStyle() glamouransi.StyleConfig {
 		s.H3.StylePrimitive.Prefix = "󰲥 "
 		s.H4.StylePrimitive.Prefix = "󰲧 "
 		s.H5.StylePrimitive.Prefix = "󰲩 "
-		s.H6.StylePrimitive = glamouransi.StylePrimitive{Prefix: "󰲫 ", Color: strPtr(p.Dim)}
+		s.H6.StylePrimitive = glamouransi.StylePrimitive{Prefix: "󰲫 ", Color: new(p.Dim)}
 	} else {
-		s.H6.StylePrimitive.Color = strPtr(p.Dim)
+		s.H6.StylePrimitive.Color = new(p.Dim)
 	}
 
 	// Blockquote: a bar gutter with dimmed italic text.
-	s.BlockQuote.StylePrimitive.Color = strPtr(p.Dim)
-	s.BlockQuote.StylePrimitive.Italic = boolPtr(true)
-	s.BlockQuote.IndentToken = strPtr("▐ ")
+	s.BlockQuote.StylePrimitive.Color = new(p.Dim)
+	s.BlockQuote.StylePrimitive.Italic = new(true)
+	s.BlockQuote.IndentToken = new("▐ ")
 
 	if glyphsOn {
 		s.Task.Ticked = Green.Render("󰱒") + " "
 		s.Task.Unticked = Dim.Render("󰄱") + " "
 	}
 
-	s.Link = glamouransi.StylePrimitive{Color: strPtr(p.Blue), Underline: boolPtr(true)}
-	s.LinkText = glamouransi.StylePrimitive{Color: strPtr(p.Cyan), Bold: boolPtr(true)}
+	s.Link = glamouransi.StylePrimitive{Color: new(p.Blue), Underline: new(true)}
+	s.LinkText = glamouransi.StylePrimitive{Color: new(p.Cyan), Bold: new(true)}
 
 	// Inline code: yellow reads clearly on the subtle border-grey in every
 	// built-in palette, unlike the stock red.
-	s.Code.StylePrimitive.Color = strPtr(p.Yellow)
-	s.Code.StylePrimitive.BackgroundColor = strPtr(p.Border)
+	s.Code.StylePrimitive.Color = new(p.Yellow)
+	s.Code.StylePrimitive.BackgroundColor = new(p.Border)
 
 	s.HorizontalRule = glamouransi.StylePrimitive{
-		Color:  strPtr(p.Border),
+		Color:  new(p.Border),
 		Format: "\n" + strings.Repeat("─", 24) + "\n",
 	}
 

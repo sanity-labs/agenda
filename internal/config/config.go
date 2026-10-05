@@ -44,7 +44,8 @@ type Config struct {
 
 	// Unread marks rows that arrived since the last fetch with a dot, so a
 	// notification you missed is still visible in the list. Selecting a row
-	// clears its mark. On by default.
+	// clears its mark. On by default. Display only: arrivals are recorded
+	// either way, so turning it on shows what came in while it was off.
 	Unread *bool `yaml:"unread"`
 
 	// UnreadSync keeps unread marks and GitHub notifications in step, both
@@ -65,6 +66,11 @@ type Config struct {
 	// and so on). Off by default: flat lists, the original behavior. Sorts
 	// with no feasible grouping stay flat either way.
 	Grouping bool `yaml:"grouping"`
+
+	// ListJump is how many rows pgup/pgdn and shift+arrows move in a list.
+	// 5 when unset. The preview pane pages with the same keys once it has
+	// the keys (right arrow), so these are list keys.
+	ListJump int `yaml:"list_jump"`
 
 	// HidePreview starts with the preview (detail) pane hidden, leaving the
 	// list full-width — friendlier to narrow terminals. Off by default; the
@@ -450,6 +456,14 @@ func Load() (Config, error) {
 		cfg.Linear.Filter.Limit = 250
 	}
 	return cfg, nil
+}
+
+// ListJumpSize is the list jump step, defaulting to 5.
+func (c Config) ListJumpSize() int {
+	if c.ListJump <= 0 {
+		return 5
+	}
+	return c.ListJump
 }
 
 // SessionsEnabled reports whether the sessions view is on (default true).

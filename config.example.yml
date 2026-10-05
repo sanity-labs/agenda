@@ -46,6 +46,10 @@ unread_sync: false
 
 grouping: false
 
+# How many rows pgup/pgdn and shift+up/down move in a list. 5 by default.
+# Once a pane has the keys (right arrow) the same keys page the pane.
+list_jump: 5
+
 # How long a per-item view toggle lasts. "ephemeral" (default) resets it when
 # you move to another item, so a diff opened on one PR does not put every
 # other PR in diff view; "persist" keeps it until you toggle back.
@@ -108,10 +112,13 @@ notifications:
 #     filter: f
 #     zoom: z
 #     config: ctrl+s
-#     preview_up: shift+up
-#     preview_down: shift+down
-#     preview_pgup: pgup
-#     preview_pgdn: pgdown
+#     # Unbound by default: the list owns these keys for jumping, and a
+#     # focused pane pages with the plain keys. Bind to scroll the preview
+#     # from the list anyway, e.g. preview_up: ctrl+shift+up
+#     preview_up: []
+#     preview_down: []
+#     preview_pgup: []
+#     preview_pgdn: []
 #   list:
 #     up: [up, k]
 #     down: [down, j]
@@ -119,6 +126,8 @@ notifications:
 #     bottom: [G, end]
 #     half_up: ctrl+u
 #     half_down: ctrl+d
+#     jump_up: [shift+up, pgup]
+#     jump_down: [shift+down, pgdown]
 #     quick_filter: /
 #     clear_filter: esc
 #   prs:

@@ -26,6 +26,18 @@ type globalKeys struct {
 	PreviewPgDn   key.Binding
 }
 
+// jumpKeys are the list scope's jump bindings, resolved at the root as
+// well: a focused scrolling pane takes them before the list can, so they
+// move whatever has the keys, like the arrows do.
+type jumpKeys struct{ Up, Down key.Binding }
+
+func newJumpKeys(km config.Keymap) jumpKeys {
+	return jumpKeys{
+		Up:   ui.Bind(km.Of("list", "jump_up", "shift+up", "pgup"), "", ""),
+		Down: ui.Bind(km.Of("list", "jump_down", "shift+down", "pgdown"), "", ""),
+	}
+}
+
 // newKeys resolves the global bindings from config overrides (scope "global"),
 // falling back to the defaults.
 func newKeys(km config.Keymap) globalKeys {
@@ -44,14 +56,13 @@ func newKeys(km config.Keymap) globalKeys {
 		Zoom:          bind("zoom", "", "zoom", "z"),
 		TogglePreview: bind("toggle_preview", "", "preview", "v"),
 		Messages:      bind("messages", "", "messages", "!"),
-		PreviewUp:     bind("preview_up", "", "scroll preview", "shift+up"),
-		PreviewDown:   bind("preview_down", "", "", "shift+down"),
-		PreviewPgUp:   bind("preview_pgup", "", "", "pgup"),
-		PreviewPgDn:   bind("preview_pgdn", "", "", "pgdown"),
-	}
-	// With the default up/down pair, show the combined glyph the README uses.
-	if !km.Has("global", "preview_up") && !km.Has("global", "preview_down") {
-		g.PreviewUp = key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("⇧↑↓", "scroll preview"))
+		// Unbound by default: the list owns shift+arrows and pgup/pgdn for
+		// jumping, and a focused pane pages with the plain keys. Still here
+		// for anyone who wants to scroll the preview from the list.
+		PreviewUp:   bind("preview_up", "", "scroll preview"),
+		PreviewDown: bind("preview_down", "", ""),
+		PreviewPgUp: bind("preview_pgup", "", ""),
+		PreviewPgDn: bind("preview_pgdn", "", ""),
 	}
 	return g
 }

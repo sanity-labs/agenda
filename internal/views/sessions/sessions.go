@@ -132,23 +132,10 @@ var sortName = map[sortMode]string{
 // sensible buckets, so it stays flat (nil) even with grouping on.
 // sortByName resolves a configured sort name to its mode; an unknown name
 // falls back to the default rather than stopping the view opening.
-func sortByName(name string) (sortMode, bool) {
-	for mode, n := range sortName {
-		if n == name {
-			return mode, true
-		}
-	}
-	return sortRecent, false
-}
+func sortByName(name string) (sortMode, bool) { return ui.SortByName(sortName, sortRecent, name) }
 
 // SortNames lists the sorts this view accepts, for the settings overlay.
-func SortNames() []string {
-	out := make([]string, 0, len(sortOrder))
-	for _, mode := range sortOrder {
-		out = append(out, sortName[mode])
-	}
-	return out
-}
+func SortNames() []string { return ui.SortNames(sortOrder, sortName) }
 
 func groupLabelFn(mode sortMode) func(session) string {
 	switch mode {
@@ -344,6 +331,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case resumedMsg:
 		// Resuming likely appended new turns; rescan so order/age stay accurate.
 		return v.fetch()
+	case ui.ListJumpMsg:
+		v.list.SetJump(int(msg))
+		return nil
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applyView()

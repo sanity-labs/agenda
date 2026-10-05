@@ -36,6 +36,10 @@ type filesState struct {
 	open     map[string]bool
 	reviewed map[string]bool
 	sel      int
+	// rowLine is where each row started in the last render, in pane body
+	// lines: thread boxes make rows and lines diverge, and the arrows need
+	// to know whether the next file is on screen.
+	rowLine []int
 }
 
 // filesMsg carries a fetched file list.
@@ -143,10 +147,12 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string,
 	}
 
 	rows := st.rows()
+	st.rowLine = make([]int, len(rows))
 	var out []string
 	out = append(out, filesSummary(st))
 	out = append(out, "")
 	for i, r := range rows {
+		st.rowLine[i] = len(out)
 		f := st.files[r.file]
 		if r.patch != "" {
 			out = append(out, "    "+diffLine(r.patch, width-4))

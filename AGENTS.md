@@ -11,6 +11,22 @@ These are deliberate. Breaking one is a regression even when the code
 compiles and the tests pass, so read it before changing key handling,
 focus, or anything that lays out a pane.
 
+## Re-read the docs, every session
+
+Read every `.md` in the repo root at the start of a session, not from
+memory of a previous one: `DESIGN.md`, this file, `README.md`, and
+`FEATURES.md` when it is present (it is kept local and uncommitted; it is
+the live backlog). They change between sessions, and a summary carried
+over from an earlier one is how a rule gets broken in good faith.
+
+While reading, check each claim against the code it describes. Where the
+two have drifted, or a documented decision no longer fits where the code
+has gone, say so to the user before building on either: name the passage,
+what the code does now, and whether the doc or the code looks like the
+one to change. Do not silently update the doc to match the code, and do
+not silently code around the doc. A documented choice is a decision
+someone made; it may need reconsidering, but that is theirs to do.
+
 ## Conventions
 
 - **Opinionated changes ship behind a config key** whose default is the

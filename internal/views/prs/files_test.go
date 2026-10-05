@@ -271,3 +271,104 @@ func TestThreadsOnlyShowWhereTheyAnchor(t *testing.T) {
 		t.Errorf("a thread showed on a line it is not anchored to:\n%s", out)
 	}
 }
+
+// Inside the file list the arrows are contextual: the next file when its
+// row is on screen, a line of scroll when it is not. Jump keys only
+// scroll. The view learns what is on screen from the root model.
+func TestFileListArrowsStepOnlyWhenTheNextFileIsVisible(t *testing.T) {
+	files := []prFile{
+		{Filename: "a.go", Additions: 20, Patch: "@@ -1 +1 @@\n" + strings.Repeat("+x\n", 20)},
+		{Filename: "b.go", Additions: 1, Patch: "@@ -1 +1 @@\n+y"},
+	}
+	v := filesView(t, files...)
+	st := v.files["u"]
+	v.Update(tea.KeyPressMsg{Code: '+'}) // a.go: 21 patch lines push b.go off a short pane
+	v.PreviewView()                      // lays out rowLine and paneHeader
+	v.SetPreviewViewport(0, 8)
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if name := st.files[st.rows()[st.sel].file].Filename; name != "a.go" {
+		t.Errorf("down moved to %q with b.go off screen; it should have scrolled", name)
+	}
+	if d, ok := v.TakePreviewScroll(); !ok || d != 1 {
+		t.Errorf("down did not scroll a line: %d %v", d, ok)
+	}
+	v.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if d, _ := v.TakePreviewScroll(); d != v.jumpSize() {
+		t.Errorf("pgdn scrolled %d, want %d", d, v.jumpSize())
+	}
+	if name := st.files[st.rows()[st.sel].file].Filename; name != "a.go" {
+		t.Errorf("pgdn moved the cursor to %q", name)
+	}
+
+	v.SetPreviewViewport(0, 60) // everything on screen
+	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if name := st.files[st.rows()[st.sel].file].Filename; name != "b.go" {
+		t.Errorf("down with b.go on screen landed on %q", name)
+	}
+	if _, ok := v.TakePreviewScroll(); ok {
+		t.Error("a cursor move also scrolled")
+	}
+}
+
+// space marks and advances, and brings the next file into view when a tall
+// diff has pushed it off screen.
+func TestSpaceBringsTheNextFileIntoView(t *testing.T) {
+	files := []prFile{
+		{Filename: "a.go", Additions: 20, Patch: "@@ -1 +1 @@\n" + strings.Repeat("+x\n", 20)},
+		{Filename: "b.go", Additions: 1, Patch: "@@ -1 +1 @@\n+y"},
+	}
+	v := filesView(t, files...)
+	st := v.files["u"]
+	v.Update(tea.KeyPressMsg{Code: '+'})
+	v.PreviewView()
+	v.SetPreviewViewport(0, 8)
+	v.pendingJump = nil
+
+	v.Update(tea.KeyPressMsg{Code: ' '})
+	if name := st.files[st.rows()[st.sel].file].Filename; name != "b.go" {
+		t.Fatalf("space did not advance: on %q", name)
+	}
+	if v.pendingJump == nil {
+		t.Error("space advanced to a file off screen without asking the pane to show it")
+	}
+}
+
+// Collapsing a file from partway down its hunk brings its row back into
+// view rather than leaving the pane pointing at whatever moved up into
+// the space; collapsing a file whose row is already on screen moves
+// nothing. Marking a file reviewed folds it, as GitHub does.
+func TestCollapseResetsTheViewAndReviewedFolds(t *testing.T) {
+	files := []prFile{
+		{Filename: "a.go", Additions: 40, Patch: "@@ -1 +1 @@\n" + strings.Repeat("+x\n", 40)},
+		{Filename: "b.go", Additions: 1, Patch: "@@ -1 +1 @@\n+y"},
+	}
+	v := filesView(t, files...)
+	st := v.files["u"]
+	v.Update(tea.KeyPressMsg{Code: '+'})
+	v.PreviewView()
+	v.SetPreviewViewport(20, 8) // scrolled into a.go's hunk: its row is above the viewport
+	v.pendingJump = nil
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if st.open["a.go"] {
+		t.Fatal("left did not collapse the file")
+	}
+	if v.pendingJump == nil {
+		t.Error("collapsing from mid-hunk did not bring the file's row back into view")
+	}
+
+	v.SetPreviewViewport(0, 20) // row on screen (header is six lines): collapsing again must not move the pane
+	v.Update(tea.KeyPressMsg{Code: '+'})
+	v.pendingJump = nil
+	v.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if v.pendingJump != nil {
+		t.Error("collapsing a visible file moved the pane")
+	}
+
+	v.Update(tea.KeyPressMsg{Code: '+'})
+	v.Update(tea.KeyPressMsg{Code: ' '})
+	if st.open["a.go"] || !st.reviewed["a.go"] {
+		t.Errorf("space should mark and fold: open=%v reviewed=%v", st.open["a.go"], st.reviewed["a.go"])
+	}
+}
