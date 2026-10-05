@@ -86,7 +86,7 @@ own PRs only and `w` says so.
 |---|---|
 | `hide_preview` | start with the list full width; `v` floats one row's detail |
 | `github.diff_pane` | `d` shows the diff in the pane as a file list instead of paging it through `less` |
-| `github.review_view` | what `r` opens beside the review popup: `unified` (default) or `files` |
+| `github.review_view` | what `r` opens beside the review popup: `files` (default) or `unified` |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `unread`, `unread_sync` | blue dot on rows that arrived since you last looked (on); keep it in step with GitHub notifications |
 | `notifications.popup` | `terminal` toast or `desktop` notification on new review requests and assignments; `click` opens the item (macOS needs `terminal-notifier`) |

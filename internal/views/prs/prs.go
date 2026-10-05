@@ -1768,11 +1768,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			if p := v.list.Selected(); p.URL != "" {
 				v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number}
 				// Reviewing reads better against the change, where the pane
-				// is enabled: the flat diff, or the file list by config.
+				// is enabled: the file list, or the flat diff by config.
 				if v.cfg.DiffPane && v.pane == paneBody {
-					v.pane = paneDiff
-					if v.cfg.ResolvedReviewView() == "files" {
-						v.pane = paneFiles
+					v.pane = paneFiles
+					if v.cfg.ResolvedReviewView() == "unified" {
+						v.pane = paneDiff
 					}
 				}
 				return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchFiles())

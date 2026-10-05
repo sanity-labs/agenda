@@ -175,8 +175,8 @@ type GitHubConfig struct {
 	// 'd' then pages the diff through less, the original behavior.
 	DiffPane bool `yaml:"diff_pane"`
 	// ReviewView is what the review popup ('r') opens beside it when
-	// DiffPane is on: "unified" (default), the flat diff, or "files", the
-	// file list with its reviewed marks.
+	// DiffPane is on: "files" (default), the file list with its reviewed
+	// marks, or "unified", the flat diff.
 	ReviewView string `yaml:"review_view"`
 	// LazyPaging fetches PRs a page at a time, loading the next page when the
 	// cursor reaches the end of the list. On by default: one page of 100 rows
@@ -530,13 +530,13 @@ func (g GitHubConfig) ShowReviewRequestedOn() bool {
 	return g.ShowReviewRequested == nil || *g.ShowReviewRequested
 }
 
-// ResolvedReviewView is what the review popup opens: "files" when asked,
-// "unified" otherwise, an unknown value included.
+// ResolvedReviewView is what the review popup opens: "unified" when asked,
+// "files" otherwise, an unknown value included.
 func (g GitHubConfig) ResolvedReviewView() string {
-	if g.ReviewView == "files" {
-		return "files"
+	if g.ReviewView == "unified" {
+		return "unified"
 	}
-	return "unified"
+	return "files"
 }
 
 // --- yaml scalar types --------------------------------------------------------

@@ -337,7 +337,7 @@ func settingsTable() []setting {
 			func(c *config.Config, v bool) { c.GitHub.DiffPane = v }),
 		{
 			label: "review opens", path: "github.review_view", kind: kindEnum,
-			options: func() []string { return []string{"unified", "files"} },
+			options: func() []string { return []string{"files", "unified"} },
 			get:     func(c config.Config) string { return c.GitHub.ResolvedReviewView() },
 			set:     func(c *config.Config, v string) { c.GitHub.ReviewView = v },
 		},

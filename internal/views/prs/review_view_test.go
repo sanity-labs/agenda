@@ -6,18 +6,18 @@ import (
 	"github.com/sanity-labs/agenda/internal/config"
 )
 
-// 'r' opens the change beside the popup: the unified diff by default, the
-// file list when review_view says so, nothing without diff_pane.
+// 'r' opens the change beside the popup: the file list by default, the
+// unified diff when review_view says so, nothing without diff_pane.
 func TestReviewOpensTheConfiguredView(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		cfg  config.GitHubConfig
 		want paneMode
 	}{
-		{"default", config.GitHubConfig{DiffPane: true}, paneDiff},
-		{"files", config.GitHubConfig{DiffPane: true, ReviewView: "files"}, paneFiles},
-		{"unknown value", config.GitHubConfig{DiffPane: true, ReviewView: "split"}, paneDiff},
-		{"no diff pane", config.GitHubConfig{ReviewView: "files"}, paneBody},
+		{"default", config.GitHubConfig{DiffPane: true}, paneFiles},
+		{"unified", config.GitHubConfig{DiffPane: true, ReviewView: "unified"}, paneDiff},
+		{"unknown value", config.GitHubConfig{DiffPane: true, ReviewView: "split"}, paneFiles},
+		{"no diff pane", config.GitHubConfig{ReviewView: "unified"}, paneBody},
 	} {
 		t.Setenv("XDG_CACHE_HOME", t.TempDir())
 		v := New(c.cfg, nil, nil, nil)
