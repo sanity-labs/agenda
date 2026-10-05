@@ -172,6 +172,7 @@ func (v *View) resetToggles() {
 	}
 	v.showComments = v.cfgShowComments
 	v.commentsJumped = false
+	v.showPRs = false
 }
 
 // Selectable implements ui.NonSelectable: group headers never hold the cursor.
@@ -546,6 +547,9 @@ type View struct {
 	unreadOn bool
 	// jump is the jump keys' step for the tree; the list keeps its own copy.
 	jump int
+	// showPRs expands the detail's pull-request section; a per-item toggle
+	// like comments, reset when the selection moves unless toggles persist.
+	showPRs bool
 	// floatReveal says the detail is a float over the list rather than a
 	// pane beside it; floatBase that the float was opened on the description
 	// with 'v', so comments toggled over it have a level to step back to.
@@ -993,6 +997,17 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.saveFresh()
 		}
 		return cmd
+	case issueFetchedMsg:
+		if msg.err != nil || msg.issue.Identifier == "" {
+			// Could not bring it in: the browser is still a way to see it.
+			return ui.OpenURL(msg.url)
+		}
+		if !v.list.Any(matchID(msg.issue.Identifier)) {
+			v.raw = append(v.raw, msg.issue)
+			v.applySort()
+		}
+		v.list.Select(matchID(msg.issue.Identifier))
+		return nil
 	case favsMsg:
 		v.navErr = msg.err
 		v.favs = msg.projects
@@ -1431,6 +1446,10 @@ func (v *View) PreviewView() string {
 	b.WriteByte('\n')
 	b.WriteString(v.renderedBody(i))
 	b.WriteString("\n\n")
+	b.WriteString(ui.BlockHeader("Pull requests"))
+	b.WriteByte('\n')
+	b.WriteString(v.renderPRs(i))
+	b.WriteString("\n\n")
 	// Record where the section starts so the 'c' jump can target it.
 	v.commentsLine = strings.Count(b.String(), "\n") + 1
 	b.WriteString(ui.BlockHeader("Comments"))
@@ -1445,6 +1464,124 @@ func (v *View) PreviewView() string {
 
 // commentsMarker is the phrase the clickable comments hint ends with.
 const commentsMarker = "to toggle comments"
+
+// prsMarker is the phrase the clickable pull-requests hint ends with.
+const prsMarker = "to show pull requests"
+
+// ToggleRelated expands or folds the detail's pull-request section: what
+// 'l' does while the pane has the keys, where a picker over the pane
+// would be one layer too many.
+func (v *View) ToggleRelated() tea.Cmd {
+	v.showPRs = !v.showPRs
+	return nil
+}
+
+// renderPRs is the detail's pull-request section: the PRs Linear has
+// attached to the issue, with the PRs view's live status glyphs where it
+// has them. Folded, it says how many and how to open it; 'l' from the list
+// still raises the picker to jump to one.
+func (v *View) renderPRs(i issue) string {
+	type row struct {
+		pr               store.PR
+		repo, title, url string
+		num              int
+	}
+	var rows []row
+	seen := map[string]bool{}
+	for _, a := range i.Attachments.Nodes {
+		repo, num, ok := ui.ParsePRURL(a.URL)
+		if a.SourceType != "github" || !ok || seen[a.URL] {
+			continue
+		}
+		seen[a.URL] = true
+		pr := a.toPR()
+		if v.store != nil {
+			if sp, ok := v.store.PR(a.URL); ok {
+				pr = sp
+			}
+		}
+		title := pr.Title
+		if title == "" {
+			title = a.Title
+		}
+		rows = append(rows, row{pr: pr, repo: repo, num: num, title: title, url: a.URL})
+	}
+	if len(rows) == 0 {
+		return ui.Faint.Render("  none")
+	}
+	if !v.showPRs {
+		return ui.Faint.Render(fmt.Sprintf("  %d · l or click %s", len(rows), prsMarker))
+	}
+	var b strings.Builder
+	for n, r := range rows {
+		if n > 0 {
+			b.WriteByte('\n')
+		}
+		line := "  "
+		if icons := ui.PRIcons(r.pr); icons != "" {
+			line += icons + "  "
+		}
+		line += ui.Cyan.Render(fmt.Sprintf("%s#%d", r.repo, r.num))
+		if r.title != "" {
+			line += "  " + ui.Truncate(r.title, max(10, v.prevW-lipgloss.Width(line)-2))
+		}
+		b.WriteString(line)
+	}
+	b.WriteString("\n" + ui.Faint.Render("  l from the list to jump to one"))
+	return b.String()
+}
+
+// issueFetchedMsg carries one issue fetched by identifier for a reference
+// that was not loaded, or the failure to.
+type issueFetchedMsg struct {
+	id, url string
+	issue   issue
+	err     error
+}
+
+const issueQuery = `query($id: String!) {
+  issue(id: $id) {` + issueFields + `
+  }
+}`
+
+// FetchRef brings an issue that is not in the list in by identifier, so a
+// reference followed from another view lands here rather than in a browser.
+// Appended rather than filtered in: it may not match the current source,
+// and the next refresh of that source will drop it again.
+func (v *View) FetchRef(id, url string) tea.Cmd {
+	token := v.token
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]any{"query": issueQuery, "variables": map[string]any{"id": id}})
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return issueFetchedMsg{id: id, url: url, err: err}
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return issueFetchedMsg{id: id, url: url, err: err}
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Data struct {
+				Issue issue `json:"issue"`
+			} `json:"data"`
+			Errors []struct {
+				Message string `json:"message"`
+			} `json:"errors"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return issueFetchedMsg{id: id, url: url, err: err}
+		}
+		if len(out.Errors) > 0 {
+			return issueFetchedMsg{id: id, url: url, err: fmt.Errorf("linear: %s", out.Errors[0].Message)}
+		}
+		return issueFetchedMsg{id: id, url: url, issue: out.Data.Issue}
+	}
+}
 
 // commentsHint closes the summary with whether there is a conversation to
 // read, and which key opens it.
@@ -1591,8 +1728,12 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 	if line < 0 || line >= len(lines) {
 		return nil
 	}
-	if strings.Contains(ansi.Strip(lines[line]), commentsMarker) {
+	text := ansi.Strip(lines[line])
+	if strings.Contains(text, commentsMarker) {
 		return v.toggleComments()
+	}
+	if strings.Contains(text, prsMarker) {
+		return v.ToggleRelated()
 	}
 	return nil
 }

@@ -3059,7 +3059,33 @@ func (v *View) PreviewView() string {
 		}
 		b.WriteString("\n\n")
 		b.WriteString(v.commentsBlock(p))
+		if blk := v.linearBlock(p); blk != "" {
+			b.WriteString("\n\n")
+			b.WriteString(blk)
+		}
 	}
+	return b.String()
+}
+
+// linearBlock names the Linear issue(s) the PR references, with the
+// issue's title where the Linear view has it, and how to get there.
+func (v *View) linearBlock(p pr) string {
+	ids := p.linearRefs()
+	if len(ids) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(ui.BlockHeader("Linear"))
+	for _, id := range ids {
+		line := "  " + ui.Cyan.Render(id)
+		if v.store != nil {
+			if iss, ok := v.store.Issue(id); ok && iss.Title != "" {
+				line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
+			}
+		}
+		b.WriteString("\n" + line)
+	}
+	b.WriteString("\n" + ui.Faint.Render("  l to jump to ticket"))
 	return b.String()
 }
 

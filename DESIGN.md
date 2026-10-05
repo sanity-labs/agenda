@@ -153,6 +153,17 @@ and closes, any other key returns to the panel. The file never says one
 thing while the running app does another. Changing a row back to its
 original value clears its pending state.
 
+## Cross-references
+
+`l` from a list raises the picker of what the selection links to, and
+`enter` there jumps in-app when a view can take it: loaded already, or
+fetched in by a view that can (`FetchRef`), so a Linear issue referenced
+from a PR lands in the Linear tab even when its source does not list it.
+The browser is the fallback, marked `↗` in the picker. Inside a focused
+detail pane `l` does not raise a picker over the pane; it expands the
+pane's own related section (an issue's pull requests), which is also
+clickable. A PR's detail names its Linear issue with the jump hint.
+
 ## Panes
 
 Each pane is one way of looking at the selected row, not a mode. They are

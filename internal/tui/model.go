@@ -567,6 +567,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollPreview(m.previewHeight() - 2)
 			return m, nil
 		case key.Matches(msg, m.keys.Follow):
+			// Inside a focused detail pane, 'l' expands the related items
+			// there instead of raising the picker over it.
+			if m.paneFocused() {
+				if r, ok := m.views[m.current].(relatedToggler); ok {
+					return m, r.ToggleRelated()
+				}
+			}
 			// Follow a cross-reference: always confirm via the picker (even for
 			// a single target) so navigation never happens without a prompt.
 			if refs := m.currentRefs(); len(refs) > 0 {
@@ -1157,14 +1164,34 @@ func (m Model) currentRefs() []ui.Ref {
 	return out
 }
 
-// resolves reports whether a loaded view can select the ref's target.
+// resolves reports whether a view can take the ref's target: it has it
+// loaded, or it can fetch it in.
 func (m Model) resolves(ref ui.Ref) bool {
 	for _, v := range m.views {
-		if t, ok := v.(ui.RefTarget); ok && t.RefKind() == ref.Kind && t.HasRef(ref.ID) {
-			return true
+		if t, ok := v.(ui.RefTarget); ok && t.RefKind() == ref.Kind {
+			if t.HasRef(ref.ID) {
+				return true
+			}
+			if _, can := v.(refFetcher); can {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// refFetcher is optionally implemented by a RefTarget that can bring an item
+// it does not have loaded into its list, so following a reference lands in
+// the app rather than a browser. url is the fallback if the fetch fails.
+type refFetcher interface {
+	FetchRef(id, url string) tea.Cmd
+}
+
+// relatedToggler is optionally implemented by views whose detail pane has an
+// expandable section of related items (an issue's pull requests), which 'l'
+// toggles while the pane has the keys.
+type relatedToggler interface {
+	ToggleRelated() tea.Cmd
 }
 
 // followRef jumps to the ref's target if a view can resolve it, otherwise opens
@@ -1176,6 +1203,16 @@ func (m *Model) followRef(ref ui.Ref) tea.Cmd {
 			m.current = i
 			m.syncPreviewKey(true)
 			return nil
+		}
+	}
+	// Not loaded: a view that can fetch it brings it in and selects it.
+	for i, v := range m.views {
+		if t, ok := v.(ui.RefTarget); ok && t.RefKind() == ref.Kind {
+			if f, can := v.(refFetcher); can {
+				m.current = i
+				m.syncPreviewKey(true)
+				return f.FetchRef(ref.ID, ref.URL)
+			}
 		}
 	}
 	return ui.OpenURL(ref.URL) // unresolved → browser (no-op if URL is "")
