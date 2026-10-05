@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,12 +34,19 @@ const (
 
 // Model is agenda's root Bubble Tea model: chrome around a set of views.
 type Model struct {
-	cfg     config.Config
-	keys    globalKeys
-	jump    jumpKeys
-	theme   theme
-	views   []View
-	current int
+	cfg  config.Config
+	keys globalKeys
+	jump jumpKeys
+	// restart is set when the settings overlay asked for a reload; main
+	// checks it after the program quits and passes restartFrom to the new
+	// process, which reopens the panel where you left it. reloaded is that
+	// note on the way in.
+	restart     bool
+	restartFrom string
+	reloaded    string
+	theme       theme
+	views       []View
+	current     int
 
 	width, height int
 	ready         bool
@@ -228,6 +236,11 @@ func (m Model) Init() tea.Cmd {
 	if m.cfg.UnreadSync {
 		cmds = append(cmds, func() tea.Msg { return ui.UnreadSyncMsg(true) })
 	}
+	if m.reloaded != "" {
+		cmds = append(cmds, func() tea.Msg {
+			return ui.ToastMsg{Title: "Settings", Body: "Reload successful", Success: true}
+		})
+	}
 	// The views start out fetching, so kick the spinner loop; it stops itself
 	// once nothing is loading.
 	cmds = append(cmds, spinnerTick())
@@ -376,20 +389,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// change lands in three places: the live cfg, the config file, and
 		// whatever live re-apply the path warrants.
 		if m.settings != nil {
-			change, closed := m.settings.Update(msg, m.cfg)
+			o := m.settings
+			change, closed := o.Update(msg, m.cfg)
 			if closed {
 				m.settings = nil
+				switch {
+				case o.reload:
+					// A real restart: main execs the binary again once the
+					// program has released the terminal, so every option
+					// takes effect the way it would after a manual restart.
+					// The new process reopens the panel on this tab, unless
+					// the reload came from the leave warning.
+					m.restart, m.restartFrom = true, fmt.Sprintf("panel:%d", o.tab)
+					if o.warned {
+						m.restartFrom = "warning"
+					}
+					return m, tea.Quit
+				case o.revert:
+					return m, m.revertPending(o)
+				}
 				return m, nil
 			}
 			if change != nil {
-				if change.s.kind == kindAction {
-					return m, m.runAction(change.s.path)
-				}
-				change.s.set(&m.cfg, change.val)
-				if err := config.Set(change.s.path, change.fileValue(m.cfg)); err != nil {
-					m.settings.errMsg = err.Error()
-				}
-				return m, m.applyConfigChange(change.s.path)
+				return m, m.commitSetting(change)
 			}
 			return m, nil
 		}
@@ -704,11 +726,48 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 	if change.s.kind == kindAction {
 		return m.runAction(change.s.path)
 	}
+	prev := change.s.get(m.cfg)
 	change.s.set(&m.cfg, change.val)
 	if err := config.Set(change.s.path, change.fileValue(m.cfg)); err != nil {
 		m.settings.errMsg = err.Error()
 	}
+	if change.s.note == noteReload {
+		m.settings.markPending(change.s, prev, change.s.get(m.cfg))
+	}
 	return m.applyConfigChange(change.s.path)
+}
+
+// revertPending puts the restart-marked rows back to the values they had
+// when the overlay opened, in the live config and the file both.
+func (m *Model) revertPending(o *configOverlay) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, p := range o.pending {
+		p.s.set(&m.cfg, p.prev)
+		_ = config.Set(p.s.path, settingChange{s: p.s, val: p.prev}.fileValue(m.cfg))
+		cmds = append(cmds, m.applyConfigChange(p.s.path))
+	}
+	return tea.Batch(cmds...)
+}
+
+// Restart reports that the user asked the settings overlay to reload: the
+// program has quit, and main execs the binary again. RestartState is what
+// the new process is told, so it can pick up where this one left off.
+func (m Model) Restart() bool        { return m.restart }
+func (m Model) RestartState() string { return m.restartFrom }
+
+// WithReloaded marks this process as the one a reload started, with the
+// state the previous one left: the settings panel reopens on the same tab
+// (not from the leave warning, which closed it), and Init posts the
+// confirmation toast.
+func (m Model) WithReloaded(state string) Model {
+	m.reloaded = state
+	if tab, ok := strings.CutPrefix(state, "panel:"); ok {
+		m.settings = newConfigOverlay()
+		if i, err := strconv.Atoi(tab); err == nil {
+			m.settings.SetTabIndex(i)
+		}
+	}
+	return m
 }
 
 // concealTransient ends a transient reveal (see ui.ConcealPreviewMsg), and
@@ -1389,17 +1448,22 @@ func (m Model) centerOf(box string) (x, y int) {
 func (m Model) renderToast() string {
 	t := m.toast
 	title := ui.Glyph(ui.IconBell, "") + t.Title
+	style, colour := ui.Yellow, ui.Pal().Yellow
+	if t.Success {
+		title = "✓ " + t.Title
+		style, colour = ui.Green, ui.Pal().Green
+	}
 	body := t.Body
 	if lipgloss.Width(body) > 60 {
 		body = ui.Truncate(body, 60)
 	}
-	content := ui.Yellow.Bold(true).Render(title)
+	content := style.Bold(true).Render(title)
 	if body != "" {
 		content += "\n" + body
 	}
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(ui.Pal().Yellow)).
+		BorderForeground(lipgloss.Color(colour)).
 		Padding(0, 1).
 		Render(content)
 }
