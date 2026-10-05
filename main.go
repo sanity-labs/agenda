@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/daemon"
+	"github.com/sanity-labs/agenda/internal/herdr"
 	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/tui"
@@ -25,27 +27,39 @@ import (
 )
 
 func main() {
+	// --herdr may come before or after a view name (`agenda --herdr prs`).
+	args := os.Args[1:]
+	herdrMode := false
+	if i := slices.Index(args, "--herdr"); i >= 0 {
+		herdrMode = true
+		args = slices.Delete(slices.Clone(args), i, i+1)
+	}
+
 	// Subcommands run before config load, so a broken config never blocks
 	// `agenda version` or `agenda help`.
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
+	if len(args) > 0 {
+		switch args[0] {
 		case "--version", "-v":
 			os.Exit(runVersion(os.Stdout, nil))
 		case "--help", "-h":
 			os.Exit(runHelp(os.Stdout, nil))
 		}
-		if os.Args[1] == "daemon" {
-			if len(os.Args) > 2 && (os.Args[2] == "--help" || os.Args[2] == "-h") {
+		if args[0] == "daemon" {
+			if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
 				os.Exit(runHelp(os.Stdout, []string{"daemon"}))
 			}
-			if msg := daemonArgError(os.Args[2:]); msg != "" {
+			if msg := daemonArgError(args[1:]); msg != "" {
 				fmt.Fprintln(os.Stderr, msg)
 				os.Exit(2)
 			}
 		}
-		if c, ok := lookup(os.Args[1]); ok && c.run != nil {
-			os.Exit(c.run(os.Stdout, os.Args[2:]))
+		if c, ok := lookup(args[0]); ok && c.run != nil {
+			os.Exit(c.run(os.Stdout, args[1:]))
 		}
+	}
+	if herdrMode && os.Getenv("HERDR_ENV") != "1" {
+		fmt.Fprintln(os.Stderr, "agenda: --herdr runs inside Herdr, e.g. from a popup keybinding (see 'agenda help')")
+		os.Exit(1)
 	}
 
 	cfg, err := config.Load()
@@ -91,7 +105,7 @@ func main() {
 	}
 
 	// `agenda daemon`: the same views, headless, behind the socket.
-	if len(os.Args) > 1 && os.Args[1] == "daemon" {
+	if len(args) > 0 && args[0] == "daemon" {
 		if err := tui.ServeDaemon(cfg, views, versionString()); err != nil {
 			fmt.Fprintln(os.Stderr, "agenda daemon:", err)
 			os.Exit(1)
@@ -110,8 +124,8 @@ func main() {
 
 	// `agenda linear` (or prs/sessions) opens on that view.
 	initial := 0
-	if len(os.Args) > 1 {
-		want := strings.ToLower(os.Args[1])
+	if len(args) > 0 {
+		want := strings.ToLower(args[0])
 		found := false
 		for i, name := range enabled {
 			if name == want {
@@ -121,7 +135,7 @@ func main() {
 		}
 		if !found {
 			fmt.Fprintf(os.Stderr, "agenda: unknown or disabled view %q (enabled: %s)\ntry 'agenda help'\n",
-				os.Args[1], strings.Join(enabled, ", "))
+				args[0], strings.Join(enabled, ", "))
 			os.Exit(1)
 		}
 	}
@@ -132,7 +146,7 @@ func main() {
 	os.Unsetenv(reloadEnv)
 	m := tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithReloaded(reloaded)
 	if reloaded == "" {
-		m = m.WithSnapshot(len(os.Args) > 1)
+		m = m.WithSnapshot(len(args) > 0)
 	}
 	if cfg.Daemon {
 		// Find the daemon or start one; it fetches from here on. Failing
@@ -152,6 +166,9 @@ func main() {
 				m = m.WithStartupToast(ui.ToastMsg{Title: "Stale daemon", Body: msg})
 			}
 		}
+	}
+	if herdrMode {
+		m = m.WithHerdr(newOpener(cfg.Herdr))
 	}
 	p := tea.NewProgram(m)
 	final, err := p.Run()
@@ -198,6 +215,15 @@ func hasReviewsTab(enabled []string) bool {
 
 // reloadEnv carries the settings panel's state across a reload.
 const reloadEnv = "AGENDA_RELOAD"
+
+// newOpener builds herdr mode's workspace opener from the config.
+func newOpener(c config.HerdrConfig) *herdr.Opener {
+	repos := herdr.Repos{Root: herdr.ExpandHome(c.ReposRoot), Overrides: map[string]string{}}
+	for slug, path := range c.Repos {
+		repos.Overrides[slug] = herdr.ExpandHome(path)
+	}
+	return herdr.NewOpener(herdr.ExecRunner, repos, herdr.ExpandHome(c.WorktreesDir), herdr.LoadClaims(herdr.DefaultClaimsPath()))
+}
 
 // Set by GoReleaser via -ldflags "-X main.version=..." on release builds.
 // go-install and source builds leave them empty and fall back to the

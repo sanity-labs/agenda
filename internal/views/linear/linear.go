@@ -26,6 +26,7 @@ import (
 
 	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/herdr"
 	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -96,6 +97,7 @@ type issue struct {
 		Key string `json:"key"`
 	} `json:"team"`
 	Project struct {
+		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"project"`
 	ProjectMilestone struct {
@@ -630,6 +632,7 @@ type View struct {
 	inactive    bool // not the tab on screen; zero value means active
 	grouping    bool // swimlanes derived from the active sort
 	store       *store.Store
+	herdr       bool // herdr mode: open jumps to the issue's workspace
 
 	// Navigation tree state (ctrl+p). source drives what fetch() queries;
 	// defaultSource is the config-derived one whose results are cached.
@@ -729,6 +732,9 @@ type viewKeys struct {
 	Mine   key.Binding
 	Comm   key.Binding
 	Read   key.Binding
+	// Browse opens the issue in the browser in herdr mode, where Open jumps
+	// to its workspace instead.
+	Browse key.Binding
 }
 
 func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store.Store) *View {
@@ -752,6 +758,7 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 			Mine:   bind("mine", "only mine", "m"),
 			Comm:   bind("comments", "comments", "c"),
 			Read:   bind("read", "mark read", "space"),
+			Browse: bind("browse", "browser", "O"),
 		},
 	}
 	v.source = sourceForScope(cfg.Filter.Scope)
@@ -906,14 +913,20 @@ func (v *View) Title() string { return "Linear" }
 
 // record is the issue as the shared store carries it.
 func (i issue) record() store.Issue {
-	return store.Issue{
+	rec := store.Issue{
 		Identifier: i.Identifier,
 		Title:      i.Title,
 		State:      i.State.Name,
 		StateType:  i.State.Type,
 		StateColor: i.State.Color,
 		URL:        i.URL,
+		ProjectID:  i.Project.ID,
+		Project:    i.Project.Name,
 	}
+	if i.Parent != nil {
+		rec.Parent, rec.ParentTitle = i.Parent.Identifier, i.Parent.Title
+	}
+	return rec
 }
 
 // publish pushes the loaded issues into the shared store so other views (PRs,
@@ -957,7 +970,8 @@ const issueFields = `
         identifier title url priority priorityLabel branchName updatedAt description
         state { name type color }
         team { key }
-        project { name }
+        project { id name }
+        parent { identifier title }
         projectMilestone { name }
         assignee { id displayName }
         comments(first: 50) { nodes { id } pageInfo { hasNextPage } }
@@ -1590,6 +1604,11 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Read):
 			return v.markRead(v.list.Selected().Identifier)
 		case key.Matches(msg, v.keys.Open):
+			if v.herdr {
+				return v.herdrRequest()
+			}
+			return ui.OpenURL(v.list.Selected().URL)
+		case v.herdr && key.Matches(msg, v.keys.Browse):
 			return ui.OpenURL(v.list.Selected().URL)
 		case key.Matches(msg, v.keys.Copy):
 			return ui.CopyCmd(v.list.Selected().URL, "URL")
@@ -1831,8 +1850,59 @@ func (v *View) ClickList(x, y int) (bool, tea.Cmd) {
 	return true, v.mouseMoved(before)
 }
 
-// Activate opens the selected issue in the browser (a double-click).
-func (v *View) Activate() tea.Cmd { return ui.OpenURL(v.list.Selected().URL) }
+// Activate opens the selected issue in the browser (a double-click), or its
+// workspace in herdr mode.
+func (v *View) Activate() tea.Cmd {
+	if v.herdr {
+		return v.herdrRequest()
+	}
+	return ui.OpenURL(v.list.Selected().URL)
+}
+
+// SetHerdr turns on herdr mode: open jumps to the issue's workspace, and
+// browse opens it in the browser instead.
+func (v *View) SetHerdr(on bool) {
+	v.herdr = on
+	if on {
+		v.keys.Open.SetHelp(v.keys.Open.Help().Key, "workspace")
+	}
+}
+
+// herdrRequest asks for the selected issue's workspace. Its open PR, if it
+// has one, supplies the repository and the branch to check out.
+func (v *View) herdrRequest() tea.Cmd {
+	iss := v.list.Selected()
+	if iss.Identifier == "" {
+		return nil
+	}
+	hi := herdr.Issue{ID: iss.Identifier, Title: iss.Title, Branch: iss.BranchName,
+		ProjectID: iss.Project.ID, Project: iss.Project.Name}
+	if iss.Parent != nil {
+		hi.Parent, hi.ParentTitle = iss.Parent.Identifier, iss.Parent.Title
+	}
+	req := herdr.Request{Issues: []herdr.Issue{hi}, PR: v.openPR(iss)}
+	return func() tea.Msg { return req }
+}
+
+// openPR is the issue's first attached GitHub PR that is still open, with
+// its head branch when the PRs view has loaded it (the opener asks GitHub
+// otherwise).
+func (v *View) openPR(iss issue) *herdr.PR {
+	for _, a := range iss.Attachments.Nodes {
+		repo, num, ok := ui.ParsePRURL(a.URL)
+		if !ok || a.Metadata.Status == "merged" || a.Metadata.Status == "closed" {
+			continue
+		}
+		pr := &herdr.PR{Repo: repo, Number: num, Title: a.Title}
+		if v.store != nil {
+			if sp, ok := v.store.PR(a.URL); ok {
+				pr.Branch = sp.Branch
+			}
+		}
+		return pr
+	}
+	return nil
+}
 
 // mouseMoved follows a mouse-driven selection change the way a j/k move does:
 // fetch the new issue's comments if that section is showing, restart the 'c'
@@ -2279,7 +2349,11 @@ func (v *View) Bindings() []key.Binding {
 	if v.token == "" {
 		return nil
 	}
-	return []key.Binding{v.keys.Open, v.keys.Comm, v.keys.Copy, v.keys.Branch, v.keys.Sort, v.keys.Rev, v.keys.Read}
+	b := []key.Binding{v.keys.Open}
+	if v.herdr {
+		b = append(b, v.keys.Browse)
+	}
+	return append(b, v.keys.Comm, v.keys.Copy, v.keys.Branch, v.keys.Sort, v.keys.Rev, v.keys.Read)
 }
 
 // Status is empty: the list header already shows the counts and sort, so the
