@@ -173,9 +173,8 @@ github:
   filter: "author:@me is:open archived:false"
   # Search query for the "needs your review" section (toggle it with 'w').
   review_filter: "review-requested:@me is:open archived:false"
-  # Show that section on startup. Off by default: the view opens with just
-  # your own PRs, as it always did.
-  show_review_requested: false
+  # Show that section on startup. On by default; 'w' hides it in-app.
+  show_review_requested: true
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
@@ -221,6 +220,10 @@ github:
   # diff through less, the original behavior. The comments pane ('c') and
   # inline-thread annotations need this on to show threads in the diff.
   diff_pane: false
+  # What the review popup ('r') opens beside it when diff_pane is on:
+  # unified (the flat diff, default) or files (the file list, with 'space'
+  # marking files reviewed as you go).
+  review_view: unified
   # Fetch PRs a page at a time, loading the next page when you scroll to the
   # end of the list. On by default: one request for 100 PRs measured 8-10s
   # against a large review-requested search and timed out often enough to

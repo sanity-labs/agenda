@@ -888,7 +888,7 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 		// so it starts on the review search's own.
 		loading:       !reviewsOnly,
 		reviewLoading: reviewsOnly,
-		showReview:    reviewsOnly || (cfg.ShowReviewRequested != nil && *cfg.ShowReviewRequested),
+		showReview:    reviewsOnly || cfg.ShowReviewRequestedOn(),
 		reviewsOnly:   reviewsOnly,
 		keys: viewKeys{
 			Open:       bind("open", "open", "enter"),
@@ -1767,11 +1767,15 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Start):
 			if p := v.list.Selected(); p.URL != "" {
 				v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number}
-				// Reviewing reads better against the diff, where enabled.
+				// Reviewing reads better against the change, where the pane
+				// is enabled: the flat diff, or the file list by config.
 				if v.cfg.DiffPane && v.pane == paneBody {
 					v.pane = paneDiff
+					if v.cfg.ResolvedReviewView() == "files" {
+						v.pane = paneFiles
+					}
 				}
-				return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments())
+				return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchFiles())
 			}
 		}
 	}

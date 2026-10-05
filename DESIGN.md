@@ -164,8 +164,10 @@ mutually exclusive, and the key that opened one closes it.
 | `c` | comments |
 | `t` | CI jobs |
 
-The review popup's "view diff" opens the **unified** diff rather than the
-file list: reviewing reads better against a flat diff.
+The review popup (`r`) opens the **unified** diff beside it by default;
+`github.review_view: files` opens the file list instead, where `space`
+marks files reviewed as you go. The default stays unified until the file
+list has a nudge for unmarked files in the popup.
 
 Both show the inline review threads, boxed under the line they are
 anchored to. The file list derives each patch line's number in the new

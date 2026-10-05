@@ -60,8 +60,8 @@ linear:
   token: lin_api_xxx     # linear.app → Settings → Security & access → API keys
 ```
 
-To work through review requests rather than your own PRs, either press `w`
-on the PRs tab or give them a tab of their own by enabling the `reviews`
+Review requests show as a section under your own PRs (`w` hides it). To
+work through them on their own, give them a tab by enabling the `reviews`
 view. The order of `views` is the tab order, so the first one is what
 agenda opens on:
 
@@ -86,6 +86,7 @@ own PRs only and `w` says so.
 |---|---|
 | `hide_preview` | start with the list full width; `v` floats one row's detail |
 | `github.diff_pane` | `d` shows the diff in the pane as a file list instead of paging it through `less` |
+| `github.review_view` | what `r` opens beside the review popup: `unified` (default) or `files` |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `unread`, `unread_sync` | blue dot on rows that arrived since you last looked (on); keep it in step with GitHub notifications |
 | `notifications.popup` | `terminal` toast or `desktop` notification on new review requests and assignments; `click` opens the item (macOS needs `terminal-notifier`) |

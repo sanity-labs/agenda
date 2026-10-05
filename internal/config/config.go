@@ -168,12 +168,16 @@ type GitHubConfig struct {
 	// ReviewFilter is the search query for the "needs your review" section.
 	ReviewFilter string `yaml:"review_filter"`
 	// ShowReviewRequested shows the review-requested section on startup.
-	// Off by default, matching the original single-search view; 'w'
-	// toggles it in-app regardless.
+	// On by default: a toggle nobody knows about is a section nobody finds.
+	// 'w' hides it in-app regardless.
 	ShowReviewRequested *bool `yaml:"show_review_requested"`
 	// DiffPane renders diffs in the preview pane on 'd'. Off by default:
 	// 'd' then pages the diff through less, the original behavior.
 	DiffPane bool `yaml:"diff_pane"`
+	// ReviewView is what the review popup ('r') opens beside it when
+	// DiffPane is on: "unified" (default), the flat diff, or "files", the
+	// file list with its reviewed marks.
+	ReviewView string `yaml:"review_view"`
 	// LazyPaging fetches PRs a page at a time, loading the next page when the
 	// cursor reaches the end of the list. On by default: one page of 100 rows
 	// of these fields measured 8-10s against a large review-requested search
@@ -517,10 +521,22 @@ func (c Config) RefreshFor(view string) time.Duration {
 }
 
 // ShowReviewRequested reports whether the PRs view starts with the
-// review-requested section visible (default false, the original layout).
-func (c Config) ShowReviewRequested() bool {
-	f := c.GitHub.ShowReviewRequested
-	return f != nil && *f
+// review-requested section visible (default true).
+func (c Config) ShowReviewRequested() bool { return c.GitHub.ShowReviewRequestedOn() }
+
+// ShowReviewRequestedOn is ShowReviewRequested resolved on the view's own
+// config, default true.
+func (g GitHubConfig) ShowReviewRequestedOn() bool {
+	return g.ShowReviewRequested == nil || *g.ShowReviewRequested
+}
+
+// ResolvedReviewView is what the review popup opens: "files" when asked,
+// "unified" otherwise, an unknown value included.
+func (g GitHubConfig) ResolvedReviewView() string {
+	if g.ReviewView == "files" {
+		return "files"
+	}
+	return "unified"
 }
 
 // --- yaml scalar types --------------------------------------------------------

@@ -335,6 +335,12 @@ func settingsTable() []setting {
 		boolSetting("inline diff pane", "github.diff_pane", noteReload,
 			func(c config.Config) bool { return c.GitHub.DiffPane },
 			func(c *config.Config, v bool) { c.GitHub.DiffPane = v }),
+		{
+			label: "review opens", path: "github.review_view", kind: kindEnum,
+			options: func() []string { return []string{"unified", "files"} },
+			get:     func(c config.Config) string { return c.GitHub.ResolvedReviewView() },
+			set:     func(c *config.Config, v string) { c.GitHub.ReviewView = v },
+		},
 		boolSetting("merge from review popup", "github.merge", noteReload,
 			func(c config.Config) bool { return c.GitHub.Merge },
 			func(c *config.Config, v bool) { c.GitHub.Merge = v }),
