@@ -205,6 +205,10 @@ type GitHubConfig struct {
 	// is no reason to stop looking. Off by default, and merged PRs are the
 	// search filter's business (is:open), not this toggle's.
 	HideApproved bool `yaml:"hide_approved"`
+	// HideDrafts leaves draft PRs out of both sections: a draft is its
+	// author's business until it is marked ready. Off by default; 'D'
+	// toggles it in-app.
+	HideDrafts bool `yaml:"hide_drafts"`
 	// HideDependencyBots leaves Renovate and Dependabot PRs out of the
 	// review-requested search. Off by default: some teams do review them.
 	HideDependencyBots bool `yaml:"hide_dependency_bots"`

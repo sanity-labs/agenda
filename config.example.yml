@@ -194,6 +194,9 @@ github:
   # else approving is no reason for you to stop looking. Merged PRs are
   # handled by review_filter's is:open, not by this.
   hide_approved: false
+  # Leave draft PRs out of both sections: a draft is its author's business
+  # until it is marked ready. Off by default; 'D' toggles it in-app.
+  hide_drafts: false
   # Leave Renovate and Dependabot PRs out of the review-requested list. They
   # are excluded in the search itself (-author:app/renovate
   # -author:app/dependabot), so counts and paging only see the rest. Off by

@@ -659,6 +659,8 @@ type View struct {
 
 	// hideApproved drops already-approved PRs from the review list.
 	hideApproved bool
+	// hideDrafts drops draft PRs from both sections.
+	hideDrafts bool
 
 	// filterEd is the open search-filter editor ('F'), nil when closed.
 	filterEd *filterEdit
@@ -826,6 +828,7 @@ type viewKeys struct {
 	Sort       key.Binding
 	Rev        key.Binding
 	Review     key.Binding
+	HideDrafts key.Binding
 	Start      key.Binding
 	Comments   key.Binding
 	NextThread key.Binding
@@ -897,6 +900,7 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 			Sort:       bind("sort", "sort", "s"),
 			Rev:        bind("reverse", "reverse", "S"),
 			Review:     bind("toggle_review", "review reqs", "w"),
+			HideDrafts: bind("hide_drafts", "drafts", "D"),
 			Start:      bind("review", "review", "r"),
 			Comments:   bind("comments", "comments", "c"),
 			NextThread: bind("next_thread", "", "]"),
@@ -918,6 +922,7 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 	v.rev = cfg.Reverse
 	v.rowRefresh = cfg.RefreshRowEnabled()
 	v.hideApproved = cfg.HideApproved
+	v.hideDrafts = cfg.HideDrafts
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
 	v.nav = newNavKeys(km)
@@ -1755,6 +1760,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg {
 				return ui.ToastMsg{Title: "Review requests", Body: "Toggle disabled while 'Reviews' view is active"}
 			}
+		case key.Matches(msg, v.keys.HideDrafts):
+			v.hideDrafts = !v.hideDrafts
+			v.applySort()
+			return nil
 		case key.Matches(msg, v.keys.Review):
 			v.showReview = !v.showReview
 			v.applySort()
@@ -2640,6 +2649,11 @@ func (v *View) applySort() {
 		}
 		rev = kept
 	}
+	// A draft is its author's business until it is marked ready. Both
+	// sections: your own drafts clutter the list as much as other people's.
+	if v.hideDrafts {
+		mine, rev = dropDrafts(mine), dropDrafts(rev)
+	}
 	if v.cfg.MarkReviewed {
 		for i := range rev {
 			rev[i].Reviewed = rev[i].reviewedByMe()
@@ -2673,6 +2687,16 @@ func (v *View) applySort() {
 		items = append(items, v.groupSection(rev)...)
 	}
 	v.list.SetItems(items)
+}
+
+func dropDrafts(prs []pr) []pr {
+	kept := prs[:0]
+	for _, p := range prs {
+		if !p.IsDraft {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }
 
 // reviewLabel is the review section's band text: a count, plus how many of
@@ -3333,9 +3357,9 @@ func (v *View) Bindings() []key.Binding {
 		return v.filesBindings()
 	}
 	if v.reviewsOnly || v.reviewsElsewhere {
-		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.EditFilter}
+		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.HideDrafts, v.keys.EditFilter}
 	}
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
+	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.HideDrafts, v.keys.EditFilter}
 }
 
 // Status is the footer's right-hand slot. The list header already carries

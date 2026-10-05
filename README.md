@@ -1,6 +1,8 @@
 # agenda
 
 [![CI](https://github.com/sanity-labs/agenda/actions/workflows/ci.yml/badge.svg)](https://github.com/sanity-labs/agenda/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sanity-labs/agenda)](https://github.com/sanity-labs/agenda/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A terminal dashboard for the things you keep checking, in one TUI you tab
 between:
@@ -18,6 +20,11 @@ refreshes behind you.
 
 You need a **Nerd Font** in the terminal, the **`gh` CLI** logged in for the
 PRs view, and a Linear API key for the Linear view.
+
+**Contents**: [Install](#install) · [Configuration](#configuration) ·
+[Keys](#keys) · [Views](#views) · [Cross-references](#cross-references) ·
+[Releasing](#releasing) · [Credit](#credit) · [Project layout](#project-layout)
+· [License](#license)
 
 ## Install
 
@@ -40,9 +47,10 @@ agenda completion bash > /usr/local/etc/bash_completion.d/agenda
 agenda completion fish > ~/.config/fish/completions/agenda.fish
 ```
 
-To hack on it: `go run .` (the commands live in `cli.go`, so not `main.go`)
-and `go test ./...`. [AGENTS.md](AGENTS.md) and [DESIGN.md](DESIGN.md) hold
-the conventions and the interaction rules.
+To hack on it: `make help` lists the targets; `make run`, `make test`, and
+`make check` (formatting, vet, tests: what CI runs). `go run .` works too
+(the commands live in `cli.go`, so not `main.go`). [AGENTS.md](AGENTS.md)
+and [DESIGN.md](DESIGN.md) hold the conventions and the interaction rules.
 
 ## Configuration
 
@@ -87,6 +95,7 @@ own PRs only and `w` says so.
 | `hide_preview` | start with the list full width; `v` floats one row's detail |
 | `github.diff_pane` | `d` shows the diff in the pane as a file list instead of paging it through `less` |
 | `github.review_view` | what `r` opens beside the review popup: `files` (default) or `unified` |
+| `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `unread`, `unread_sync` | blue dot on rows that arrived since you last looked (on); keep it in step with GitHub notifications |
 | `notifications.popup` | `terminal` toast or `desktop` notification on new review requests and assignments; `click` opens the item (macOS needs `terminal-notifier`) |
@@ -125,7 +134,7 @@ them elsewhere).
 | PRs | `d`, `c`, `t`, `e` | diff (file list), comments, CI jobs, expand description |
 | PRs | `r` | review popup: approve, comment, request changes, view diff; `m`/`M` merge with `github.merge` |
 | PRs | `R`, `X`, `C`, `]`/`[` | reply to thread, resolve thread, new comment, next/previous thread |
-| PRs | `w`, `F` | toggle the review section; edit the section's GitHub search |
+| PRs | `w`, `D`, `F` | toggle the review section; hide drafts; edit the section's GitHub search |
 | File list | `↑`/`↓`, `+`/`→`, `-`/`←`, `space` | next file when on screen (else scroll a line), expand, collapse, mark reviewed and advance; jump keys scroll |
 | Jobs pane | `enter`, `→`/`←`, `]`/`[`, `o`, `p`, `y`, `x` | open a job or a step's log, in/out of a job, next/previous failure, browser, `less`, copy URL, rerun |
 | Sessions | `enter`, `s`/`S` | resume in its directory, sort |

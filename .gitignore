@@ -5,3 +5,4 @@
 *.test
 *.out
 dist/
+bin/
