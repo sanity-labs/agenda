@@ -955,6 +955,24 @@ func (v *View) fetchFrom(after string) tea.Cmd {
 	}
 }
 
+// departed says why the issue you were on is gone after a refresh of the
+// same source, so the cursor landing elsewhere does not pass for the same
+// issue: its new state when the refresh still carried it, otherwise that
+// the source no longer lists it.
+func (v *View) departed(before issue, next []issue) tea.Cmd {
+	if before.Identifier == "" || v.list.Any(matchID(before.Identifier)) {
+		return nil
+	}
+	why := "no longer in this source"
+	for _, i := range next {
+		if i.Identifier == before.Identifier && i.State.Name != "" {
+			why = "now " + i.State.Name
+		}
+	}
+	body := before.Identifier + ": " + why
+	return func() tea.Msg { return ui.ToastMsg{Title: "Left the list", Body: body} }
+}
+
 // appendIssues adds a later page, skipping issues already on screen: an
 // issue updated between two page fetches can appear in both.
 func appendIssues(have, more []issue) []issue {
@@ -992,16 +1010,21 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		v.page = pageState{cursor: msg.cursor, hasMore: msg.hasMore}
+		before := v.list.Selected()
 		var cmd tea.Cmd
 		if msg.source == v.lastLoaded {
 			v.markFresh(v.raw, msg.issues)
 			cmd = v.notifyNew(v.raw, msg.issues)
 		}
+		sameSource := msg.source == v.lastLoaded
 		v.lastLoaded = msg.source
 		v.raw = msg.issues
 		v.seeded = true
 		v.applySort()
 		v.publish(msg.issues)
+		if sameSource {
+			cmd = tea.Batch(cmd, v.departed(before, msg.issues))
+		}
 		if msg.source == v.defaultSource {
 			_ = cache.Save(cacheName, msg.issues)
 			v.saveFresh()

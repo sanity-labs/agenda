@@ -170,9 +170,10 @@ func (m *Model) scrollList(n int) tea.Cmd {
 	if !ok {
 		return nil
 	}
+	was := m.anyLoading()
 	cmd := s.ScrollList(n)
 	m.syncPreviewKey(false) // scrolling may move the selection
-	return cmd
+	return m.spin(was, cmd)
 }
 
 // click routes a left click. An open modal takes it first, in the order keys

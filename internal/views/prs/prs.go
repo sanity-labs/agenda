@@ -1308,6 +1308,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.foreign(msg.from) {
 			return nil
 		}
+		before := v.list.Selected()
 		v.loading = false
 		v.minePage.loading = false
 		// A partly forbidden search returns rows and an error together, so
@@ -1340,11 +1341,15 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.applySort()
 		v.publish(append(v.raw, v.reviewRaw...))
 		v.saveCache()
+		if !msg.more {
+			partial = tea.Batch(partial, v.departed(before, msg.page.prs))
+		}
 		return partial
 	case reviewListMsg:
 		if v.foreign(msg.from) {
 			return nil
 		}
+		before := v.list.Selected()
 		v.reviewLoading = false
 		v.reviewPage.loading = false
 		if msg.err != nil && len(msg.page.prs) == 0 {
@@ -1378,6 +1383,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.applySort()
 		v.publish(append(v.raw, next...))
 		v.saveCache()
+		if !msg.more {
+			cmd = tea.Batch(cmd, v.departed(before, next))
+		}
 		return cmd
 	case filesMsg:
 		st := v.files[msg.url]
@@ -1438,9 +1446,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if !msg.ok || !v.applyFresh(msg.pr) {
 			return nil
 		}
+		before := v.list.Selected()
 		v.applySort()
 		v.bodyKey = "" // checks and review state render in the preview
-		return nil
+		return v.departed(before, []pr{msg.pr})
 	case mergeDoneMsg:
 		if v.foreign(msg.from) {
 			return nil
@@ -2685,6 +2694,34 @@ func (v *View) applySort() {
 		items = append(items, v.groupSection(rev)...)
 	}
 	v.list.SetItems(items)
+}
+
+// departed says why the row you were on is gone after a refresh, so the
+// cursor landing on another PR does not pass for the same one: the toast
+// names the PR and the reason (approved and hidden, merged, dropped by
+// the search), and the list is where it was.
+func (v *View) departed(before pr, next []pr) tea.Cmd {
+	if before.URL == "" || v.list.Any(matchURL(before.URL)) {
+		return nil
+	}
+	why := "no longer in the search results"
+	for _, p := range next {
+		if p.URL != before.URL {
+			continue
+		}
+		switch {
+		case p.State == "MERGED":
+			why = "merged"
+		case p.State == "CLOSED":
+			why = "closed"
+		case v.hideApproved && p.approvedAndOpen():
+			why = "approved, hidden by hide_approved"
+		case v.hideDrafts && p.IsDraft:
+			why = "a draft, hidden by hide_drafts"
+		}
+	}
+	body := fmt.Sprintf("%s#%d: %s", before.repo(), before.Number, why)
+	return func() tea.Msg { return ui.ToastMsg{Title: "Left the list", Body: body} }
 }
 
 func dropDrafts(prs []pr) []pr {

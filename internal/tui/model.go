@@ -684,10 +684,21 @@ func (m Model) updateCurrent(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if len(m.views) == 0 {
 		return m, nil
 	}
+	was := m.anyLoading()
 	cmd := m.views[m.current].Update(msg)
 	m.syncPreviewKey(false) // a key may have moved the selection
 	m.applyPreviewRequests()
-	return m, cmd
+	return m, m.spin(was, cmd)
+}
+
+// spin restarts the spinner loop when a view started loading on its own (a
+// next page, a fetch on settle): the loop only runs while something loads,
+// and nothing but Init and ctrl+r started it, so the glyph sat still.
+func (m Model) spin(wasLoading bool, cmd tea.Cmd) tea.Cmd {
+	if !wasLoading && m.anyLoading() {
+		return tea.Batch(cmd, spinnerTick())
+	}
+	return cmd
 }
 
 // applyPreviewRequests carries out a scroll the focused view asked for: a
@@ -711,6 +722,7 @@ func (m *Model) applyPreviewRequests() {
 
 // broadcast threads a message through every view, collecting their commands.
 func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
+	was := m.anyLoading()
 	cmds := make([]tea.Cmd, 0, len(m.views))
 	for _, v := range m.views {
 		if cmd := v.Update(msg); cmd != nil {
@@ -723,7 +735,7 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if len(m.views) > 0 {
 		m.applyPreviewRequests()
 	}
-	return m, tea.Batch(cmds...)
+	return m, m.spin(was, tea.Batch(cmds...))
 }
 
 // commitSetting writes a change to the live config, the file, and whatever
