@@ -17,6 +17,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/herdr"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
@@ -204,6 +205,7 @@ type View struct {
 	rev      bool // sort order reversed
 	grouping bool // swimlanes derived from the active sort
 	store    *store.Store
+	herdr    bool // herdr mode: resume goes through Herdr
 
 	showAgents bool // when false, programmatic (SDK/agent) sessions are hidden
 	confirmDel bool // armed delete: next y/enter deletes the selected session
@@ -368,6 +370,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 		case key.Matches(msg, v.keys.Resume):
+			if v.herdr {
+				return v.herdrRequest()
+			}
 			return v.resume()
 		case key.Matches(msg, v.keys.Sort):
 			v.sort = sortOrder[(int(v.sort)+1)%len(sortOrder)]
@@ -400,15 +405,8 @@ func (v *View) resume() tea.Cmd {
 	if s.SessionID == "" {
 		return nil
 	}
-	var c *exec.Cmd
-	switch s.Tool {
-	case toolCodex:
-		c = exec.Command("codex", "resume", s.SessionID)
-	case toolAgy:
-		c = exec.Command("agy", "--conversation", s.SessionID)
-	default:
-		c = exec.Command("claude", "--resume", s.SessionID)
-	}
+	args := resumeArgs(s)
+	c := exec.Command(args[0], args[1:]...)
 	if s.Cwd != "" {
 		if fi, err := os.Stat(s.Cwd); err == nil && fi.IsDir() {
 			c.Dir = s.Cwd
@@ -449,7 +447,38 @@ func (v *View) ClickList(_, y int) (bool, tea.Cmd) {
 }
 
 // Activate resumes the selected session (a double-click).
-func (v *View) Activate() tea.Cmd { return v.resume() }
+func (v *View) Activate() tea.Cmd {
+	if v.herdr {
+		return v.herdrRequest()
+	}
+	return v.resume()
+}
+
+// SetHerdr turns on herdr mode: resume jumps to the pane already running the
+// session, or resumes it in a Herdr tab in its directory, instead of taking
+// over agenda's terminal.
+func (v *View) SetHerdr(on bool) { v.herdr = on }
+
+// herdrRequest asks Herdr for the selected session.
+func (v *View) herdrRequest() tea.Cmd {
+	s := v.list.Selected()
+	if s.SessionID == "" {
+		return nil
+	}
+	req := herdr.Request{Session: &herdr.Session{ID: s.SessionID, Cwd: s.Cwd, Title: s.titleOr(), Resume: resumeArgs(s)}}
+	return func() tea.Msg { return req }
+}
+
+// resumeArgs is the command that resumes s with the tool that recorded it.
+func resumeArgs(s session) []string {
+	switch s.Tool {
+	case toolCodex:
+		return []string{"codex", "resume", s.SessionID}
+	case toolAgy:
+		return []string{"agy", "--conversation", s.SessionID}
+	}
+	return []string{"claude", "--resume", s.SessionID}
+}
 
 // mouseMoved ends a transient preview reveal once the selection moves on.
 func (v *View) mouseMoved(before string) tea.Cmd {

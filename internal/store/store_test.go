@@ -41,3 +41,14 @@ func TestSessionMentions(t *testing.T) {
 		t.Errorf("unknown key = %+v, want nil", got)
 	}
 }
+
+func TestKnownTeam(t *testing.T) {
+	s := New()
+	if !s.KnownTeam("UTF") {
+		t.Error("with no issues stored, every team should pass")
+	}
+	s.PutIssues([]Issue{{Identifier: "SRE-5287"}})
+	if !s.KnownTeam("sre") || s.KnownTeam("UTF") || s.KnownTeam("SR") {
+		t.Error("KnownTeam should match exactly the stored issues' team prefix")
+	}
+}

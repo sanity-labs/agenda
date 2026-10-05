@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -80,5 +82,80 @@ func TestPickerActions(t *testing.T) {
 	}
 	if act := p.Update(press('x')); act != PickerNone {
 		t.Errorf("unbound key -> %v, want PickerNone", act)
+	}
+}
+
+func typeText(p *Picker, s string) {
+	for _, r := range s {
+		p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
+func TestFilterPickerNarrowsAndRanksSubstringFirst(t *testing.T) {
+	p := NewFilterPicker("Repo", []PickerItem{
+		{Label: "argoproj/argo-rollouts"},
+		{Label: "sanity-io/argocd-ops"},
+		{Label: "sanity-io/ops"},
+		{Label: "sanity-labs/agenda"},
+	}, 5)
+
+	labels := func() []string {
+		var out []string
+		for _, i := range p.shown {
+			out = append(out, p.items[i].Label)
+		}
+		return out
+	}
+
+	// "o" and "s" are shortcuts in a plain picker; here they type. Labels
+	// containing "ops" come first, then argo-rollouts, which only has the
+	// letters in order.
+	typeText(&p, "ops")
+	want := []string{"sanity-io/argocd-ops", "sanity-io/ops", "argoproj/argo-rollouts"}
+	if got := labels(); !slices.Equal(got, want) {
+		t.Errorf("matches for ops = %q, want %q", got, want)
+	}
+
+	p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if p.query != "op" {
+		t.Errorf("after backspace query = %q, want op", p.query)
+	}
+	p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	typeText(&p, "agenda")
+	if got := labels(); !slices.Equal(got, []string{"sanity-labs/agenda"}) {
+		t.Errorf("matches for agenda = %q", got)
+	}
+
+}
+
+func TestFilterPickerEnterNeedsAMatch(t *testing.T) {
+	p := NewFilterPicker("Repo", []PickerItem{{Label: "sanity-io/ops"}}, 5)
+	typeText(&p, "zzz")
+	if p.Index() != -1 {
+		t.Errorf("Index = %d with no matches, want -1", p.Index())
+	}
+	if a := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); a != PickerNone {
+		t.Errorf("enter with no matches = %v, want PickerNone", a)
+	}
+	if a := p.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); a != PickerCancel {
+		t.Errorf("esc = %v, want PickerCancel", a)
+	}
+}
+
+func TestFilterPickerWindowFollowsCursor(t *testing.T) {
+	var items []PickerItem
+	for _, s := range []string{"a", "b", "c", "d", "e", "f"} {
+		items = append(items, PickerItem{Label: s})
+	}
+	p := NewFilterPicker("Repo", items, 3)
+	for range 4 {
+		p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	if p.items[p.Index()].Label != "e" || p.offset != 2 {
+		t.Errorf("after 4 downs: selected %q offset %d, want e and 2", p.items[p.Index()].Label, p.offset)
+	}
+	view := p.View()
+	if strings.Contains(view, "  a\n") || !strings.Contains(view, "e") {
+		t.Errorf("window should show c..e, not a:\n%s", view)
 	}
 }

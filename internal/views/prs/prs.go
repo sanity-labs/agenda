@@ -29,6 +29,7 @@ import (
 
 	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/herdr"
 	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -597,6 +598,7 @@ type View struct {
 	sort             sortMode
 	rev              bool // sort order reversed
 	store            *store.Store
+	herdr            bool // herdr mode: open jumps to the PR's workspace
 
 	// notifier posts "needs your review" notifications (nil = off); seeded
 	// gates them so the first data never fires a storm.
@@ -839,6 +841,9 @@ type viewKeys struct {
 	JobLog     key.Binding
 	Rerun      key.Binding
 	EditFilter key.Binding
+	// Browse opens the PR in the browser in herdr mode, where Open jumps to
+	// its workspace instead.
+	Browse key.Binding
 }
 
 // binding looks a binding up by its action name, for prompts that name the
@@ -910,6 +915,7 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 			JobLog:     bind("job_log", "", "p"),
 			Rerun:      bind("rerun", "", "x"),
 			EditFilter: bind("edit_filter", "search", "F"),
+			Browse:     bind("browse", "browser", "O"),
 		},
 	}
 	if mode, ok := sortByName(cfg.Sort); ok {
@@ -1682,6 +1688,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		switch {
 		case key.Matches(msg, v.keys.Open):
+			if v.herdr {
+				return v.herdrRequest()
+			}
+			return v.openSelected()
+		case v.herdr && key.Matches(msg, v.keys.Browse):
 			return v.openSelected()
 		case key.Matches(msg, v.keys.Copy):
 			return v.copySelected()
@@ -2273,6 +2284,7 @@ func (v *View) publish(prs []pr) {
 			Review:       reviewState(p),
 			HasConflicts: p.Mergeable == "CONFLICTING",
 			UpdatedAt:    p.UpdatedAt,
+			Branch:       p.HeadRefName,
 		})
 	}
 	v.store.PutPRs(recs)
@@ -2886,7 +2898,47 @@ func (v *View) ClickList(_, y int) (bool, tea.Cmd) {
 }
 
 // Activate runs the open action on the selection (a double-click).
-func (v *View) Activate() tea.Cmd { return v.openSelected() }
+func (v *View) Activate() tea.Cmd {
+	if v.herdr {
+		return v.herdrRequest()
+	}
+	return v.openSelected()
+}
+
+// SetHerdr turns on herdr mode: open jumps to the PR's workspace, and browse
+// opens it in the browser instead.
+func (v *View) SetHerdr(on bool) {
+	v.herdr = on
+	if on {
+		v.keys.Open.SetHelp(v.keys.Open.Help().Key, "workspace")
+	}
+}
+
+// herdrRequest asks for the selected PR's workspace: that of its linked
+// issues, skipping look-alike IDs from teams Linear doesn't know (UTF-8),
+// else its own.
+func (v *View) herdrRequest() tea.Cmd {
+	p := v.list.Selected()
+	if p.URL == "" {
+		return nil
+	}
+	req := herdr.Request{PR: &herdr.PR{Repo: p.repo(), Number: p.Number, Title: p.Title, Branch: p.HeadRefName}}
+	for _, id := range p.linearRefs() {
+		team, _, _ := strings.Cut(id, "-")
+		if v.store != nil && !v.store.KnownTeam(team) {
+			continue
+		}
+		iss := herdr.Issue{ID: id}
+		if v.store != nil {
+			if si, ok := v.store.Issue(id); ok {
+				iss.Title, iss.ProjectID, iss.Project = si.Title, si.ProjectID, si.Project
+				iss.Parent, iss.ParentTitle = si.Parent, si.ParentTitle
+			}
+		}
+		req.Issues = append(req.Issues, iss)
+	}
+	return func() tea.Msg { return req }
+}
 
 // mouseMoved follows a mouse-driven selection change the way a j/k move does:
 // restart the annotation cycle, fetch the pane's data once the selection
@@ -3302,10 +3354,15 @@ func (v *View) Bindings() []key.Binding {
 	if v.PaneFocused() && v.pane == paneFiles {
 		return v.filesBindings()
 	}
-	if v.reviewsOnly || v.reviewsElsewhere {
-		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.EditFilter}
+	b := []key.Binding{v.keys.Open}
+	if v.herdr {
+		b = append(b, v.keys.Browse)
 	}
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
+	b = append(b, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev)
+	if !v.reviewsOnly && !v.reviewsElsewhere {
+		b = append(b, v.keys.Review)
+	}
+	return append(b, v.keys.EditFilter)
 }
 
 // Status is the footer's right-hand slot. The list header already carries

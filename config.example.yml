@@ -131,7 +131,8 @@ notifications:
 #     quick_filter: /
 #     clear_filter: esc
 #   prs:
-#     open: enter
+#     open: enter         # herdr mode: jump to the PR's workspace
+#     browse: O           # herdr mode: open in the browser
 #     copy_url: y
 #     diff: d
 #     comments: c
@@ -160,7 +161,8 @@ notifications:
 #     nav: ctrl+p
 #     mine: m             # only-mine toggle, project sources
 #     comments: c         # comments in the preview
-#     open: enter
+#     open: enter         # herdr mode: jump to the issue's workspace
+#     browse: O           # herdr mode: open in the browser
 #     copy_url: y
 #     copy_branch: b
 #     sort: s
@@ -270,3 +272,16 @@ sessions:
   # Omit for the view's default, recent.
   sort: ""
   reverse: false
+
+# Herdr mode (`agenda --herdr`, run from a Herdr popup): selecting an issue,
+# PR or session jumps to its tab in the workspace claiming it, creating the
+# worktree, tab or workspace if needed (see the README's Herdr mode section).
+herdr:
+  # Local clones live at <repos_root>/<owner>/<repo>.
+  repos_root: ~/git
+  # Clones that live somewhere else, by GitHub repository.
+  # repos:
+  #   sanity-io/argocd-ops: ~/src/argocd-ops
+  # Where new worktrees go, as <repo>/<branch>. The default matches Herdr's
+  # own [worktrees] directory, so its worktrees and agenda's sit together.
+  worktrees_dir: ~/.herdr/worktrees

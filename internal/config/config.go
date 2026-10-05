@@ -89,6 +89,22 @@ type Config struct {
 	GitHub   GitHubConfig   `yaml:"github"`
 	Linear   LinearConfig   `yaml:"linear"`
 	Sessions SessionsConfig `yaml:"sessions"`
+	Herdr    HerdrConfig    `yaml:"herdr"`
+}
+
+// HerdrConfig configures herdr mode (`agenda --herdr`, run from a Herdr
+// popup), where selecting an item jumps to its worktree workspace.
+type HerdrConfig struct {
+	// ReposRoot is where local clones live, laid out as
+	// <repos_root>/<owner>/<repo>. Default ~/git.
+	ReposRoot string `yaml:"repos_root"`
+	// Repos maps a GitHub repository ("owner/name") to its clone, for clones
+	// that live somewhere else.
+	Repos map[string]string `yaml:"repos"`
+	// WorktreesDir is where new worktrees go, as <repo>/<branch>. Default
+	// ~/.herdr/worktrees, Herdr's own, so its worktrees and agenda's sit
+	// together.
+	WorktreesDir string `yaml:"worktrees_dir"`
 }
 
 type ThemeConfig struct {
@@ -364,6 +380,10 @@ func Default() Config {
 		},
 		Linear: LinearConfig{
 			Filter: LinearFilter{Limit: 100},
+		},
+		Herdr: HerdrConfig{
+			ReposRoot:    "~/git",
+			WorktreesDir: "~/.herdr/worktrees",
 		},
 	}
 }

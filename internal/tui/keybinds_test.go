@@ -61,13 +61,13 @@ func TestFindCollision(t *testing.T) {
 		t.Error("F5 should be free")
 	}
 	// Overrides are honored: rebind linear copy_branch to global scope key.
-	km = config.Keymap{"prs": {"diff": config.Chord{"o"}}}
-	if other, clash := findCollision(km, target, "o"); !clash || other.action != "diff" {
-		t.Errorf("expected o to collide with the overridden prs diff, got %+v %v", other, clash)
+	km = config.Keymap{"prs": {"diff": config.Chord{"Q"}}}
+	if other, clash := findCollision(km, target, "Q"); !clash || other.action != "diff" {
+		t.Errorf("expected Q to collide with the overridden prs diff, got %+v %v", other, clash)
 	}
 	// The old default of an overridden action is free again.
 	if _, clash := findCollision(km, target, "d"); clash {
-		t.Error("d should be free once prs diff moved to o")
+		t.Error("d should be free once prs diff moved to Q")
 	}
 }
 
