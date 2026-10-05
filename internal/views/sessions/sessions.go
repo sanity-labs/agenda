@@ -232,6 +232,7 @@ type View struct {
 
 type viewKeys struct {
 	Resume key.Binding
+	Copy   key.Binding
 	Sort   key.Binding
 	Rev    key.Binding
 	Agents key.Binding
@@ -249,6 +250,7 @@ func New(cfg config.SessionsConfig, km config.Keymap, st *store.Store) *View {
 		loading: true,
 		keys: viewKeys{
 			Resume: bind("resume", "resume", "enter"),
+			Copy:   bind("copy_path", "copy path", "y"),
 			Sort:   bind("sort", "sort", "s"),
 			Rev:    bind("reverse", "reverse", "S"),
 			Agents: bind("agents", "agents", "a"),
@@ -369,6 +371,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		case key.Matches(msg, v.keys.Resume):
 			return v.resume()
+		case key.Matches(msg, v.keys.Copy):
+			// A session has no URL; its transcript path is the thing to
+			// hand to another tool.
+			return ui.CopyCmd(v.list.Selected().Path, "path")
 		case key.Matches(msg, v.keys.Sort):
 			v.sort = sortOrder[(int(v.sort)+1)%len(sortOrder)]
 			v.applyView()
@@ -653,7 +659,7 @@ func (v *View) fold(s string) string {
 }
 
 func (v *View) Bindings() []key.Binding {
-	b := []key.Binding{v.keys.Resume, v.keys.Sort, v.keys.Rev, v.keys.Agents, v.keys.Delete}
+	b := []key.Binding{v.keys.Resume, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Agents, v.keys.Delete}
 	// Offer expand only when the last-rendered preview had turns above the fold
 	// (computed in PreviewView, which renders earlier in the same frame).
 	if v.hasHiddenTurns {

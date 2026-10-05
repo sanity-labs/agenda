@@ -35,13 +35,16 @@ func rawIDs(v *View) string {
 func TestLaterPagesAppendInOrderWithoutDuplicates(t *testing.T) {
 	v := pagedView(t)
 	v.Update(loadedMsg{issues: []issue{{Identifier: "A-1"}, {Identifier: "A-2"}}, source: v.defaultSource, cursor: "c1", hasMore: true})
-	if s := v.statusText(); !strings.Contains(s, "2 loaded · more") {
+	if s := v.statusText(); !strings.Contains(s, "2 loaded · more below") {
 		t.Errorf("status with more pages = %q", s)
 	}
 
 	cmd := v.Update(tea.KeyPressMsg{Code: 'G'}) // reaching the end is the signal
 	if cmd == nil || !v.page.loading {
 		t.Fatalf("reaching the end did not ask for the next page: cmd=%v loading=%v", cmd != nil, v.page.loading)
+	}
+	if s := v.statusText(); !strings.Contains(s, "fetching more") || !v.Loading() {
+		t.Errorf("a page in flight should show: status=%q loading=%v", s, v.Loading())
 	}
 	// Still at the end while the page is in flight: no second request, or
 	// the page would arrive twice.

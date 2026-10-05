@@ -23,8 +23,7 @@ PRs view, and a Linear API key for the Linear view.
 
 **Contents**: [Install](#install) · [Configuration](#configuration) ·
 [Keys](#keys) · [Views](#views) · [Cross-references](#cross-references) ·
-[Releasing](#releasing) · [Credit](#credit) · [Project layout](#project-layout)
-· [License](#license)
+[Releasing](#releasing) · [Credit](#credit) · [License](#license)
 
 ## Install
 
@@ -137,7 +136,7 @@ them elsewhere).
 | PRs | `w`, `D`, `F` | toggle the review section; hide drafts; edit the section's GitHub search |
 | File list | `↑`/`↓`, `+`/`→`, `-`/`←`, `space` | next file when on screen (else scroll a line), expand, collapse, mark reviewed and advance; jump keys scroll |
 | Jobs pane | `enter`, `→`/`←`, `]`/`[`, `o`, `p`, `y`, `x` | open a job or a step's log, in/out of a job, next/previous failure, browser, `less`, copy URL, rerun |
-| Sessions | `enter`, `s`/`S` | resume in its directory, sort |
+| Sessions | `enter`, `y`, `s`/`S` | resume in its directory, copy the transcript path, sort |
 | Linear | `enter`, `y`, `b`, `s`/`S` | open, copy URL, copy branch, sort |
 | Linear | `ctrl+p`, `c`, `m` | project tree (show and focus; again hides), comments, only-mine in a project |
 
@@ -177,8 +176,8 @@ otherwise (`{ "cleanupPeriodDays": 3650 }`); it only stops future sweeps.
 **Linear** shows your assigned issues by default; the tree (`ctrl+p`) adds
 Inbox, All Issues and pinned projects. Lists load a page at a time
 (`linear.filter.limit`, 100) and the next as you reach the end; Linear
-gives no total, so the status line reads `100 loaded · more` until the
-last page is in. Rows carry priority, state,
+gives no total, so the status line reads `100 loaded · more below` until the
+last page is in, and `fetching more…` with the tab spinner while a page is on its way. Rows carry priority, state,
 `id · project · assignee`, comment count and labels. Sorts: date, status
 (in progress, todo, triage, backlog), project, priority.
 
@@ -217,22 +216,6 @@ is PRs plus sessions plus Linear in one switcher.
 Built with [Bubble Tea v2](https://github.com/charmbracelet/bubbletea),
 [Lip Gloss](https://github.com/charmbracelet/lipgloss) and
 [Glamour](https://github.com/charmbracelet/glamour).
-
-## Project layout
-
-```
-main.go, cli.go         config, wiring, the CLI commands
-internal/
-  config/               XDG config, keymap, settings persistence
-  cache/                on-disk JSON cache
-  store/                shared metadata the views publish and read
-  ui/                   list, rows, pills, picker, scrollbar, glyphs, refs
-  tui/                  root model: tabs, layout, key routing, settings overlay
-  views/prs|sessions|linear
-```
-
-`tui` never imports a view; `main` wires them in. A view is anything
-implementing `tui.View`.
 
 ## License
 

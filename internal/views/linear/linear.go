@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -704,7 +703,9 @@ func (v *View) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (v *View) Loading() bool { return v.loading }
+// Loading includes a page in flight, so the tab's spinner runs while more
+// issues are on their way rather than the list silently stalling.
+func (v *View) Loading() bool { return v.loading || v.page.loading }
 
 const issueFields = `
         identifier title url priority priorityLabel branchName updatedAt description
@@ -1149,9 +1150,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Open):
 			return ui.OpenURL(v.list.Selected().URL)
 		case key.Matches(msg, v.keys.Copy):
-			return copyCmd(v.list.Selected().URL)
+			return ui.CopyCmd(v.list.Selected().URL, "URL")
 		case key.Matches(msg, v.keys.Branch):
-			return copyCmd(v.list.Selected().BranchName)
+			return ui.CopyCmd(v.list.Selected().BranchName, "branch")
 		case key.Matches(msg, v.keys.Mine):
 			// Contextual: only a project source distinguishes "mine" from
 			// "everyone's"; the fixed sources already imply it.
@@ -1394,10 +1395,13 @@ func (v *View) statusText() string {
 			src += " (mine)"
 		}
 		count := fmt.Sprintf("%d issues", len(v.raw))
-		if v.page.hasMore {
-			// Linear connections carry no total, so "more" is all there is
-			// to say until the last page is in.
-			count = fmt.Sprintf("%d loaded · more", len(v.raw))
+		switch {
+		case v.page.loading:
+			count = fmt.Sprintf("%d loaded · fetching more…", len(v.raw))
+		case v.page.hasMore:
+			// Linear connections carry no total, so "more below" is all
+			// there is to say until the last page is in.
+			count = fmt.Sprintf("%d loaded · more below", len(v.raw))
 		}
 		return fmt.Sprintf("%s · %s · sort: %s%s",
 			count, src, sortName[v.sort], ui.RevMarker(v.rev))
@@ -1843,16 +1847,4 @@ func labelPills(labels []label) string {
 		pills = append(pills, hexStyle(l.Color).Render("● ")+l.Name)
 	}
 	return strings.Join(pills, "  ")
-}
-
-func copyCmd(s string) tea.Cmd {
-	if s == "" {
-		return nil
-	}
-	return func() tea.Msg {
-		c := exec.Command("pbcopy")
-		c.Stdin = strings.NewReader(s)
-		_ = c.Run()
-		return nil
-	}
 }

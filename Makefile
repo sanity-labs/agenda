@@ -12,7 +12,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 BIN     ?= bin/agenda
 
 .DEFAULT_GOAL := help
-.PHONY: help build install run test vet fmt fmt-check check deadcode snapshot clean
+.PHONY: help build install run test vet fmt fmt-check check lint deadcode snapshot clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -42,7 +42,10 @@ fmt-check: ## Fail on files that are not gofmt'd, as CI does
 		echo "These files are not gofmt'd:"; echo "$$unformatted"; exit 1; \
 	fi
 
-check: fmt-check vet test ## Everything CI runs: formatting, vet, tests
+check: fmt-check vet test lint ## Everything CI runs: formatting, vet, tests, lint
+
+lint: ## golangci-lint (.golangci.yml: the standard set)
+	golangci-lint run ./...
 
 deadcode: ## Report unreachable functions (the audit keeps this empty)
 	go run golang.org/x/tools/cmd/deadcode@latest -test ./...

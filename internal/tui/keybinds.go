@@ -71,6 +71,7 @@ func keyRegistry() []keyEntry {
 		{"prs", "hide_drafts", "hide draft PRs", []string{"D"}},
 		{"prs", "expand", "expand summary", []string{"e"}},
 		{"sessions", "resume", "resume", []string{"enter"}},
+		{"sessions", "copy_path", "copy transcript path", []string{"y"}},
 		{"sessions", "sort", "sort", []string{"s"}},
 		{"sessions", "reverse", "reverse sort", []string{"S"}},
 		{"sessions", "agents", "agents toggle", []string{"a"}},

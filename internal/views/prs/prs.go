@@ -2073,10 +2073,10 @@ func (v *View) askMerge(kind string) {
 	r.confirm = kind
 	// Say what is off about it rather than refusing: these are judgement
 	// calls, and the repo's own rules are what actually gate the merge.
-	switch {
-	case p.ReviewDecision == "CHANGES_REQUESTED":
+	switch p.ReviewDecision {
+	case "CHANGES_REQUESTED":
 		r.warn = "changes have been requested"
-	case p.ReviewDecision == "REVIEW_REQUIRED":
+	case "REVIEW_REQUIRED":
 		r.warn = "it has not been approved yet"
 	default:
 		if _, fail, _, _ := p.checkCounts(); fail > 0 {
@@ -2353,18 +2353,7 @@ func (v *View) openSelected() tea.Cmd {
 	}
 }
 
-func (v *View) copySelected() tea.Cmd {
-	p := v.list.Selected()
-	if p.URL == "" {
-		return nil
-	}
-	return func() tea.Msg {
-		c := exec.Command("pbcopy")
-		c.Stdin = strings.NewReader(p.URL)
-		_ = c.Run()
-		return nil
-	}
-}
+func (v *View) copySelected() tea.Cmd { return ui.CopyCmd(v.list.Selected().URL, "URL") }
 
 // diffInPager pages the selected PR's diff through less, the view's original
 // 'd' behavior (default; github.diff_pane opts into the in-pane diff).

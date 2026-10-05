@@ -11,6 +11,12 @@ These are deliberate. Breaking one is a regression even when the code
 compiles and the tests pass, so read it before changing key handling,
 focus, or anything that lays out a pane.
 
+**[CONTRIBUTING.md](CONTRIBUTING.md)** has the project layout (where
+things live, and the rule that keeps the views decoupled: `tui` never
+imports a view, `main` wires them in, views share data through the store)
+and the PR habits (draft until run locally, conventional-commit titles
+since they drive the release labels, `make check` before pushing).
+
 ## Re-read the docs, every session
 
 Read every `.md` in the repo root at the start of a session, not from
