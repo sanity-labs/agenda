@@ -602,7 +602,7 @@ func (l *List[T]) itemMatches(it T, q string) bool {
 			}
 			continue
 		}
-		if matchesSubsequence(text, q) {
+		if matchesFuzzy(text, q) {
 			return true
 		}
 	}
@@ -746,20 +746,8 @@ func RevMarker(reversed bool) string {
 	return ""
 }
 
-// matchesSubsequence reports whether all runes of q appear in s in order.
-func matchesSubsequence(s, q string) bool {
-	if q == "" {
-		return true
-	}
-	qi := 0
-	qr := []rune(q)
-	for _, sr := range s {
-		if sr == qr[qi] {
-			qi++
-			if qi == len(qr) {
-				return true
-			}
-		}
-	}
-	return false
+// matchesFuzzy reports whether q matches s as a substring or a word-anchored
+// subsequence (see fuzzyIndices).
+func matchesFuzzy(s, q string) bool {
+	return q == "" || fuzzyIndices([]rune(s), []rune(q)) != nil
 }
