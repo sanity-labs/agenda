@@ -469,17 +469,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.String() == "esc":
 			// One rule for esc: step back one layer, and never close the
-			// app. The focused view gets it first, so a pane can unwind its
-			// own state (a log back to its jobs, focus back to the list)
-			// before the root model closes anything.
-			if len(m.views) > 0 {
-				if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
-					m.invalidateFrame()
-					return m, nil
+			// app. With nothing open over the list, it clears the filter.
+			if cmd, closed := m.closeTop(); closed {
+				return m, cmd
+			}
+			return m, m.clearFilter()
+		case key.Matches(msg, m.keys.Quit):
+			// q closes what is open before it closes agenda, the way a
+			// pager's q closes the pager; ctrl+c always quits.
+			if msg.String() != "ctrl+c" {
+				if cmd, closed := m.closeTop(); closed {
+					return m, cmd
 				}
 			}
-			return m.dismiss()
-		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.NextView):
 			m.current = (m.current + 1) % len(m.views)
@@ -1137,28 +1139,41 @@ type dismisser interface {
 	Dismiss() bool
 }
 
-// dismiss closes the innermost open thing: a view's own pane first, then a
-// floated detail. Never the app, which is 'q' alone.
-func (m Model) dismiss() (tea.Model, tea.Cmd) {
+// closeTop closes the topmost layer over the list (a pane, the zoom, a
+// float), reporting whether there was one.
+func (m *Model) closeTop() (tea.Cmd, bool) {
+	// The focused view goes first, so a pane can unwind its own state (a
+	// log back to its jobs, focus back to the list) before the root model
+	// closes anything.
+	if len(m.views) > 0 {
+		if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
+			m.invalidateFrame()
+			return nil, true
+		}
+	}
 	if m.zoomed {
 		m.zoomed = false
 		m.layout()
-		return m, nil
+		return nil, true
 	}
 	if m.floating() {
-		return m, m.setPreview(true, false)
+		return m.setPreview(true, false), true
 	}
-	// The filter is the last layer: with nothing open over the list, esc
-	// clears what narrowed it.
-	if len(m.views) > 0 {
-		if f, ok := m.views[m.current].(filterable); ok {
-			if q, enabled, cs := f.FilterState(); q != "" {
-				f.SetFilter("", enabled, cs)
-				m.syncPreviewKey(false)
-			}
+	return nil, false
+}
+
+// clearFilter drops the query narrowing the focused list, if any.
+func (m *Model) clearFilter() tea.Cmd {
+	if len(m.views) == 0 {
+		return nil
+	}
+	if f, ok := m.views[m.current].(filterable); ok {
+		if q, enabled, cs := f.FilterState(); q != "" {
+			f.SetFilter("", enabled, cs)
+			m.syncPreviewKey(false)
 		}
 	}
-	return m, nil
+	return nil
 }
 
 // overlayProvider is optionally implemented by views that render their own

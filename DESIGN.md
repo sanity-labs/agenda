@@ -121,10 +121,11 @@ and the comments hint is clickable in both.
 
 ## esc
 
-`esc` steps back one layer and **never closes agenda** — that is `q`
-alone. The focused view gets the key first and reports whether it handled
-it, so a pane unwinds its own state before the root model closes
-anything. `←` and `esc` both step beside a list; they part ways in a
+`esc` steps back one layer and **never closes agenda**. `q` closes the
+same layers one at a time and quits only from the bare list, the way a
+pager's `q` closes the pager; `ctrl+c` quits from anywhere. The focused
+view gets the key first and reports whether it handled it, so a pane
+unwinds its own state before the root model closes anything. `←` and `esc` both step beside a list; they part ways in a
 float, where `←` steps a level and `esc` closes the window.
 
 With the preview pane on:

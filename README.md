@@ -127,7 +127,7 @@ them elsewhere).
 | Global | `esc` | step back: focus, then the pane, then a float, then zoom. Never quits |
 | Global | `v`, `z` | show/hide (or float) the preview; zoom it |
 | Global | `l` | follow a cross-reference via a picker; inside a focused issue detail it expands the pull requests instead |
-| Global | `ctrl+s`, `ctrl+r`, `!`, `q` | settings, refresh, message log, quit |
+| Global | `ctrl+s`, `ctrl+r`, `!`, `q` | settings, refresh, message log, quit (closes an open pane or float first; `ctrl+c` quits outright) |
 | List | `j`/`k`, `g`/`G`, `ctrl+u`/`ctrl+d`, `pgup`/`pgdn` or `shift+↑↓` | move, top/bottom, half page, jump `list_jump` rows |
 | PRs | `enter`, `y`, `s`/`S` | open, copy URL, cycle sort / reverse |
 | PRs | `d`, `c`, `t`, `e` | diff (file list), comments, CI jobs, expand description |
