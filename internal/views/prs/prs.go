@@ -713,7 +713,11 @@ type View struct {
 	// requested preview scroll the root model picks up. commentsRev bumps
 	// on every comments fetch so memoized panes invalidate; paneKey/
 	// paneText/paneAnchors memoize the last rendered data pane.
-	anchors     []ui.DiffAnchor
+	anchors []ui.DiffAnchor
+	// unfolded is the resolved threads clicked open; threadsRev bumps on
+	// each toggle so the memoized panes re-render.
+	unfolded    map[string]bool
+	threadsRev  int
 	annIdx      int
 	pendingJump *int
 	commentsRev int
@@ -3195,8 +3199,10 @@ func (v *View) PreviewView() string {
 	case paneJobs:
 		b.WriteString(v.renderedJobs(p))
 	case paneFiles:
-		b.WriteString(renderFilesPane(v.fileState(p), v.prevW,
-			v.PaneFocused(), v.filesHint(), v.threadsFor(p)))
+		text, anchors := renderFilesPane(v.fileState(p), v.prevW,
+			v.PaneFocused(), v.filesHint(), v.threadsFor(p), v.unfolded)
+		v.anchors = anchors
+		b.WriteString(text)
 	default:
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
@@ -3361,14 +3367,14 @@ func (v *View) renderedDiff(p pr) string {
 		return ui.Faint.Render("(empty diff)")
 	}
 
-	key := fmt.Sprintf("diff:%s:%d:%d:%d", p.URL, v.prevW, v.commentsRev, ui.PaletteGen())
+	key := fmt.Sprintf("diff:%s:%d:%d:%d:%d", p.URL, v.prevW, v.commentsRev, v.threadsRev, ui.PaletteGen())
 	if v.paneKey == key {
 		v.anchors = v.paneAnchors
 		return v.paneText
 	}
 	var anns []ui.DiffAnnotation
 	if st, ok := v.comments[p.URL]; ok && st.done && st.err == nil {
-		anns = threadAnnotations(st.data.ReviewThreads.Nodes, v.prevW)
+		anns = threadAnnotations(st.data.ReviewThreads.Nodes, v.prevW, v.unfolded)
 	}
 	text, anchors := ui.RenderAnnotatedDiff(d.text, v.prevW, anns)
 	v.paneKey, v.paneText, v.paneAnchors = key, text, anchors
@@ -3386,12 +3392,12 @@ func (v *View) renderedComments(p pr) string {
 		return ui.Red.Render(st.err.Error())
 	}
 
-	key := fmt.Sprintf("comments:%s:%d:%d:%d", p.URL, v.prevW, v.commentsRev, ui.PaletteGen())
+	key := fmt.Sprintf("comments:%s:%d:%d:%d:%d", p.URL, v.prevW, v.commentsRev, v.threadsRev, ui.PaletteGen())
 	if v.paneKey == key {
 		v.anchors = v.paneAnchors
 		return v.paneText
 	}
-	text, anchors := renderCommentsPane(st.data, v.prevW)
+	text, anchors := renderCommentsPane(st.data, v.prevW, v.unfolded)
 	v.paneKey, v.paneText, v.paneAnchors = key, text, anchors
 	v.anchors = anchors
 	return text
@@ -3453,6 +3459,21 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 		return nil
 	}
 	text := ansi.Strip(lines[line])
+	// A resolved thread folds to one line; a click on it reads it, and a
+	// click on the open thread's first line folds it back.
+	for _, a := range v.anchors {
+		if a.Line+v.paneHeader != line {
+			continue
+		}
+		if t, ok := v.threadByID(a.ID); ok && t.IsResolved {
+			if v.unfolded == nil {
+				v.unfolded = map[string]bool{}
+			}
+			v.unfolded[t.ID] = !v.unfolded[t.ID]
+			v.threadsRev++
+			return nil
+		}
+	}
 	switch {
 	// A click anywhere in a diff or comments pane puts it away, the same
 	// as pressing the key again: hunting for the hint to close what you

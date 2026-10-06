@@ -134,17 +134,19 @@ func hunkStart(header string) int {
 
 // renderFilesPane draws the file list: one row per file with its counts
 // and a reviewed marker, the hunks of whatever is expanded beneath it.
+// The anchors mark each thread shown, for the jump keys and a click.
 func renderFilesPane(st *filesState, width int, focused bool, hint string,
-	threads []prThread) string {
+	threads []prThread, unfolded map[string]bool) (string, []ui.DiffAnchor) {
 	if st.err != nil {
-		return ui.Red.Render("could not list files: " + st.err.Error())
+		return ui.Red.Render("could not list files: " + st.err.Error()), nil
 	}
 	if !st.done {
-		return ui.Faint.Render("Loading files…")
+		return ui.Faint.Render("Loading files…"), nil
 	}
 	if len(st.files) == 0 {
-		return ui.Faint.Render("No files changed.")
+		return ui.Faint.Render("No files changed."), nil
 	}
+	var anchors []ui.DiffAnchor
 
 	rows := st.rows()
 	st.rowLine = make([]int, len(rows))
@@ -160,6 +162,14 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string,
 			// about, boxed so it reads as a conversation rather than more
 			// diff.
 			for _, t := range threadsAt(threads, f.Filename, r.line) {
+				if folded(t, unfolded) {
+					anchors = append(anchors, ui.DiffAnchor{Line: len(out), ID: t.ID})
+					out = append(out, "    "+foldedThread(t))
+					continue
+				}
+				// The anchor is the first line inside the box, so a click
+				// on the author line folds it back.
+				anchors = append(anchors, ui.DiffAnchor{Line: len(out) + 1, ID: t.ID})
 				out = append(out, threadBox(t, width-4)...)
 			}
 			continue
@@ -191,7 +201,7 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string,
 	if hint != "" {
 		out = append(out, "", ui.Faint.Render(hint))
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n"), anchors
 }
 
 // filesSummary counts the files and how many are marked read, so progress

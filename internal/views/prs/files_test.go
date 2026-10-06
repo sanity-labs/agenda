@@ -228,7 +228,8 @@ func TestThreadsRenderUnderTheirLine(t *testing.T) {
 	threads[0].Comments.Nodes = []prComment{{Body: "allocates every call"}}
 	threads[0].Comments.Nodes[0].Author.Login = "armandocerna"
 
-	out := ansi.Strip(renderFilesPane(st, 70, true, "", threads))
+	out, _ := renderFilesPane(st, 70, true, "", threads, nil)
+	out = ansi.Strip(out)
 	lines := strings.Split(out, "\n")
 
 	at := -1
@@ -259,7 +260,7 @@ func TestThreadsOnlyShowWhereTheyAnchor(t *testing.T) {
 	threads := []prThread{{Path: "main.go", Line: &line}}
 	threads[0].Comments.Nodes = []prComment{{Body: "a remark"}}
 
-	if out := ansi.Strip(renderFilesPane(st, 70, true, "", threads)); strings.Contains(out, "a remark") {
+	if out, _ := renderFilesPane(st, 70, true, "", threads, nil); strings.Contains(ansi.Strip(out), "a remark") {
 		t.Errorf("a thread showed on a collapsed file:\n%s", out)
 	}
 
@@ -267,7 +268,7 @@ func TestThreadsOnlyShowWhereTheyAnchor(t *testing.T) {
 	st.open["main.go"] = true
 	elsewhere := 99
 	threads[0].Line = &elsewhere
-	if out := ansi.Strip(renderFilesPane(st, 70, true, "", threads)); strings.Contains(out, "a remark") {
+	if out, _ := renderFilesPane(st, 70, true, "", threads, nil); strings.Contains(ansi.Strip(out), "a remark") {
 		t.Errorf("a thread showed on a line it is not anchored to:\n%s", out)
 	}
 }
@@ -370,5 +371,41 @@ func TestCollapseResetsTheViewAndReviewedFolds(t *testing.T) {
 	v.Update(tea.KeyPressMsg{Code: ' '})
 	if st.open["a.go"] || !st.reviewed["a.go"] {
 		t.Errorf("space should mark and fold: open=%v reviewed=%v", st.open["a.go"], st.reviewed["a.go"])
+	}
+}
+
+// A resolved thread folds to one line until clicked; the click lands on the
+// line the pane drew it on, header offset included.
+func TestResolvedThreadFoldsUntilClicked(t *testing.T) {
+	v := floatView(t)
+	pressV(v)
+	p := v.list.Selected()
+	v.Update(press('d')) // the file list, through setPane
+	st := v.fileState(p)
+	st.files = []prFile{{Filename: "main.go", Patch: "@@ -10,2 +10,2 @@\n+first()\n+second()"}}
+	st.done = true
+	st.open["main.go"] = true
+	v.comments[p.URL] = &commentsState{}
+	var data prComments
+	data.ReviewThreads.Nodes = []prThread{mkThread("t1", "main.go", intp(11), true, false, "allocates every call", "fixed in 2a3b")}
+	v.Update(commentsMsg{url: p.URL, data: data})
+
+	out := ansi.Strip(v.PreviewView())
+	if strings.Contains(out, "allocates every call") || !strings.Contains(out, "2 comments · click to read") {
+		t.Fatalf("resolved thread not folded:\n%s", out)
+	}
+	line := -1
+	for i, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "click to read") {
+			line = i
+		}
+	}
+	v.ClickPreview(line, 4)
+	out = ansi.Strip(v.PreviewView())
+	if !strings.Contains(out, "allocates every call") || !strings.Contains(out, "fixed in 2a3b") {
+		t.Fatalf("a click did not unfold the thread:\n%s", out)
+	}
+	if v.pane != paneFiles {
+		t.Error("the click closed the pane instead of unfolding the thread")
 	}
 }
