@@ -129,9 +129,6 @@ type Model struct {
 // spinnerTickMsg advances the tab spinner animation.
 type spinnerTickMsg struct{}
 
-// spinnerFrames is a braille spinner cycled while a view is fetching.
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
 func spinnerTick() tea.Cmd {
 	return tea.Tick(time.Second/12, func(time.Time) tea.Msg { return spinnerTickMsg{} })
 }
@@ -276,6 +273,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.spinnerFrame++
+		// A view animating its own glyph (a popup waiting on gh) turns
+		// with the tab spinner.
+		for _, v := range m.views {
+			v.Update(ui.SpinnerTickMsg{Frame: m.spinnerFrame})
+		}
 		return m, spinnerTick()
 
 	case tea.MouseWheelMsg:
@@ -1146,6 +1148,16 @@ func (m Model) dismiss() (tea.Model, tea.Cmd) {
 	if m.floating() {
 		return m, m.setPreview(true, false)
 	}
+	// The filter is the last layer: with nothing open over the list, esc
+	// clears what narrowed it.
+	if len(m.views) > 0 {
+		if f, ok := m.views[m.current].(filterable); ok {
+			if q, enabled, cs := f.FilterState(); q != "" {
+				f.SetFilter("", enabled, cs)
+				m.syncPreviewKey(false)
+			}
+		}
+	}
 	return m, nil
 }
 
@@ -1619,7 +1631,7 @@ func (m Model) tabLabels() []string {
 		}
 		// Append a spinner glyph while the view is fetching.
 		if v.Loading() {
-			label += " " + spinnerFrames[m.spinnerFrame%len(spinnerFrames)]
+			label += " " + ui.SpinnerFrame(m.spinnerFrame)
 		}
 		labels[i] = style.Render(label)
 	}

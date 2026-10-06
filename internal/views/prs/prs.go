@@ -710,8 +710,10 @@ type View struct {
 	// is an open reply/comment prompt. flash is a transient status-line
 	// result (cleared on the next fetch).
 	review *reviewFlow
-	input  *threadFlow
-	flash  string
+	// spinFrame follows the root spinner so the popup's glyph turns with it.
+	spinFrame int
+	input     *threadFlow
+	flash     string
 
 	// jobs caches each PR's check runs for the jobs pane ('t'), by URL;
 	// jobsGen supersedes pending watch ticks. rerun is the open rerun
@@ -779,6 +781,9 @@ type reviewFlow struct {
 	verdict    string // "", then "approve" | "comment" | "request-changes"
 	body       string
 	submitting bool
+	// action is what gh is running, or ran: "review", "merge" or "auto".
+	// done and fail hold the outcome, and the popup stays up to show it.
+	action, done, fail string
 	// confirm names the merge awaiting a yes ("merge" or "auto"), and why
 	// it is a bad idea when it is: merging cannot be undone by another
 	// keypress, so it never happens on the first one.
@@ -1042,7 +1047,9 @@ func (v *View) Init() tea.Cmd {
 	return tea.Batch(v.fetch(), v.maybeFetchJobs())
 }
 
-func (v *View) Loading() bool { return v.loading || v.reviewLoading }
+func (v *View) Loading() bool {
+	return v.loading || v.reviewLoading || (v.review != nil && v.review.submitting)
+}
 
 // graphqlQuery is one PR search. The own-PRs and review-requested searches
 // run as two separate requests; combining them into one aliased query makes
@@ -1454,10 +1461,20 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.foreign(msg.from) {
 			return nil
 		}
-		v.review = nil
+		// The popup stays up with the outcome; the next key closes it.
+		r := v.review
+		if r != nil {
+			r.submitting = false
+		}
 		if msg.err != nil {
+			if r != nil {
+				r.fail = "merge failed: " + msg.err.Error()
+			}
 			v.flash = ui.Red.Render("merge failed: " + msg.err.Error())
 			return statusCmd(ui.SeverityError, msg.err)
+		}
+		if r != nil {
+			r.done = msg.what
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
 		// A merged PR leaves the search on the next fetch; auto-merge
@@ -1494,6 +1511,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
+		return nil
+	case ui.SpinnerTickMsg:
+		v.spinFrame = msg.Frame
 		return nil
 	case ui.ListJumpMsg:
 		v.jump = int(msg)
@@ -1944,6 +1964,10 @@ type reviewDoneMsg struct {
 // submit.
 func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 	r := v.review
+	if r.done != "" || r.fail != "" {
+		v.review = nil // any key dismisses the outcome
+		return nil
+	}
 	if r.submitting {
 		return nil // ignore keys while gh runs
 	}
@@ -2056,6 +2080,28 @@ func reviewedNote(state string) string {
 	return "you have already reviewed this"
 }
 
+// merging reports whether the popup is on a merge: staged, running or done.
+func (r *reviewFlow) merging() bool {
+	switch {
+	case r.confirm == "merge", r.confirm == "auto", r.action == "merge", r.action == "auto":
+		return true
+	}
+	return false
+}
+
+// mergeDetail is the method and branch fate, before or after the fact.
+func (v *View) mergeDetail(past bool) string {
+	detail := v.cfg.ResolvedMergeMethod()
+	switch {
+	case !v.cfg.MergeDeleteBranch:
+	case past:
+		detail += ", branch deleted"
+	default:
+		detail += ", then delete the branch"
+	}
+	return detail
+}
+
 // mergeTitle is the selected PR's title, so the confirmation names what is
 // about to land rather than a bare number.
 func (v *View) mergeTitle(url string) string {
@@ -2117,14 +2163,33 @@ func (v *View) Overlay() string {
 	var b strings.Builder
 	// The heading follows the step: "Review" is wrong above a merge.
 	heading := "Review"
-	if r.confirm == "merge" || r.confirm == "auto" {
+	if r.merging() {
 		heading = "Merge"
 	}
 	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s %s#%d", heading, r.repo, r.num)))
 	b.WriteString("\n\n")
 	switch {
+	case r.done != "":
+		b.WriteString(ui.Green.Render("✓ "+r.done) + "\n")
+		if r.action == "merge" {
+			b.WriteString(ui.Faint.Render("  "+v.mergeDetail(true)) + "\n")
+		}
+		b.WriteString("\n" + ui.Dim.Render("any key to close"))
+	case r.fail != "":
+		b.WriteString(ui.Red.Render("✗ "+r.fail) + "\n\n")
+		b.WriteString(ui.Dim.Render("any key to close"))
 	case r.submitting:
-		b.WriteString(ui.Faint.Render("submitting review…"))
+		verb := "submitting review…"
+		switch r.action {
+		case "merge":
+			verb = "merging…"
+		case "auto":
+			verb = "enabling auto-merge…"
+		}
+		b.WriteString(ui.SpinnerFrame(v.spinFrame) + " " + ui.Faint.Render(verb) + "\n")
+		if r.action == "merge" {
+			b.WriteString(ui.Faint.Render("  " + v.mergeDetail(false)))
+		}
 	case r.confirm != "":
 		what := "Merge this PR?"
 		switch r.confirm {
@@ -2138,11 +2203,7 @@ func (v *View) Overlay() string {
 			b.WriteString(ui.Dim.Render("  "+title) + "\n")
 		}
 		if r.confirm != "approve" {
-			detail := "  " + v.cfg.ResolvedMergeMethod()
-			if v.cfg.MergeDeleteBranch {
-				detail += ", then delete the branch"
-			}
-			b.WriteString(ui.Faint.Render(detail) + "\n")
+			b.WriteString(ui.Faint.Render("  "+v.mergeDetail(false)) + "\n")
 		}
 		if r.warn != "" {
 			b.WriteString("\n" + ui.Yellow.Render("! "+r.warn) + "\n")
@@ -2203,7 +2264,10 @@ type mergeDoneMsg struct {
 // gh reports a repo that forbids it rather than agenda guessing.
 func (v *View) submitMerge(auto bool) tea.Cmd {
 	r := v.review
-	r.submitting = true
+	r.submitting, r.action = true, "merge"
+	if auto {
+		r.action = "auto"
+	}
 	args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo,
 		"--" + v.cfg.ResolvedMergeMethod()}
 	if auto {
@@ -2241,7 +2305,7 @@ func ghErr(err error, out []byte) error {
 // submitReview shells out to gh pr review with the flow's verdict and body.
 func (v *View) submitReview(verdict string) tea.Cmd {
 	r := v.review
-	r.submitting = true
+	r.submitting, r.action = true, "review"
 	args := []string{"pr", "review", strconv.Itoa(r.num), "-R", r.repo, "--" + verdict}
 	if strings.TrimSpace(r.body) != "" {
 		args = append(args, "--body", r.body)

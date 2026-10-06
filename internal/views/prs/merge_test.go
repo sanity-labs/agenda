@@ -1,6 +1,7 @@
 package prs
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 // mergeView is a view with one PR loaded and the merge action enabled.
@@ -313,3 +315,66 @@ func keys(m map[string]bool) []string {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// The popup says what gh is doing and shows the outcome, rather than
+// "submitting review…" over a merge and vanishing when it lands.
+func TestMergePopupShowsMergingThenTheOutcome(t *testing.T) {
+	v := mergeView(t, mergeable(7))
+	v.cfg.MergeDeleteBranch = true
+	v.Update(tea.KeyPressMsg{Code: 'r'})
+	v.Update(tea.KeyPressMsg{Code: 'm'})
+	v.Update(tea.KeyPressMsg{Code: 'y'})
+	if !v.review.submitting || !v.Loading() {
+		t.Fatal("'y' did not start the merge, or the view does not report it loading")
+	}
+	v.Update(ui.SpinnerTickMsg{Frame: 3})
+	overlay := v.Overlay()
+	for _, want := range []string{"Merge o/r#7", "merging…", ui.SpinnerFrame(3), "squash, then delete the branch"} {
+		if !strings.Contains(overlay, want) {
+			t.Errorf("merging popup is missing %q:\n%s", want, overlay)
+		}
+	}
+	if strings.Contains(overlay, "review") {
+		t.Errorf("merging popup talks about a review:\n%s", overlay)
+	}
+	v.Update(tea.KeyPressMsg{Code: 'q'})
+	if v.review == nil {
+		t.Fatal("a key closed the popup while gh was running")
+	}
+
+	v.Update(mergeDoneMsg{from: v, what: "merged o/r#7", url: "u"})
+	if v.review == nil {
+		t.Fatal("the popup closed on success instead of showing it")
+	}
+	if v.review.submitting {
+		t.Error("still submitting after the merge landed")
+	}
+	overlay = v.Overlay()
+	for _, want := range []string{"✓ merged o/r#7", "branch deleted", "any key to close"} {
+		if !strings.Contains(overlay, want) {
+			t.Errorf("outcome popup is missing %q:\n%s", want, overlay)
+		}
+	}
+	v.Update(tea.KeyPressMsg{Code: 'j'})
+	if v.review != nil {
+		t.Error("a key did not close the outcome")
+	}
+}
+
+func TestMergePopupShowsTheFailure(t *testing.T) {
+	v := mergeView(t, mergeable(7))
+	v.Update(tea.KeyPressMsg{Code: 'r'})
+	v.Update(tea.KeyPressMsg{Code: 'm'})
+	v.Update(tea.KeyPressMsg{Code: 'y'})
+	v.Update(mergeDoneMsg{from: v, err: errors.New("Pull request is not mergeable")})
+	if v.review == nil {
+		t.Fatal("the popup closed on failure instead of showing it")
+	}
+	if got := v.Overlay(); !strings.Contains(got, "✗ merge failed: Pull request is not mergeable") {
+		t.Errorf("failure popup:\n%s", got)
+	}
+	v.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if v.review != nil {
+		t.Error("esc did not close the failure")
+	}
+}
