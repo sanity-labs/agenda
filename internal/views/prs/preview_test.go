@@ -71,6 +71,29 @@ func TestChecksBlockReportsFailures(t *testing.T) {
 	}
 }
 
+// "waiting on a reviewer" names the pending requests when there are any:
+// people as @login, teams as @org/team.
+func TestChecksBlockNamesRequestedReviewers(t *testing.T) {
+	v := previewView(t, config.GitHubConfig{})
+	p := pr{Number: 1, URL: "u", ReviewDecision: "REVIEW_REQUIRED"}
+	if got := v.checksBlock(p); !strings.Contains(got, "waiting on a reviewer") {
+		t.Errorf("no requests:\n%s", got)
+	}
+	var user, team struct {
+		RequestedReviewer struct {
+			Login        string `json:"login"`
+			CombinedSlug string `json:"combinedSlug"`
+		} `json:"requestedReviewer"`
+	}
+	user.RequestedReviewer.Login = "alice"
+	team.RequestedReviewer.CombinedSlug = "o/sre"
+	p.ReviewRequests.Nodes = append(p.ReviewRequests.Nodes, user, team)
+	got := v.checksBlock(p)
+	if !strings.Contains(got, "waiting on @alice, @o/sre") || strings.Contains(got, "a reviewer") {
+		t.Errorf("with requests:\n%s", got)
+	}
+}
+
 // Nothing to report means no empty box.
 func TestChecksBlockEmptyWhenNothingToSay(t *testing.T) {
 	v := previewView(t, config.GitHubConfig{})

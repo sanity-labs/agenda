@@ -66,6 +66,14 @@ type pr struct {
 	ViewerLatestReview struct {
 		State string `json:"state"`
 	} `json:"viewerLatestReview"`
+	ReviewRequests struct {
+		Nodes []struct {
+			RequestedReviewer struct {
+				Login        string `json:"login"`
+				CombinedSlug string `json:"combinedSlug"`
+			} `json:"requestedReviewer"`
+		} `json:"nodes"`
+	} `json:"reviewRequests"`
 	// Unread marks a row that arrived since the last fetch, cleared when you
 	// select it, so a notification you missed is still visible in the list.
 	// UnreadGutter reserves the column even when this row is read, so marks
@@ -1065,6 +1073,10 @@ fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName baseRefName
   additions deletions mergeable reviewDecision body
   viewerLatestReview { state }
+  reviewRequests(first: 10) { nodes { requestedReviewer {
+    ... on User { login }
+    ... on Team { combinedSlug }
+  } } }
   author { login }
   repository { nameWithOwner }
   comments { totalCount }
@@ -3214,6 +3226,21 @@ func (v *View) linearBlock(p pr) string {
 
 // blockHeader labels a preview section. One style for all of them, so the
 // pane reads as a list of sections rather than three unrelated widgets.
+// reviewers are the pending review requests as mentions: @login for a
+// person, @org/team for a team.
+func (p pr) reviewers() []string {
+	var out []string
+	for _, n := range p.ReviewRequests.Nodes {
+		switch r := n.RequestedReviewer; {
+		case r.Login != "":
+			out = append(out, "@"+r.Login)
+		case r.CombinedSlug != "":
+			out = append(out, "@"+r.CombinedSlug)
+		}
+	}
+	return out
+}
+
 // checksBlock is the bordered CI summary: what is blocking the merge, and how
 // the checks are doing. Bordered in the colour of the worst state, so a
 // glance at the frame says whether anything needs attention.
@@ -3225,8 +3252,12 @@ func (v *View) checksBlock(p pr) string {
 	case "CHANGES_REQUESTED":
 		rows = append(rows, ui.Red.Render(ui.IconChanges+" Changes requested"))
 	case "REVIEW_REQUIRED":
+		waiting := "waiting on a reviewer"
+		if who := p.reviewers(); len(who) > 0 {
+			waiting = "waiting on " + strings.Join(who, ", ")
+		}
 		rows = append(rows, ui.Yellow.Render(ui.IconReviewReq+" Review required")+
-			"\n"+ui.Dim.Render("  waiting on a reviewer"))
+			"\n"+ui.Dim.Render("  "+waiting))
 	}
 
 	pass, fail, run, total := p.checkCounts()
