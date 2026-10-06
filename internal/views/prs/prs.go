@@ -1425,6 +1425,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		st.files, st.err, st.done = msg.files, msg.err, true
+		if st.openAll && msg.err == nil {
+			st.expandAll()
+		}
 		v.bodyKey = ""
 		if msg.err != nil {
 			return statusCmd(ui.SeverityWarn, msg.err)
@@ -2079,6 +2082,12 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 			return v.diffInPager()
 		}
 		target := v.reviewPane()
+		// Going through the change file by file: open them all.
+		if target == paneFiles {
+			if p := v.list.Selected(); p.URL != "" {
+				v.fileState(p).expandAll()
+			}
+		}
 		if v.pane == target {
 			// 'r' opened it behind the popup already: hand it the keys.
 			v.paneFocus = true

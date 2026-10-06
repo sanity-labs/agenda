@@ -374,6 +374,34 @@ func TestCollapseResetsTheViewAndReviewedFolds(t *testing.T) {
 	}
 }
 
+// A review started from the popup walks the files one by one, so View
+// diff opens them all: now when the list is loaded, otherwise when it
+// lands. A file already marked reviewed stays folded.
+func TestViewDiffFromThePopupExpandsEveryFile(t *testing.T) {
+	v := floatView(t)
+	pressV(v)
+	v.Update(press('r'))
+	st := v.fileState(v.list.Selected())
+	st.files = []prFile{{Filename: "a.go", Patch: "@@ -1 +1 @@\n+a"}, {Filename: "b.go", Patch: "@@ -1 +1 @@\n+b"}, {Filename: "c.go", Patch: "@@ -1 +1 @@\n+c"}}
+	st.done = true
+	st.reviewed["c.go"] = true
+	v.Update(press('d'))
+	if !st.open["a.go"] || !st.open["b.go"] || st.open["c.go"] {
+		t.Errorf("open = %v, want a.go and b.go expanded and the reviewed c.go folded", st.open)
+	}
+
+	// Not loaded yet: the expansion waits for the list.
+	v = floatView(t)
+	pressV(v)
+	v.Update(press('r'))
+	v.Update(press('d'))
+	url := v.list.Selected().URL
+	v.Update(filesMsg{url: url, files: []prFile{{Filename: "late.go", Patch: "@@ -1 +1 @@\n+x"}}})
+	if st := v.fileState(v.list.Selected()); !st.open["late.go"] {
+		t.Errorf("a list that landed after View diff was not expanded: %v", st.open)
+	}
+}
+
 // A resolved thread folds to one line until clicked; the click lands on the
 // line the pane drew it on, header offset included.
 func TestResolvedThreadFoldsUntilClicked(t *testing.T) {

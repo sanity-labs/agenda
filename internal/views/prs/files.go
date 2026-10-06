@@ -35,7 +35,10 @@ type filesState struct {
 	done     bool
 	open     map[string]bool
 	reviewed map[string]bool
-	sel      int
+	// openAll asks for every file expanded once the list lands: a review
+	// started from the popup walks them one by one.
+	openAll bool
+	sel     int
 	// rowLine is where each row started in the last render, in pane body
 	// lines: thread boxes make rows and lines diverge, and the arrows need
 	// to know whether the next file is on screen.
@@ -130,6 +133,21 @@ func hunkStart(header string) int {
 		return 0
 	}
 	return n
+}
+
+// expandAll opens every file not marked reviewed, now or when the list
+// lands.
+func (st *filesState) expandAll() {
+	if !st.done {
+		st.openAll = true
+		return
+	}
+	for _, f := range st.files {
+		if !st.reviewed[f.Filename] {
+			st.open[f.Filename] = true
+		}
+	}
+	st.openAll = false
 }
 
 // renderFilesPane draws the file list: one row per file with its counts
