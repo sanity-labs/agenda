@@ -130,8 +130,11 @@ float, where `←` steps a level and `esc` closes the window.
 With the preview pane on:
 
 ```
-job log → jobs/file-list focus → pane focus → the pane → zoom
+job log → jobs/file-list focus → pane focus → the pane → zoom → filter
 ```
+
+The filter is the floor: with nothing open over the list, `esc` clears the
+query that narrowed it (from `/` or `f` alike), so the list is whole again.
 
 Floated, `esc` does not step: it closes the whole float from any level.
 The arrows are what walk back a level at a time (see Focus), so `esc`

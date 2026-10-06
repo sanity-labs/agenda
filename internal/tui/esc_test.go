@@ -136,3 +136,29 @@ func TestEscReachesTheViewFirst(t *testing.T) {
 		t.Error("esc both unwound the view and hid the preview")
 	}
 }
+
+// filterView is a list with a filter query and one closable layer.
+type filterView struct {
+	paneView
+	query string
+}
+
+func (f *filterView) Fields() []string                       { return []string{"title"} }
+func (f *filterView) FilterState() (string, []string, bool)  { return f.query, []string{"title"}, false }
+func (f *filterView) SetFilter(q string, _ []string, _ bool) { f.query = q }
+
+// With nothing open over the list, esc clears the filter; a pane still
+// open closes first and the query survives that press.
+func TestEscClearsTheFilterLast(t *testing.T) {
+	v := &filterView{paneView: paneView{open: 1}, query: "foo"}
+	m := escModel(t, true, v)
+	m = esc(m)
+	if v.open != 0 || v.query != "foo" {
+		t.Fatalf("after one esc: open=%d query=%q, want the pane closed and the query kept", v.open, v.query)
+	}
+	m = esc(m)
+	if v.query != "" {
+		t.Fatalf("after the second esc: query=%q, want it cleared", v.query)
+	}
+	esc(m) // nothing left: still no quit, no panic
+}

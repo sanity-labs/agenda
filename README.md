@@ -122,7 +122,7 @@ them elsewhere).
 | Scope | Key | Action |
 |---|---|---|
 | Global | `tab` / `shift+tab`, `1`…`9` | switch view |
-| Global | `/`, `f` | filter the loaded rows (fuzzy and GitHub-style terms like `-label:x is:draft`); field-scoped filter popup |
+| Global | `/`, `f` | filter the loaded rows (fuzzy on word starts, plus GitHub-style terms like `-label:x is:draft`); field-scoped filter popup. `esc` clears it |
 | Global | `→` / `←` | give the keys to the pane / back to the list; in a float, `←` steps a level out |
 | Global | `esc` | step back: focus, then the pane, then a float, then zoom. Never quits |
 | Global | `v`, `z` | show/hide (or float) the preview; zoom it |
