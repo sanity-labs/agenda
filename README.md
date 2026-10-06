@@ -205,6 +205,55 @@ Built with [Bubble Tea v2](https://github.com/charmbracelet/bubbletea),
 [Lip Gloss](https://github.com/charmbracelet/lipgloss) and
 [Glamour](https://github.com/charmbracelet/glamour).
 
+## Herdr mode
+
+Inside [Herdr](https://herdr.dev), `agenda --herdr` turns agenda into a jump
+list for your work. Bind it to popup keys in Herdr's
+`~/.config/herdr/config.toml`:
+
+```toml
+[[keys.command]]
+key = "prefix+a"
+type = "popup"
+command = "agenda --herdr prs"   # or linear, sessions
+width = "90%"
+height = "85%"
+```
+
+In the popup, `enter` (or a double-click) jumps to the selection and closes the
+popup; `O` still opens PRs and issues in the browser.
+
+**How work maps onto Herdr.** A workspace *claims* part of Linear's tree: one
+issue, a parent issue with its sub-issues, or a whole project. An issue opens
+in the workspace claiming the nearest of those, so every issue of a claimed
+project lands in the same workspace. Inside it, each branch gets a git
+worktree and a tab whose panes start there (`SRE-5170 · argocd-ops#4471`), and
+agents and shells are panes in those tabs. Tabs come and go as you work:
+closing one keeps its worktree, and selecting the item again brings it back.
+
+- **Issue:** focuses its tab in the claiming workspace. Starting work on it
+  checks out its open PR's branch, or a new branch (Linear's suggested name)
+  off the default branch in a clone you pick from a filterable list.
+- **PR:** opens in its linked issue's workspace, on its head branch (fetched
+  from origin, or GitHub's `pull/N/head` for a fork). A PR with no issue gets a
+  workspace of its own. A branch already checked out somewhere is used where it
+  is, since git won't check a branch out twice.
+- **Session:** focuses the pane running it, or resumes it in a new tab of a
+  workspace with a pane in its directory.
+
+When nothing claims an item yet, the popup asks once: a new workspace for the
+issue, its parent or its project, or add one of those to the workspace you
+opened the popup over. That is how an existing workspace (say `PSC`) takes on
+an issue, or a bucket workspace like `KTLO` takes issues one at a time.
+Workspaces whose label names an issue (`SRE-2999 Enforce CloudSQL`) are found
+without asking. agenda keeps the claims in
+`~/.local/state/agenda/herdr-claims.json`, since Herdr drops tool metadata on
+restart.
+
+New worktrees go under `herdr.worktrees_dir` as `<repo>/<branch>`, and clones
+are found at `<repos_root>/<owner>/<repo>` (default `~/git`); see the `herdr:`
+section of [`config.example.yml`](./config.example.yml).
+
 ## Project layout
 
 ```
@@ -212,6 +261,7 @@ main.go, cli.go         config, wiring, the CLI commands
 internal/
   config/               XDG config, keymap, settings persistence
   cache/                on-disk JSON cache
+  herdr/                herdr mode: claims, worktrees and tabs for an item
   store/                shared metadata the views publish and read
   ui/                   list, rows, pills, picker, scrollbar, glyphs, refs
   tui/                  root model: tabs, layout, key routing, settings overlay

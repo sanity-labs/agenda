@@ -145,11 +145,14 @@ func TestEveryConfigKeyHasASettingRow(t *testing.T) {
 		// Containers, not settings in themselves.
 		"github": true, "linear": true, "sessions": true, "theme": true,
 		"refresh": true, "notifications": true, "keys": true, "filter": true,
+		"herdr": true,
 		// Free text, edited in the file.
 		"token": true, "review_filter": true, "views": true, "palette": true,
 		"glyphs": true, "command": true, "limit": true, "scope": true,
 		"teams": true, "projects": true, "states": true,
 		"include_completed": true, "include_canceled": true,
+		// Paths and a repo map, for herdr mode.
+		"repos_root": true, "repos": true, "worktrees_dir": true,
 	}
 	src, err := os.ReadFile("../config/config.go")
 	if err != nil {

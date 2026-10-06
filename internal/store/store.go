@@ -61,16 +61,21 @@ type PR struct {
 	Review       ReviewState
 	HasConflicts bool
 	UpdatedAt    time.Time
+	Branch       string // head branch
 }
 
 // --- linear issues ----------------------------------------------------------
 
 // Issue is the cross-view metadata for a Linear issue, keyed by identifier.
 type Issue struct {
-	Identifier string
-	Title      string
-	State      string
-	URL        string
+	Identifier  string
+	Title       string
+	State       string
+	URL         string
+	ProjectID   string
+	Project     string // the project's name
+	Parent      string // parent issue's identifier, for a sub-issue
+	ParentTitle string
 }
 
 // --- session mentions -------------------------------------------------------
@@ -136,6 +141,25 @@ func (s *Store) PutIssues(issues []Issue) {
 	for _, i := range issues {
 		s.issues[strings.ToUpper(i.Identifier)] = i
 	}
+}
+
+// KnownTeam reports whether any stored issue belongs to the team with this
+// key (the identifier prefix, e.g. SRE), which tells a real issue reference
+// from look-alikes such as UTF-8. With no issues stored it can't tell, and
+// reports true.
+func (s *Store) KnownTeam(key string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.issues) == 0 {
+		return true
+	}
+	prefix := strings.ToUpper(key) + "-"
+	for id := range s.issues {
+		if strings.HasPrefix(id, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Issue returns the stored metadata for an issue identifier (case-insensitive).

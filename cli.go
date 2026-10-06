@@ -58,6 +58,9 @@ func runHelp(w io.Writer, args []string) int {
 	b.WriteString("agenda is a terminal dashboard for your PRs, agent sessions, and Linear issues.\n\n")
 	b.WriteString("Usage:\n  agenda [command]\n\n")
 	b.WriteString("Running agenda with no command opens the TUI on the first configured view.\n\n")
+	b.WriteString("Flags:\n")
+	b.WriteString("  --herdr  herdr mode, for a Herdr popup: selecting an issue, PR or session jumps to\n")
+	b.WriteString("           its worktree workspace, creating it if needed, then agenda exits\n\n")
 	b.WriteString("Commands:\n")
 	width := 0
 	for _, c := range commands() {
