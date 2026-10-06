@@ -66,6 +66,14 @@ type pr struct {
 	ViewerLatestReview struct {
 		State string `json:"state"`
 	} `json:"viewerLatestReview"`
+	LatestOpinionatedReviews struct {
+		Nodes []struct {
+			State  string `json:"state"`
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+		} `json:"nodes"`
+	} `json:"latestOpinionatedReviews"`
 	ReviewRequests struct {
 		Nodes []struct {
 			RequestedReviewer struct {
@@ -1073,6 +1081,7 @@ fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName baseRefName
   additions deletions mergeable reviewDecision body
   viewerLatestReview { state }
+  latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
   reviewRequests(first: 10) { nodes { requestedReviewer {
     ... on User { login }
     ... on Team { combinedSlug }
@@ -3254,6 +3263,21 @@ func (p pr) reviewers() []string {
 	return out
 }
 
+// reviewedBy names who holds a review in the given state, as a dim line
+// under the decision; empty when the fetch did not say.
+func (p pr) reviewedBy(state string) string {
+	var who []string
+	for _, n := range p.LatestOpinionatedReviews.Nodes {
+		if n.State == state && n.Author.Login != "" {
+			who = append(who, "@"+n.Author.Login)
+		}
+	}
+	if len(who) == 0 {
+		return ""
+	}
+	return "\n" + ui.Dim.Render("  by "+strings.Join(who, ", "))
+}
+
 // checksBlock is the bordered CI summary: what is blocking the merge, and how
 // the checks are doing. Bordered in the colour of the worst state, so a
 // glance at the frame says whether anything needs attention.
@@ -3261,9 +3285,9 @@ func (v *View) checksBlock(p pr) string {
 	var rows []string
 	switch p.ReviewDecision {
 	case "APPROVED":
-		rows = append(rows, ui.Green.Render(ui.IconApproved+" Approved"))
+		rows = append(rows, ui.Green.Render(ui.IconApproved+" Approved")+p.reviewedBy("APPROVED"))
 	case "CHANGES_REQUESTED":
-		rows = append(rows, ui.Red.Render(ui.IconChanges+" Changes requested"))
+		rows = append(rows, ui.Red.Render(ui.IconChanges+" Changes requested")+p.reviewedBy("CHANGES_REQUESTED"))
 	case "REVIEW_REQUIRED":
 		waiting := "waiting on a reviewer"
 		if who := p.reviewers(); len(who) > 0 {
