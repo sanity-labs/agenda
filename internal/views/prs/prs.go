@@ -1828,11 +1828,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number}
 				// Reviewing reads better against the change, where the pane
 				// is enabled: the file list, or the flat diff by config.
+				// Through setPane, so the pane is in the same state as one
+				// toggled by hand once the popup goes.
 				if v.cfg.DiffPane && v.pane == paneBody {
-					v.pane = paneFiles
-					if v.cfg.ResolvedReviewView() == "unified" {
-						v.pane = paneDiff
-					}
+					return v.setPane(v.reviewPane())
 				}
 				return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchFiles())
 			}
@@ -2061,13 +2060,18 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 	case "Request changes":
 		r.verdict = "request-changes"
 	case "View diff":
-		// Show the diff and get out of the way; 'r' reopens the popup.
+		// Show the change and get out of the way; 'r' reopens the popup.
 		v.review = nil
-		if v.cfg.DiffPane {
-			v.pane = paneDiff
-			return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments())
+		if !v.cfg.DiffPane {
+			return v.diffInPager()
 		}
-		return v.diffInPager()
+		target := v.reviewPane()
+		if v.pane == target {
+			// 'r' opened it behind the popup already: hand it the keys.
+			v.paneFocus = true
+			return ui.RevealPreview
+		}
+		return v.setPane(target)
 	case mergeLabel:
 		v.askMerge("merge")
 	case autoLabel:
@@ -2076,6 +2080,15 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 		v.review = nil
 	}
 	return nil
+}
+
+// reviewPane is the pane a review reads against: the file list, or the
+// flat diff when review_view asks for it.
+func (v *View) reviewPane() paneMode {
+	if v.cfg.ResolvedReviewView() == "unified" {
+		return paneDiff
+	}
+	return paneFiles
 }
 
 // reviewedNote says what the viewer's standing review on a PR is, for the
