@@ -46,16 +46,17 @@ const (
 
 // Decorative icons, gated by the theme.glyphs toggle (see Glyph).
 const (
-	IconTabReviews  = "\ueba1" //
-	IconTabPRs      = "\ueb00" //  github
-	IconTabSessions = "\uf120" //  terminal
-	IconTabLinear   = "\uf4a0" //  linear
-	IconNavMine     = "\uf007" //  user
-	IconNavInbox    = "\uf01c" //  inbox
-	IconNavAll      = "\uf0ca" //  list
-	IconNavProject  = "\uf07b" //  folder
-	IconStar        = "\uf005" //  star
-	IconBell        = "\uf0f3" //  bell
+	IconTabReviews  = "\ueba1"     //
+	IconTabPRs      = "\ueb00"     //  github
+	IconTabSessions = "\uf120"     //  terminal
+	IconTabLinear   = "\uf4a0"     //  linear
+	IconLinearIssue = "\U000f1591" // 󱖑 a Linear issue, next to its id
+	IconNavMine     = "\uf007"     //  user
+	IconNavInbox    = "\uf01c"     //  inbox
+	IconNavAll      = "\uf0ca"     //  list
+	IconNavProject  = "\uf07b"     //  folder
+	IconStar        = "\uf005"     //  star
+	IconBell        = "\uf0f3"     //  bell
 )
 
 // BlockHeader is a preview section's heading, the same in every view so

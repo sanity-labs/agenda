@@ -3249,7 +3249,11 @@ func (v *View) linearBlock(p pr) string {
 	var b strings.Builder
 	b.WriteString(ui.BlockHeader("Linear"))
 	for _, id := range ids {
-		line := "  " + ui.Cyan.Render(id)
+		line := "  "
+		if g := ui.Glyph(ui.IconLinearIssue, ""); g != "" {
+			line += g + " "
+		}
+		line += ui.Cyan.Render(id)
 		if v.store != nil {
 			if iss, ok := v.store.Issue(id); ok && iss.Title != "" {
 				line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
