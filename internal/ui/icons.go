@@ -6,7 +6,7 @@ package ui
 const (
 	IconOpen      = "\uea64" // 
 	IconDraft     = "\uebdb" // 
-	IconMerged    = "\uf1f7" // 
+	IconMerged    = "\ueafe" //  git-merge (codicon, like open and draft)
 	IconClosed    = "\uf48e" // 
 	IconCIOK      = "\ueab2" // 
 	IconCIFail    = "\uf467" // 
