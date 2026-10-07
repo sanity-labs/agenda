@@ -43,8 +43,9 @@ func TestIssueRef(t *testing.T) {
 	if r.Kind != "linear" || r.ID != "SRE-1" {
 		t.Fatalf("ref identity = %+v", r)
 	}
-	if r.Label != "Linear  SRE-1" {
-		t.Errorf("Label = %q", r.Label)
+	// The Linear glyph stands in for the word; the id follows it.
+	if !strings.HasSuffix(r.Label, "  SRE-1") || !strings.Contains(r.Label, IconLinearIssue) {
+		t.Errorf("Label = %q, want the Linear glyph then the id", r.Label)
 	}
 	if r.Detail != "Do a thing" {
 		t.Errorf("Detail = %q, want the title", r.Detail)

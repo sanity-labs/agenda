@@ -171,7 +171,6 @@ func (v *View) resetToggles() {
 	}
 	v.showComments = v.cfgShowComments
 	v.commentsJumped = false
-	v.showPRs = false
 }
 
 // Selectable implements ui.NonSelectable: group headers never hold the cursor.
@@ -555,9 +554,6 @@ type View struct {
 	unreadOn bool
 	// jump is the jump keys' step for the tree; the list keeps its own copy.
 	jump int
-	// showPRs expands the detail's pull-request section; a per-item toggle
-	// like comments, reset when the selection moves unless toggles persist.
-	showPRs bool
 	// floatReveal says the detail is a float over the list rather than a
 	// pane beside it; floatBase that the float was opened on the description
 	// with 'v', so comments toggled over it have a level to step back to.
@@ -1501,30 +1497,9 @@ func (v *View) PreviewView() string {
 // commentsMarker is the phrase the clickable comments hint ends with.
 const commentsMarker = "to toggle comments"
 
-// prsMarker is the phrase the clickable pull-requests hint ends with.
-const prsMarker = "to show pull requests"
-
-// ToggleRelated expands or folds the detail's pull-request section: what
-// 'l' does while the pane has the keys, where a picker over the pane
-// would be one layer too many.
-func (v *View) ExpandRelated() bool {
-	if v.showPRs {
-		return false
-	}
-	v.showPRs = true
-	return true
-}
-
-// toggleRelated folds or expands the section, for the clickable hint.
-func (v *View) toggleRelated() tea.Cmd {
-	v.showPRs = !v.showPRs
-	return nil
-}
-
 // renderPRs is the detail's pull-request section: the PRs Linear has
-// attached to the issue, with the PRs view's live status glyphs where it
-// has them. Folded, it says how many and how to open it; 'l' from the list
-// still raises the picker to jump to one.
+// attached to the issue, one per line with the PRs view's live status
+// glyphs where it has them; 'l' raises the picker to jump to one.
 func (v *View) renderPRs(i issue) string {
 	type row struct {
 		pr               store.PR
@@ -1553,9 +1528,6 @@ func (v *View) renderPRs(i issue) string {
 	}
 	if len(rows) == 0 {
 		return ui.Faint.Render("  none")
-	}
-	if !v.showPRs {
-		return ui.Faint.Render(fmt.Sprintf("  %d · l or click %s", len(rows), prsMarker))
 	}
 	var b strings.Builder
 	for n, r := range rows {
@@ -1777,9 +1749,6 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 	if strings.Contains(text, commentsMarker) {
 		return v.toggleComments()
 	}
-	if strings.Contains(text, prsMarker) {
-		return v.toggleRelated()
-	}
 	return nil
 }
 
@@ -1825,9 +1794,6 @@ func (v *View) PreviewKey() string {
 	k := v.list.Selected().Identifier
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
-	}
-	if v.showPRs {
-		k += "#prs"
 	}
 	return k
 }

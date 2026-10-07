@@ -71,5 +71,5 @@ func PRRef(p store.PR, repo string, num int, title, url string) Ref {
 // line, the issue title on the dimmed second line. url (when known) enables
 // "open in browser" from the picker.
 func IssueRef(id, title, url string) Ref {
-	return Ref{Kind: "linear", ID: id, Label: "Linear  " + id, Detail: title, URL: url}
+	return Ref{Kind: "linear", ID: id, Label: strings.TrimSpace(Glyph(IconLinearIssue, "Linear")) + "  " + id, Detail: title, URL: url}
 }

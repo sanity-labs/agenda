@@ -3250,9 +3250,7 @@ func (v *View) linearBlock(p pr) string {
 	b.WriteString(ui.BlockHeader("Linear"))
 	for _, id := range ids {
 		line := "  "
-		if g := ui.Glyph(ui.IconLinearIssue, ""); g != "" {
-			line += g + " "
-		}
+		line += ui.Glyph(ui.IconLinearIssue, "") // the glyph carries its own space
 		line += ui.Cyan.Render(id)
 		if v.store != nil {
 			if iss, ok := v.store.Issue(id); ok && iss.Title != "" {

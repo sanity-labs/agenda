@@ -16,10 +16,10 @@ func withPR(i issue, url, title string) issue {
 	return i
 }
 
-// The detail has a Pull requests section: folded to a count by default,
-// expanded by 'l' with the pane focused (ToggleRelated) or a click on the
-// hint, one line per attached PR. An issue with none says so.
-func TestPullRequestsSectionFoldsAndExpands(t *testing.T) {
+// The detail has a Pull requests section, one line per attached PR, open
+// from the start: a review walks them, and 'l' picks one to jump to. An
+// issue with none says so.
+func TestPullRequestsSectionListsThePRs(t *testing.T) {
 	v := floatIssue(t, 0)
 	v.Update(ui.PreviewShownMsg(true))
 	i := withPR(v.list.Selected(), "https://github.com/o/r/pull/5", "Fix the thing")
@@ -27,36 +27,11 @@ func TestPullRequestsSectionFoldsAndExpands(t *testing.T) {
 	v.applySort()
 
 	text := ansi.Strip(v.PreviewView())
-	if !strings.Contains(text, "Pull requests") || !strings.Contains(text, "1 · l or click to show pull requests") {
-		t.Fatalf("folded section missing or wrong:\n%s", text)
-	}
-	if strings.Contains(text, "o/r#5") {
-		t.Error("the PR row shows while the section is folded")
-	}
-
-	if !v.ExpandRelated() {
-		t.Fatal("ExpandRelated did not report expanding a folded section")
-	}
-	text = ansi.Strip(v.PreviewView())
-	if !strings.Contains(text, "o/r#5") || !strings.Contains(text, "Fix the thing") {
-		t.Errorf("expanded section lacks the PR:\n%s", text)
-	}
-	// Already showing: the key goes on to the picker, and the section stays.
-	if v.ExpandRelated() || !v.showPRs {
-		t.Error("a second ExpandRelated folded the section or claimed to expand it")
-	}
-
-	lines := strings.Split(text, "\n")
-	v.toggleRelated() // fold again, then click the hint
-	for n, l := range strings.Split(ansi.Strip(v.PreviewView()), "\n") {
-		if strings.Contains(l, prsMarker) {
-			v.ClickPreview(n, 0)
+	for _, want := range []string{"Pull requests", "o/r#5", "Fix the thing", "l to jump to one"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("section is missing %q:\n%s", want, text)
 		}
 	}
-	if !v.showPRs {
-		t.Error("clicking the hint did not expand the section")
-	}
-	_ = lines
 
 	none := floatIssue(t, 0)
 	none.Update(ui.PreviewShownMsg(true))
