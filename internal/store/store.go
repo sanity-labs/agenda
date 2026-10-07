@@ -70,6 +70,7 @@ type Issue struct {
 	Identifier string
 	Title      string
 	State      string
+	StateColor string // Linear's hex for the state, so other views paint it alike
 	URL        string
 }
 

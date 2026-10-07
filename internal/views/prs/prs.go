@@ -3253,14 +3253,29 @@ func (v *View) linearBlock(p pr) string {
 		line += ui.Glyph(ui.IconLinearIssue, "") // the glyph carries its own space
 		line += ui.Cyan.Render(id)
 		if v.store != nil {
-			if iss, ok := v.store.Issue(id); ok && iss.Title != "" {
-				line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
+			if iss, ok := v.store.Issue(id); ok {
+				if iss.State != "" {
+					line += "  " + issueStateStyle(iss.StateColor).Render(iss.State)
+				}
+				if iss.Title != "" {
+					line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
+				}
 			}
 		}
 		b.WriteString("\n" + line)
 	}
 	b.WriteString("\n" + ui.Faint.Render("  l to jump to ticket"))
 	return b.String()
+}
+
+// issueStateStyle paints a Linear state in the colour Linear gives it,
+// as the Linear view does; dim when the colour is unknown.
+func issueStateStyle(hex string) lipgloss.Style {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return ui.Dim
+	}
+	return ui.Fg("#" + hex)
 }
 
 // reviewers are the pending review requests as mentions: @login for a
