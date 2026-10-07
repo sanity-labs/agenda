@@ -3261,8 +3261,6 @@ func (v *View) linearBlock(p pr) string {
 	return b.String()
 }
 
-// blockHeader labels a preview section. One style for all of them, so the
-// pane reads as a list of sections rather than three unrelated widgets.
 // reviewers are the pending review requests as mentions: @login for a
 // person, @org/team for a team.
 func (p pr) reviewers() []string {

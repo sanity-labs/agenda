@@ -34,14 +34,20 @@ func TestPullRequestsSectionFoldsAndExpands(t *testing.T) {
 		t.Error("the PR row shows while the section is folded")
 	}
 
-	v.ToggleRelated()
+	if !v.ExpandRelated() {
+		t.Fatal("ExpandRelated did not report expanding a folded section")
+	}
 	text = ansi.Strip(v.PreviewView())
 	if !strings.Contains(text, "o/r#5") || !strings.Contains(text, "Fix the thing") {
 		t.Errorf("expanded section lacks the PR:\n%s", text)
 	}
+	// Already showing: the key goes on to the picker, and the section stays.
+	if v.ExpandRelated() || !v.showPRs {
+		t.Error("a second ExpandRelated folded the section or claimed to expand it")
+	}
 
 	lines := strings.Split(text, "\n")
-	v.ToggleRelated() // fold again, then click the hint
+	v.toggleRelated() // fold again, then click the hint
 	for n, l := range strings.Split(ansi.Strip(v.PreviewView()), "\n") {
 		if strings.Contains(l, prsMarker) {
 			v.ClickPreview(n, 0)

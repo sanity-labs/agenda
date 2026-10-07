@@ -1507,7 +1507,16 @@ const prsMarker = "to show pull requests"
 // ToggleRelated expands or folds the detail's pull-request section: what
 // 'l' does while the pane has the keys, where a picker over the pane
 // would be one layer too many.
-func (v *View) ToggleRelated() tea.Cmd {
+func (v *View) ExpandRelated() bool {
+	if v.showPRs {
+		return false
+	}
+	v.showPRs = true
+	return true
+}
+
+// toggleRelated folds or expands the section, for the clickable hint.
+func (v *View) toggleRelated() tea.Cmd {
 	v.showPRs = !v.showPRs
 	return nil
 }
@@ -1563,7 +1572,7 @@ func (v *View) renderPRs(i issue) string {
 		}
 		b.WriteString(line)
 	}
-	b.WriteString("\n" + ui.Faint.Render("  l from the list to jump to one"))
+	b.WriteString("\n" + ui.Faint.Render("  l to jump to one"))
 	return b.String()
 }
 
@@ -1769,7 +1778,7 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 		return v.toggleComments()
 	}
 	if strings.Contains(text, prsMarker) {
-		return v.ToggleRelated()
+		return v.toggleRelated()
 	}
 	return nil
 }
@@ -1816,6 +1825,9 @@ func (v *View) PreviewKey() string {
 	k := v.list.Selected().Identifier
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
+	}
+	if v.showPRs {
+		k += "#prs"
 	}
 	return k
 }

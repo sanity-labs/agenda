@@ -126,7 +126,7 @@ them elsewhere).
 | Global | `→` / `←` | give the keys to the pane / back to the list; in a float, `←` steps a level out |
 | Global | `esc` | step back: focus, then the pane, then a float, then zoom. Never quits |
 | Global | `v`, `z` | show/hide (or float) the preview; zoom it |
-| Global | `l` | follow a cross-reference via a picker; inside a focused issue detail it expands the pull requests instead |
+| Global | `l` | follow a cross-reference via a picker; inside a focused issue detail the first press expands the pull requests, the next picks one |
 | Global | `ctrl+s`, `ctrl+r`, `!`, `q` | settings, refresh, message log, quit (closes an open pane or float first; `ctrl+c` quits outright) |
 | List | `j`/`k`, `g`/`G`, `ctrl+u`/`ctrl+d`, `pgup`/`pgdn` or `shift+↑↓` | move, top/bottom, half page, jump `list_jump` rows |
 | PRs | `enter`, `y`, `s`/`S` | open, copy URL, cycle sort / reverse |

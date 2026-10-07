@@ -572,10 +572,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.Follow):
 			// Inside a focused detail pane, 'l' expands the related items
-			// there instead of raising the picker over it.
+			// there first; once they are showing it raises the picker over
+			// them. The expansion changes the preview, so sync the key or
+			// the cached render stays folded on screen.
 			if m.paneFocused() {
-				if r, ok := m.views[m.current].(relatedToggler); ok {
-					return m, r.ToggleRelated()
+				if r, ok := m.views[m.current].(relatedToggler); ok && r.ExpandRelated() {
+					m.syncPreviewKey(false)
+					return m, nil
 				}
 			}
 			// Follow a cross-reference: always confirm via the picker (even for
@@ -1227,10 +1230,11 @@ type refFetcher interface {
 }
 
 // relatedToggler is optionally implemented by views whose detail pane has an
-// expandable section of related items (an issue's pull requests), which 'l'
-// toggles while the pane has the keys.
+// expandable section of related items (an issue's pull requests). 'l' with
+// the pane focused expands it; ExpandRelated reports false when it already
+// was, and the key goes on to the picker.
 type relatedToggler interface {
-	ToggleRelated() tea.Cmd
+	ExpandRelated() bool
 }
 
 // followRef jumps to the ref's target if a view can resolve it, otherwise opens

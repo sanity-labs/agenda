@@ -174,9 +174,10 @@ than jumping to the top and leaving you somewhere else entirely.
 fetched in by a view that can (`FetchRef`), so a Linear issue referenced
 from a PR lands in the Linear tab even when its source does not list it.
 The browser is the fallback, marked `↗` in the picker. Inside a focused
-detail pane `l` does not raise a picker over the pane; it expands the
-pane's own related section (an issue's pull requests), which is also
-clickable. A PR's detail names its Linear issue with the jump hint.
+detail pane the first `l` expands the pane's own related section (an
+issue's pull requests, also clickable) and the next raises the picker over
+it, so a float never needs the list. A PR's detail names its Linear
+issues, each behind the 󱖑 glyph, with the jump hint.
 
 ## Panes
 
