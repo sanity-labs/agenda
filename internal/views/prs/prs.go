@@ -3279,7 +3279,11 @@ func (v *View) linearBlock(p pr) string {
 		if v.store != nil {
 			iss, _ = v.store.Issue(id)
 		}
-		line := "  " + ui.IssueStatusIcon(iss.StateType, iss.State) + " " + id
+		line := "  "
+		if icon := ui.IssueStatusIcon(iss.StateType, iss.State); icon != "" {
+			line += icon + " "
+		}
+		line += id
 		if iss.Title != "" {
 			line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
 		}

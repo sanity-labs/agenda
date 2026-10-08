@@ -81,5 +81,5 @@ type ResolveRefsMsg struct {
 // as the PR detail lists them. url (when known) enables "open in browser"
 // from the picker.
 func IssueRef(id, title, url, status string) Ref {
-	return Ref{Kind: "linear", ID: id, Label: status + " " + id, Detail: title, URL: url}
+	return Ref{Kind: "linear", ID: id, Label: strings.TrimSpace(status + " " + id), Detail: title, URL: url}
 }

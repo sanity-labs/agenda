@@ -35,8 +35,8 @@ const (
 
 // IssueStatusIcon is the coloured glyph for a Linear state type (backlog,
 // unstarted, started, completed, canceled, triage); a canceled state named
-// Duplicate gets its own. Unknown, as for an issue nobody has loaded, is
-// the plain issue glyph dimmed, so rows still line up.
+// Duplicate gets its own. Unknown, as for an issue the token cannot read,
+// is nothing: no glyph distracts less than a wrong one.
 func IssueStatusIcon(stateType, stateName string) string {
 	switch stateType {
 	case "backlog":
@@ -55,7 +55,7 @@ func IssueStatusIcon(stateType, stateName string) string {
 	case "triage":
 		return Fg("#f2994a").Render(IconIssueTriage)
 	}
-	return Dim.Render(IconLinearIssue)
+	return ""
 }
 
 // IconSection heads a preview section (Description, Checks, Comments).
@@ -89,7 +89,7 @@ const (
 	IconTabPRs      = "\ueb00"     //  github
 	IconTabSessions = "\uf120"     //  terminal
 	IconTabLinear   = "\uf4a0"     //  linear
-	IconLinearIssue = "\U000f1591" // 󱖑 a Linear issue whose status is unknown
+	IconLinearIssue = "\U000f1591" // 󱖑 a Linear issue
 	IconNavMine     = "\uf007"     //  user
 	IconNavInbox    = "\uf01c"     //  inbox
 	IconNavAll      = "\uf0ca"     //  list

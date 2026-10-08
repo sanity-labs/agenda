@@ -124,8 +124,8 @@ func parseIconLine(line string) (name, icon, comment string, ok bool) {
 // name = "value" // comment
 var iconLineRE = regexp.MustCompile(`^\s*(Icon\w+)\s*=\s*"([^"]*)"\s*(?://\s*(.*))?$`)
 
-// One glyph per Linear state type, a Duplicate of its own, and the plain
-// issue glyph when nothing is known, so rows line up either way.
+// One glyph per Linear state type, a Duplicate of its own, and nothing
+// when the state is unknown.
 func TestIssueStatusIcon(t *testing.T) {
 	cases := []struct {
 		typ, name, want string
@@ -137,7 +137,7 @@ func TestIssueStatusIcon(t *testing.T) {
 		{"canceled", "Canceled", IconIssueCanceled},
 		{"canceled", "Duplicate", IconIssueDuplicate},
 		{"triage", "Triage", IconIssueTriage},
-		{"", "", IconLinearIssue},
+		{"", "", ""},
 	}
 	for _, c := range cases {
 		if got := ansi.Strip(IssueStatusIcon(c.typ, c.name)); got != c.want {
