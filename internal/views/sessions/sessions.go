@@ -733,13 +733,11 @@ func (v *View) Refs() []ui.Ref {
 	for _, mn := range v.list.Selected().Mentions {
 		switch mn.Kind {
 		case "linear":
-			var title, url string
+			var iss store.Issue
 			if v.store != nil {
-				if iss, ok := v.store.Issue(mn.ID); ok {
-					title, url = iss.Title, iss.URL
-				}
+				iss, _ = v.store.Issue(mn.ID)
 			}
-			refs = append(refs, ui.IssueRef(mn.ID, title, url))
+			refs = append(refs, ui.IssueRef(mn.ID, iss.Title, iss.URL, ui.IssueStatusIcon(iss.StateType, iss.State)))
 		case "pr":
 			repo, num, _ := ui.ParsePRURL(mn.ID)
 			var pr store.PR

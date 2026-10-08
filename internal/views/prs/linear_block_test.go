@@ -8,6 +8,7 @@ import (
 
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/store"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 // The summary names the Linear issue a PR references and says how to get
@@ -26,12 +27,12 @@ func TestSummaryNamesTheLinearIssue(t *testing.T) {
 
 	// With the issue known to the store, the row carries its status and title.
 	s := store.New()
-	s.PutIssues([]store.Issue{{Identifier: "SRE-12", Title: "Poll the thing", State: "In Progress", StateColor: "#f2c94c"}})
+	s.PutIssues([]store.Issue{{Identifier: "SRE-12", Title: "Poll the thing", State: "In Progress", StateType: "started"}})
 	v.store = s
 	v.bodyKey = ""
 	text = ansi.Strip(v.PreviewView())
-	if !strings.Contains(text, "SRE-12  In Progress  Poll the thing") {
-		t.Errorf("row lacks the status and title:\n%s", text)
+	if !strings.Contains(text, ui.IconIssueInProgress+" SRE-12  Poll the thing") {
+		t.Errorf("row is not glyph, id, title:\n%s", text)
 	}
 
 	plain := pr{Number: 2, URL: "u2", Title: "Nothing to see", State: "OPEN"}

@@ -2381,13 +2381,11 @@ func (v *View) Refs() []ui.Ref {
 	sel := v.list.Selected()
 	var refs []ui.Ref
 	for _, id := range sel.linearRefs() {
-		var title, url string
+		var iss store.Issue
 		if v.store != nil {
-			if iss, ok := v.store.Issue(id); ok {
-				title, url = iss.Title, iss.URL
-			}
+			iss, _ = v.store.Issue(id)
 		}
-		refs = append(refs, ui.IssueRef(id, title, url))
+		refs = append(refs, ui.IssueRef(id, iss.Title, iss.URL, ui.IssueStatusIcon(iss.StateType, iss.State)))
 	}
 	if v.store != nil && sel.URL != "" {
 		for _, s := range v.store.SessionsMentioning(store.Key("pr", sel.URL)) {
@@ -3248,34 +3246,20 @@ func (v *View) linearBlock(p pr) string {
 	}
 	var b strings.Builder
 	b.WriteString(ui.BlockHeader("Linear"))
+	// Status glyph, id, title: the same row the picker shows.
 	for _, id := range ids {
-		line := "  "
-		line += ui.Glyph(ui.IconLinearIssue, "") // the glyph carries its own space
-		line += ui.Cyan.Render(id)
+		var iss store.Issue
 		if v.store != nil {
-			if iss, ok := v.store.Issue(id); ok {
-				if iss.State != "" {
-					line += "  " + issueStateStyle(iss.StateColor).Render(iss.State)
-				}
-				if iss.Title != "" {
-					line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
-				}
-			}
+			iss, _ = v.store.Issue(id)
+		}
+		line := "  " + ui.IssueStatusIcon(iss.StateType, iss.State) + " " + id
+		if iss.Title != "" {
+			line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
 		}
 		b.WriteString("\n" + line)
 	}
 	b.WriteString("\n" + ui.Faint.Render("  l to jump to ticket"))
 	return b.String()
-}
-
-// issueStateStyle paints a Linear state in the colour Linear gives it,
-// as the Linear view does; dim when the colour is unknown.
-func issueStateStyle(hex string) lipgloss.Style {
-	hex = strings.TrimPrefix(hex, "#")
-	if len(hex) != 6 {
-		return ui.Dim
-	}
-	return ui.Fg("#" + hex)
 }
 
 // reviewers are the pending review requests as mentions: @login for a

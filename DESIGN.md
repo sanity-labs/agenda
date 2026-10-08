@@ -175,8 +175,8 @@ fetched in by a view that can (`FetchRef`), so a Linear issue referenced
 from a PR lands in the Linear tab even when its source does not list it.
 The browser is the fallback, marked `↗` in the picker. An issue's detail
 lists its pull requests open, one per line with their status glyphs, and
-a PR's detail names its Linear issues behind the 󱖑 glyph; `l` from either
-raises the picker.
+a PR's detail names its Linear issues as `status glyph · id · title`, the
+row the picker shows too; `l` from either raises the picker.
 
 ## Panes
 

@@ -689,6 +689,7 @@ func (v *View) publish(issues []issue) {
 			Identifier: i.Identifier,
 			Title:      i.Title,
 			State:      i.State.Name,
+			StateType:  i.State.Type,
 			StateColor: i.State.Color,
 			URL:        i.URL,
 		})

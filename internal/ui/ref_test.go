@@ -39,13 +39,13 @@ func TestPRIconsUnknownIsEmpty(t *testing.T) {
 }
 
 func TestIssueRef(t *testing.T) {
-	r := IssueRef("SRE-1", "Do a thing", "https://linear.app/x/issue/SRE-1")
+	r := IssueRef("SRE-1", "Do a thing", "https://linear.app/x/issue/SRE-1", IssueStatusIcon("started", "In Progress"))
 	if r.Kind != "linear" || r.ID != "SRE-1" {
 		t.Fatalf("ref identity = %+v", r)
 	}
-	// The Linear glyph stands in for the word; the id follows it.
-	if !strings.HasSuffix(r.Label, "  SRE-1") || !strings.Contains(r.Label, IconLinearIssue) {
-		t.Errorf("Label = %q, want the Linear glyph then the id", r.Label)
+	// The status glyph, then the id, as the PR detail lists it.
+	if !strings.HasSuffix(r.Label, " SRE-1") || !strings.Contains(r.Label, IconIssueInProgress) {
+		t.Errorf("Label = %q, want the status glyph then the id", r.Label)
 	}
 	if r.Detail != "Do a thing" {
 		t.Errorf("Detail = %q, want the title", r.Detail)
