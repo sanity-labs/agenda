@@ -25,7 +25,7 @@ func mdStyle() glamouransi.StyleConfig {
 
 	// Headings: nerd-font level icons instead of ## prefixes (when the
 	// glyphs toggle allows them); H1 gets an accent band either way.
-	s.Heading.StylePrimitive.Color = new(p.Accent)
+	s.Heading.Color = new(p.Accent)
 	s.H1.StylePrimitive = glamouransi.StylePrimitive{
 		Prefix: " ", Suffix: " ",
 		Color:           new("0"),
@@ -33,19 +33,19 @@ func mdStyle() glamouransi.StyleConfig {
 		Bold:            new(true),
 	}
 	if glyphsOn {
-		s.H1.StylePrimitive.Prefix = " 󰲡 "
-		s.H2.StylePrimitive.Prefix = "󰲣 "
-		s.H3.StylePrimitive.Prefix = "󰲥 "
-		s.H4.StylePrimitive.Prefix = "󰲧 "
-		s.H5.StylePrimitive.Prefix = "󰲩 "
+		s.H1.Prefix = " 󰲡 "
+		s.H2.Prefix = "󰲣 "
+		s.H3.Prefix = "󰲥 "
+		s.H4.Prefix = "󰲧 "
+		s.H5.Prefix = "󰲩 "
 		s.H6.StylePrimitive = glamouransi.StylePrimitive{Prefix: "󰲫 ", Color: new(p.Dim)}
 	} else {
-		s.H6.StylePrimitive.Color = new(p.Dim)
+		s.H6.Color = new(p.Dim)
 	}
 
 	// Blockquote: a bar gutter with dimmed italic text.
-	s.BlockQuote.StylePrimitive.Color = new(p.Dim)
-	s.BlockQuote.StylePrimitive.Italic = new(true)
+	s.BlockQuote.Color = new(p.Dim)
+	s.BlockQuote.Italic = new(true)
 	s.BlockQuote.IndentToken = new("▐ ")
 
 	if glyphsOn {
@@ -58,8 +58,8 @@ func mdStyle() glamouransi.StyleConfig {
 
 	// Inline code: yellow reads clearly on the subtle border-grey in every
 	// built-in palette, unlike the stock red.
-	s.Code.StylePrimitive.Color = new(p.Yellow)
-	s.Code.StylePrimitive.BackgroundColor = new(p.Border)
+	s.Code.Color = new(p.Yellow)
+	s.Code.BackgroundColor = new(p.Border)
 
 	s.HorizontalRule = glamouransi.StylePrimitive{
 		Color:  new(p.Border),

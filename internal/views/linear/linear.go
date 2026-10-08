@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -184,6 +183,15 @@ func (i issue) Filter() string {
 	return fmt.Sprintf("%s %s %s %s", i.Identifier, i.State.Name, i.Project.Name, i.Title)
 }
 
+// Key is the row's identity across refreshes: the identifier, which a
+// status or project change does not touch.
+func (i issue) Key() string {
+	if i.Separator != "" {
+		return "\x00sep:" + i.Separator
+	}
+	return i.Identifier
+}
+
 func (i issue) Fields() []ui.Field {
 	if i.Separator != "" {
 		return nil
@@ -276,8 +284,9 @@ func (i issue) Render(width int, selected bool, hl ui.Highlighter) string {
 	// grouping's lane header already announces.
 	plain, styled := "", ""
 	if !i.HideStatus {
-		plain = i.State.Name + "  "
-		styled = hexStyle(i.State.Color).Render(i.State.Name) + "  "
+		icon := ui.IssueStatusIcon(i.State.Type, i.State.Name)
+		plain = ansi.Strip(icon) + " " + i.State.Name + "  "
+		styled = icon + " " + hexStyle(i.State.Color).Render(i.State.Name) + "  "
 	}
 	plain += i.Identifier
 	styled += ui.Cyan.Render(i.Identifier)
@@ -473,6 +482,23 @@ func groupLabelFn(mode sortMode) func(issue) string {
 type loadedMsg struct {
 	issues []issue
 	source navSource
+	// after is the cursor this page was fetched from ("" for the first),
+	// cursor and hasMore say whether and where the next one starts.
+	after, cursor string
+	hasMore       bool
+}
+
+// pageState is where the list's paging stands for the current source:
+// Linear connections carry no total, so "more" is all that is known.
+type pageState struct {
+	cursor  string
+	hasMore bool
+	loading bool
+}
+
+type pageInfo struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
 }
 
 type errMsg struct{ err error }
@@ -480,14 +506,17 @@ type errMsg struct{ err error }
 // --- view -------------------------------------------------------------------
 
 type View struct {
-	cfg      config.LinearConfig
-	token    string
-	list     ui.List[issue]
-	raw      []issue
-	sort     sortMode
-	rev      bool // sort order reversed
-	grouping bool // swimlanes derived from the active sort
-	store    *store.Store
+	cfg   config.LinearConfig
+	token string
+	// resolving is the ids fetched for another view's references, so each
+	// is asked of Linear once.
+	resolving map[string]bool
+	list      ui.List[issue]
+	raw       []issue
+	sort      sortMode
+	rev       bool // sort order reversed
+	grouping  bool // swimlanes derived from the active sort
+	store     *store.Store
 
 	// Navigation tree state (ctrl+p). source drives what fetch() queries;
 	// defaultSource is the config-derived one whose results are cached.
@@ -504,7 +533,9 @@ type View struct {
 	navErr        error
 	source        navSource
 	defaultSource navSource
-	lastLoaded    navSource
+	// page is the paging state of the list on screen; a new source resets it.
+	page       pageState
+	lastLoaded navSource
 	// projectMine narrows a project source to your own issues ('m'). It is
 	// meaningless for My Issues (already yours) and All Issues (the point
 	// is everyone's), so it only applies to project sources.
@@ -650,6 +681,18 @@ func (v *View) saveFresh() { _ = cache.Save(freshCacheName, v.freshIDs()) }
 
 func (v *View) Title() string { return "Linear" }
 
+// record is the issue as the shared store carries it.
+func (i issue) record() store.Issue {
+	return store.Issue{
+		Identifier: i.Identifier,
+		Title:      i.Title,
+		State:      i.State.Name,
+		StateType:  i.State.Type,
+		StateColor: i.State.Color,
+		URL:        i.URL,
+	}
+}
+
 // publish pushes the loaded issues into the shared store so other views (PRs,
 // sessions) can show an issue's title when they reference it by identifier.
 func (v *View) publish(issues []issue) {
@@ -658,12 +701,7 @@ func (v *View) publish(issues []issue) {
 	}
 	recs := make([]store.Issue, 0, len(issues))
 	for _, i := range issues {
-		recs = append(recs, store.Issue{
-			Identifier: i.Identifier,
-			Title:      i.Title,
-			State:      i.State.Name,
-			URL:        i.URL,
-		})
+		recs = append(recs, i.record())
 	}
 	v.store.PutIssues(recs)
 }
@@ -681,7 +719,9 @@ func (v *View) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (v *View) Loading() bool { return v.loading }
+// Loading includes a page in flight, so the tab's spinner runs while more
+// issues are on their way rather than the list silently stalling.
+func (v *View) Loading() bool { return v.loading || v.page.loading }
 
 const issueFields = `
         identifier title url priority priorityLabel branchName updatedAt description
@@ -695,19 +735,21 @@ const issueFields = `
 
 // assignedQuery fetches your assigned issues (the default scope); allQuery
 // fetches every issue the token can see, for filter.scope: all.
-const assignedQuery = `query($first: Int!, $filter: IssueFilter) {
+const assignedQuery = `query($first: Int!, $after: String, $filter: IssueFilter) {
   viewer {
-    assignedIssues(first: $first, filter: $filter) {
+    assignedIssues(first: $first, after: $after, filter: $filter) {
       nodes {` + issueFields + `
       }
+      pageInfo { hasNextPage endCursor }
     }
   }
 }`
 
-const allQuery = `query($first: Int!, $filter: IssueFilter) {
-  issues(first: $first, filter: $filter, orderBy: updatedAt) {
+const allQuery = `query($first: Int!, $after: String, $filter: IssueFilter) {
+  issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {
     nodes {` + issueFields + `
     }
+    pageInfo { hasNextPage endCursor }
   }
 }`
 
@@ -786,7 +828,22 @@ func buildFilter(f config.LinearFilter) map[string]any {
 	return filter
 }
 
+// fetch loads the first page of the current source; fetchMore the next.
 func (v *View) fetch() tea.Cmd {
+	v.page = pageState{}
+	return v.fetchFrom("")
+}
+
+// fetchMore loads the page after the one on screen, once, when there is one.
+func (v *View) fetchMore() tea.Cmd {
+	if !v.page.hasMore || v.page.loading {
+		return nil
+	}
+	v.page.loading = true
+	return v.fetchFrom(v.page.cursor)
+}
+
+func (v *View) fetchFrom(after string) tea.Cmd {
 	token := v.token
 	first := v.cfg.Filter.Limit
 	if first <= 0 {
@@ -815,6 +872,9 @@ func (v *View) fetch() tea.Cmd {
 	default:
 		vars = map[string]any{"first": first, "filter": filter}
 	}
+	if vars != nil && after != "" {
+		vars["after"] = after
+	}
 	return func() tea.Msg {
 		payload := map[string]any{"query": query}
 		if vars != nil {
@@ -841,11 +901,13 @@ func (v *View) fetch() tea.Cmd {
 			Data struct {
 				Viewer struct {
 					AssignedIssues struct {
-						Nodes []issue `json:"nodes"`
+						Nodes    []issue  `json:"nodes"`
+						PageInfo pageInfo `json:"pageInfo"`
 					} `json:"assignedIssues"`
 				} `json:"viewer"`
 				Issues struct {
-					Nodes []issue `json:"nodes"`
+					Nodes    []issue  `json:"nodes"`
+					PageInfo pageInfo `json:"pageInfo"`
 				} `json:"issues"`
 				Notifications struct {
 					Nodes []struct {
@@ -870,9 +932,9 @@ func (v *View) fetch() tea.Cmd {
 			return errMsg{fmt.Errorf("linear: %s", out.Errors[0].Message)}
 		}
 
-		nodes := out.Data.Viewer.AssignedIssues.Nodes
+		nodes, pi := out.Data.Viewer.AssignedIssues.Nodes, out.Data.Viewer.AssignedIssues.PageInfo
 		if len(out.Data.Issues.Nodes) > 0 {
-			nodes = out.Data.Issues.Nodes
+			nodes, pi = out.Data.Issues.Nodes, out.Data.Issues.PageInfo
 		}
 		if src.Kind == "inbox" {
 			// One row per issue, keeping its latest event (the API returns
@@ -893,8 +955,44 @@ func (v *View) fetch() tea.Cmd {
 				nodes = append(nodes, it)
 			}
 		}
-		return loadedMsg{issues: nodes, source: src}
+		if src.Kind == "inbox" {
+			pi = pageInfo{} // the inbox is one query, not paged
+		}
+		return loadedMsg{issues: nodes, source: src, after: after, cursor: pi.EndCursor, hasMore: pi.HasNextPage}
 	}
+}
+
+// departed says why the issue you were on is gone after a refresh of the
+// same source, so the cursor landing elsewhere does not pass for the same
+// issue: its new state when the refresh still carried it, otherwise that
+// the source no longer lists it.
+func (v *View) departed(before issue, next []issue) tea.Cmd {
+	if before.Identifier == "" || v.list.Any(matchID(before.Identifier)) {
+		return nil
+	}
+	why := "no longer in this source"
+	for _, i := range next {
+		if i.Identifier == before.Identifier && i.State.Name != "" {
+			why = "now " + i.State.Name
+		}
+	}
+	body := before.Identifier + ": " + why
+	return func() tea.Msg { return ui.ToastMsg{Title: "Left the list", Body: body} }
+}
+
+// appendIssues adds a later page, skipping issues already on screen: an
+// issue updated between two page fetches can appear in both.
+func appendIssues(have, more []issue) []issue {
+	seen := make(map[string]bool, len(have))
+	for _, i := range have {
+		seen[i.Identifier] = true
+	}
+	for _, i := range more {
+		if !seen[i.Identifier] {
+			have = append(have, i)
+		}
+	}
+	return have
 }
 
 func (v *View) Update(msg tea.Msg) tea.Cmd {
@@ -902,21 +1000,88 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case loadedMsg:
 		v.loading = false
 		v.err = nil
+		if msg.after != "" {
+			// A later page: append to what is on screen, unless the source
+			// changed while it was in flight.
+			v.page.loading = false
+			if msg.source != v.lastLoaded {
+				return nil
+			}
+			v.raw = appendIssues(v.raw, msg.issues)
+			v.page.cursor, v.page.hasMore = msg.cursor, msg.hasMore
+			v.applySort()
+			v.publish(v.raw)
+			if msg.source == v.defaultSource {
+				_ = cache.Save(cacheName, v.raw)
+			}
+			return nil
+		}
+		v.page = pageState{cursor: msg.cursor, hasMore: msg.hasMore}
+		before := v.list.Selected()
 		var cmd tea.Cmd
 		if msg.source == v.lastLoaded {
 			v.markFresh(v.raw, msg.issues)
 			cmd = v.notifyNew(v.raw, msg.issues)
 		}
+		sameSource := msg.source == v.lastLoaded
 		v.lastLoaded = msg.source
 		v.raw = msg.issues
 		v.seeded = true
 		v.applySort()
 		v.publish(msg.issues)
+		if sameSource {
+			cmd = tea.Batch(cmd, v.departed(before, msg.issues))
+		}
 		if msg.source == v.defaultSource {
 			_ = cache.Save(cacheName, msg.issues)
 			v.saveFresh()
 		}
 		return cmd
+	case ui.ResolveRefsMsg:
+		// Another view names tickets this list does not hold: fetch each
+		// once and publish it, so its status shows there.
+		if msg.Kind != "linear" || v.token == "" {
+			return nil
+		}
+		var cmds []tea.Cmd
+		for _, id := range msg.IDs {
+			if v.list.Any(matchID(id)) || v.resolving[id] {
+				continue
+			}
+			if v.resolving == nil {
+				v.resolving = map[string]bool{}
+			}
+			v.resolving[id] = true
+			cmds = append(cmds, v.fetchIssue(id, func(i issue, err error) tea.Msg {
+				return issueResolvedMsg{id: id, issue: i, err: err}
+			}))
+		}
+		return tea.Batch(cmds...)
+	case issueResolvedMsg:
+		// A ticket that cannot be fetched keeps its placeholder; say why in
+		// the log, since a token without the team reads as "not found".
+		if msg.err != nil || msg.issue.Identifier == "" {
+			why := "not found, or the token has no access to its team"
+			if msg.err != nil {
+				why = msg.err.Error()
+			}
+			return func() tea.Msg {
+				return ui.Status(ui.SeverityWarn, "Linear", "could not resolve "+msg.id, why)
+			}
+		}
+		v.publish([]issue{msg.issue})
+		return nil
+	case issueFetchedMsg:
+		if msg.err != nil || msg.issue.Identifier == "" {
+			// Could not bring it in: the browser is still a way to see it.
+			return ui.OpenURL(msg.url)
+		}
+		if !v.list.Any(matchID(msg.issue.Identifier)) {
+			v.raw = append(v.raw, msg.issue)
+			v.applySort()
+		}
+		v.list.Select(matchID(msg.issue.Identifier))
+		return nil
 	case favsMsg:
 		v.navErr = msg.err
 		v.favs = msg.projects
@@ -929,6 +1094,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case errMsg:
+		if v.page.loading {
+			// A later page failed: keep what is on screen rather than
+			// replacing a full list with an error.
+			v.page.loading = false
+			return nil
+		}
 		v.loading = false
 		v.err = msg.err
 		return nil
@@ -1020,6 +1191,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		before := v.list.Selected().Identifier
 		if consumed, cmd := v.list.Update(msg); consumed {
+			// Reaching the end is the signal to load the next page, so the
+			// first paint stays one fast request.
+			var more tea.Cmd
+			if v.list.AtEnd() {
+				more = v.fetchMore()
+			}
 			// Selection may have moved with the comments section showing:
 			// fetch the newly-selected issue's comments if uncached, and
 			// restart the 'c' jump cycle.
@@ -1033,9 +1210,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				if v.previewShown {
 					v.clearFreshFor(before)
 				}
-				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview)
+				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview, more)
 			}
-			return tea.Batch(cmd, v.maybeFetchComments())
+			return tea.Batch(cmd, v.maybeFetchComments(), more)
 		}
 		if v.list.Filtering() {
 			return nil
@@ -1046,9 +1223,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Open):
 			return ui.OpenURL(v.list.Selected().URL)
 		case key.Matches(msg, v.keys.Copy):
-			return copyCmd(v.list.Selected().URL)
+			return ui.CopyCmd(v.list.Selected().URL, "URL")
 		case key.Matches(msg, v.keys.Branch):
-			return copyCmd(v.list.Selected().BranchName)
+			return ui.CopyCmd(v.list.Selected().BranchName, "branch")
 		case key.Matches(msg, v.keys.Mine):
 			// Contextual: only a project source distinguishes "mine" from
 			// "everyone's"; the fixed sources already imply it.
@@ -1221,11 +1398,15 @@ func (v *View) Activate() tea.Cmd { return ui.OpenURL(v.list.Selected().URL) }
 // fetch the new issue's comments if that section is showing, restart the 'c'
 // jump cycle, and end a transient preview reveal.
 func (v *View) mouseMoved(before string) tea.Cmd {
+	var more tea.Cmd
+	if v.list.AtEnd() {
+		more = v.fetchMore()
+	}
 	if v.list.Selected().Identifier == before {
-		return nil
+		return more
 	}
 	v.resetToggles()
-	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview)
+	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview, more)
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
@@ -1286,8 +1467,17 @@ func (v *View) statusText() string {
 		if v.source.Kind == "project" && v.projectMine {
 			src += " (mine)"
 		}
-		return fmt.Sprintf("%d issues · %s · sort: %s%s",
-			len(v.raw), src, sortName[v.sort], ui.RevMarker(v.rev))
+		count := fmt.Sprintf("%d issues", len(v.raw))
+		switch {
+		case v.page.loading:
+			count = fmt.Sprintf("%d loaded · fetching more…", len(v.raw))
+		case v.page.hasMore:
+			// Linear connections carry no total, so "more below" is all
+			// there is to say until the last page is in.
+			count = fmt.Sprintf("%d loaded · more below", len(v.raw))
+		}
+		return fmt.Sprintf("%s · %s · sort: %s%s",
+			count, src, sortName[v.sort], ui.RevMarker(v.rev))
 	}
 }
 
@@ -1310,7 +1500,7 @@ func (v *View) PreviewView() string {
 	b.WriteString(ui.Bold.Width(v.prevW).Render(i.Title))
 	b.WriteString("\n\n")
 
-	statusLine := hexStyle(i.State.Color).Render(i.State.Name)
+	statusLine := ui.IssueStatusIcon(i.State.Type, i.State.Name) + " " + hexStyle(i.State.Color).Render(i.State.Name)
 	if i.PriorityLabel != "" && i.Priority != 0 {
 		statusLine += "   " + i.priorityCell() + " " + i.PriorityLabel
 	}
@@ -1333,6 +1523,10 @@ func (v *View) PreviewView() string {
 	b.WriteByte('\n')
 	b.WriteString(v.renderedBody(i))
 	b.WriteString("\n\n")
+	b.WriteString(ui.BlockHeader("Pull requests"))
+	b.WriteByte('\n')
+	b.WriteString(v.renderPRs(i))
+	b.WriteString("\n\n")
 	// Record where the section starts so the 'c' jump can target it.
 	v.commentsLine = strings.Count(b.String(), "\n") + 1
 	b.WriteString(ui.BlockHeader("Comments"))
@@ -1347,6 +1541,124 @@ func (v *View) PreviewView() string {
 
 // commentsMarker is the phrase the clickable comments hint ends with.
 const commentsMarker = "to toggle comments"
+
+// renderPRs is the detail's pull-request section: the PRs Linear has
+// attached to the issue, one per line with the PRs view's live status
+// glyphs where it has them; 'l' raises the picker to jump to one.
+func (v *View) renderPRs(i issue) string {
+	type row struct {
+		pr               store.PR
+		repo, title, url string
+		num              int
+	}
+	var rows []row
+	seen := map[string]bool{}
+	for _, a := range i.Attachments.Nodes {
+		repo, num, ok := ui.ParsePRURL(a.URL)
+		if a.SourceType != "github" || !ok || seen[a.URL] {
+			continue
+		}
+		seen[a.URL] = true
+		pr := a.toPR()
+		if v.store != nil {
+			if sp, ok := v.store.PR(a.URL); ok {
+				pr = sp
+			}
+		}
+		title := pr.Title
+		if title == "" {
+			title = a.Title
+		}
+		rows = append(rows, row{pr: pr, repo: repo, num: num, title: title, url: a.URL})
+	}
+	if len(rows) == 0 {
+		return ui.Faint.Render("  none")
+	}
+	var b strings.Builder
+	for n, r := range rows {
+		if n > 0 {
+			b.WriteByte('\n')
+		}
+		line := "  "
+		if icons := ui.PRIcons(r.pr); icons != "" {
+			line += icons + "  "
+		}
+		line += ui.Cyan.Render(fmt.Sprintf("%s#%d", r.repo, r.num))
+		if r.title != "" {
+			line += "  " + ui.Truncate(r.title, max(10, v.prevW-lipgloss.Width(line)-2))
+		}
+		b.WriteString(line)
+	}
+	b.WriteString("\n" + ui.Faint.Render("  l to jump to one"))
+	return b.String()
+}
+
+// issueFetchedMsg carries one issue fetched by identifier for a reference
+// that was not loaded, or the failure to.
+type issueFetchedMsg struct {
+	id, url string
+	issue   issue
+	err     error
+}
+
+const issueQuery = `query($id: String!) {
+  issue(id: $id) {` + issueFields + `
+  }
+}`
+
+// FetchRef brings an issue that is not in the list in by identifier, so a
+// reference followed from another view lands here rather than in a browser.
+// Appended rather than filtered in: it may not match the current source,
+// and the next refresh of that source will drop it again.
+func (v *View) FetchRef(id, url string) tea.Cmd {
+	return v.fetchIssue(id, func(i issue, err error) tea.Msg {
+		return issueFetchedMsg{id: id, url: url, issue: i, err: err}
+	})
+}
+
+// issueResolvedMsg carries an issue fetched for another view's reference,
+// to publish rather than to show.
+type issueResolvedMsg struct {
+	id    string
+	issue issue
+	err   error
+}
+
+// fetchIssue loads one issue by identifier and hands it to done.
+func (v *View) fetchIssue(id string, done func(issue, error) tea.Msg) tea.Cmd {
+	token := v.token
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]any{"query": issueQuery, "variables": map[string]any{"id": id}})
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return done(issue{}, err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return done(issue{}, err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Data struct {
+				Issue issue `json:"issue"`
+			} `json:"data"`
+			Errors []struct {
+				Message string `json:"message"`
+			} `json:"errors"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return done(issue{}, err)
+		}
+		if len(out.Errors) > 0 {
+			return done(issue{}, fmt.Errorf("linear: %s", out.Errors[0].Message))
+		}
+		return done(out.Data.Issue, nil)
+	}
+}
 
 // commentsHint closes the summary with whether there is a conversation to
 // read, and which key opens it.
@@ -1493,7 +1805,8 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 	if line < 0 || line >= len(lines) {
 		return nil
 	}
-	if strings.Contains(ansi.Strip(lines[line]), commentsMarker) {
+	text := ansi.Strip(lines[line])
+	if strings.Contains(text, commentsMarker) {
 		return v.toggleComments()
 	}
 	return nil
@@ -1604,16 +1917,4 @@ func labelPills(labels []label) string {
 		pills = append(pills, hexStyle(l.Color).Render("● ")+l.Name)
 	}
 	return strings.Join(pills, "  ")
-}
-
-func copyCmd(s string) tea.Cmd {
-	if s == "" {
-		return nil
-	}
-	return func() tea.Msg {
-		c := exec.Command("pbcopy")
-		c.Stdin = strings.NewReader(s)
-		_ = c.Run()
-		return nil
-	}
 }

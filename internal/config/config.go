@@ -168,12 +168,16 @@ type GitHubConfig struct {
 	// ReviewFilter is the search query for the "needs your review" section.
 	ReviewFilter string `yaml:"review_filter"`
 	// ShowReviewRequested shows the review-requested section on startup.
-	// Off by default, matching the original single-search view; 'w'
-	// toggles it in-app regardless.
+	// On by default: a toggle nobody knows about is a section nobody finds.
+	// 'w' hides it in-app regardless.
 	ShowReviewRequested *bool `yaml:"show_review_requested"`
 	// DiffPane renders diffs in the preview pane on 'd'. Off by default:
 	// 'd' then pages the diff through less, the original behavior.
 	DiffPane bool `yaml:"diff_pane"`
+	// ReviewView is what the review popup ('r') opens beside it when
+	// DiffPane is on: "files" (default), the file list with its reviewed
+	// marks, or "unified", the flat diff.
+	ReviewView string `yaml:"review_view"`
 	// LazyPaging fetches PRs a page at a time, loading the next page when the
 	// cursor reaches the end of the list. On by default: one page of 100 rows
 	// of these fields measured 8-10s against a large review-requested search
@@ -201,6 +205,10 @@ type GitHubConfig struct {
 	// is no reason to stop looking. Off by default, and merged PRs are the
 	// search filter's business (is:open), not this toggle's.
 	HideApproved bool `yaml:"hide_approved"`
+	// HideDrafts leaves draft PRs out of both sections: a draft is its
+	// author's business until it is marked ready. Off by default; 'D'
+	// toggles it in-app.
+	HideDrafts bool `yaml:"hide_drafts"`
 	// HideDependencyBots leaves Renovate and Dependabot PRs out of the
 	// review-requested search. Off by default: some teams do review them.
 	HideDependencyBots bool `yaml:"hide_dependency_bots"`
@@ -311,7 +319,7 @@ type LinearFilter struct {
 	Teams            []string `yaml:"teams"`    // team keys, e.g. [SRE]
 	Projects         []string `yaml:"projects"` // project names
 	States           []string `yaml:"states"`   // workflow state names, e.g. [In Progress]
-	Limit            int      `yaml:"limit"`    // max issues fetched (default 100, max 250)
+	Limit            int      `yaml:"limit"`    // issues per page (default 100, max 250); the next loads at the end of the list
 }
 
 // UnmarshalYAML tolerates the historical form of this key, a raw GraphQL
@@ -517,10 +525,22 @@ func (c Config) RefreshFor(view string) time.Duration {
 }
 
 // ShowReviewRequested reports whether the PRs view starts with the
-// review-requested section visible (default false, the original layout).
-func (c Config) ShowReviewRequested() bool {
-	f := c.GitHub.ShowReviewRequested
-	return f != nil && *f
+// review-requested section visible (default true).
+func (c Config) ShowReviewRequested() bool { return c.GitHub.ShowReviewRequestedOn() }
+
+// ShowReviewRequestedOn is ShowReviewRequested resolved on the view's own
+// config, default true.
+func (g GitHubConfig) ShowReviewRequestedOn() bool {
+	return g.ShowReviewRequested == nil || *g.ShowReviewRequested
+}
+
+// ResolvedReviewView is what the review popup opens: "unified" when asked,
+// "files" otherwise, an unknown value included.
+func (g GitHubConfig) ResolvedReviewView() string {
+	if g.ReviewView == "unified" {
+		return "unified"
+	}
+	return "files"
 }
 
 // --- yaml scalar types --------------------------------------------------------

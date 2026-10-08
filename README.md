@@ -1,6 +1,8 @@
 # agenda
 
 [![CI](https://github.com/sanity-labs/agenda/actions/workflows/ci.yml/badge.svg)](https://github.com/sanity-labs/agenda/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sanity-labs/agenda)](https://github.com/sanity-labs/agenda/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A terminal dashboard for the things you keep checking, in one TUI you tab
 between:
@@ -18,6 +20,10 @@ refreshes behind you.
 
 You need a **Nerd Font** in the terminal, the **`gh` CLI** logged in for the
 PRs view, and a Linear API key for the Linear view.
+
+**Contents**: [Install](#install) · [Configuration](#configuration) ·
+[Keys](#keys) · [Views](#views) · [Cross-references](#cross-references) ·
+[Releasing](#releasing) · [Credit](#credit) · [License](#license)
 
 ## Install
 
@@ -40,9 +46,10 @@ agenda completion bash > /usr/local/etc/bash_completion.d/agenda
 agenda completion fish > ~/.config/fish/completions/agenda.fish
 ```
 
-To hack on it: `go run .` (the commands live in `cli.go`, so not `main.go`)
-and `go test ./...`. [AGENTS.md](AGENTS.md) and [DESIGN.md](DESIGN.md) hold
-the conventions and the interaction rules.
+To hack on it: `make help` lists the targets; `make run`, `make test`, and
+`make check` (formatting, vet, tests: what CI runs). `go run .` works too
+(the commands live in `cli.go`, so not `main.go`). [AGENTS.md](AGENTS.md)
+and [DESIGN.md](DESIGN.md) hold the conventions and the interaction rules.
 
 ## Configuration
 
@@ -60,8 +67,8 @@ linear:
   token: lin_api_xxx     # linear.app → Settings → Security & access → API keys
 ```
 
-To work through review requests rather than your own PRs, either press `w`
-on the PRs tab or give them a tab of their own by enabling the `reviews`
+Review requests show as a section under your own PRs (`w` hides it). To
+work through them on their own, give them a tab by enabling the `reviews`
 view. The order of `views` is the tab order, so the first one is what
 agenda opens on:
 
@@ -86,6 +93,8 @@ own PRs only and `w` says so.
 |---|---|
 | `hide_preview` | start with the list full width; `v` floats one row's detail |
 | `github.diff_pane` | `d` shows the diff in the pane as a file list instead of paging it through `less` |
+| `github.review_view` | what `r` opens beside the review popup: `files` (default) or `unified` |
+| `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `unread`, `unread_sync` | blue dot on rows that arrived since you last looked (on); keep it in step with GitHub notifications |
 | `notifications.popup` | `terminal` toast or `desktop` notification on new review requests and assignments; `click` opens the item (macOS needs `terminal-notifier`) |
@@ -113,21 +122,21 @@ them elsewhere).
 | Scope | Key | Action |
 |---|---|---|
 | Global | `tab` / `shift+tab`, `1`…`9` | switch view |
-| Global | `/`, `f` | filter the loaded rows (fuzzy and GitHub-style terms like `-label:x is:draft`); field-scoped filter popup |
+| Global | `/`, `f` | filter the loaded rows (fuzzy on word starts, plus GitHub-style terms like `-label:x is:draft`); field-scoped filter popup. `esc` clears it |
 | Global | `→` / `←` | give the keys to the pane / back to the list; in a float, `←` steps a level out |
 | Global | `esc` | step back: focus, then the pane, then a float, then zoom. Never quits |
 | Global | `v`, `z` | show/hide (or float) the preview; zoom it |
-| Global | `l` | follow a cross-reference (always via a picker) |
-| Global | `ctrl+s`, `ctrl+r`, `!`, `q` | settings, refresh, message log, quit |
+| Global | `l` | follow a cross-reference via a picker |
+| Global | `ctrl+s`, `ctrl+r`, `!`, `q` | settings, refresh, message log, quit (closes an open pane or float first; `ctrl+c` quits outright) |
 | List | `j`/`k`, `g`/`G`, `ctrl+u`/`ctrl+d`, `pgup`/`pgdn` or `shift+↑↓` | move, top/bottom, half page, jump `list_jump` rows |
 | PRs | `enter`, `y`, `s`/`S` | open, copy URL, cycle sort / reverse |
 | PRs | `d`, `c`, `t`, `e` | diff (file list), comments, CI jobs, expand description |
 | PRs | `r` | review popup: approve, comment, request changes, view diff; `m`/`M` merge with `github.merge` |
 | PRs | `R`, `X`, `C`, `]`/`[` | reply to thread, resolve thread, new comment, next/previous thread |
-| PRs | `w`, `F` | toggle the review section; edit the section's GitHub search |
+| PRs | `w`, `D`, `F` | toggle the review section; hide drafts; edit the section's GitHub search |
 | File list | `↑`/`↓`, `+`/`→`, `-`/`←`, `space` | next file when on screen (else scroll a line), expand, collapse, mark reviewed and advance; jump keys scroll |
 | Jobs pane | `enter`, `→`/`←`, `]`/`[`, `o`, `p`, `y`, `x` | open a job or a step's log, in/out of a job, next/previous failure, browser, `less`, copy URL, rerun |
-| Sessions | `enter`, `s`/`S` | resume in its directory, sort |
+| Sessions | `enter`, `y`, `s`/`S` | resume in its directory, copy the transcript path, sort |
 | Linear | `enter`, `y`, `b`, `s`/`S` | open, copy URL, copy branch, sort |
 | Linear | `ctrl+p`, `c`, `m` | project tree (show and focus; again hides), comments, only-mine in a project |
 
@@ -165,7 +174,10 @@ deletes transcripts after 30 days unless `~/.claude/settings.json` says
 otherwise (`{ "cleanupPeriodDays": 3650 }`); it only stops future sweeps.
 
 **Linear** shows your assigned issues by default; the tree (`ctrl+p`) adds
-Inbox, All Issues and pinned projects. Rows carry priority, state,
+Inbox, All Issues and pinned projects. Lists load a page at a time
+(`linear.filter.limit`, 100) and the next as you reach the end; Linear
+gives no total, so the status line reads `100 loaded · more below` until the
+last page is in, and `fetching more…` with the tab spinner while a page is on its way. Rows carry priority, state,
 `id · project · assignee`, comment count and labels. Sorts: date, status
 (in progress, todo, triage, backlog), project, priority.
 
@@ -204,22 +216,6 @@ is PRs plus sessions plus Linear in one switcher.
 Built with [Bubble Tea v2](https://github.com/charmbracelet/bubbletea),
 [Lip Gloss](https://github.com/charmbracelet/lipgloss) and
 [Glamour](https://github.com/charmbracelet/glamour).
-
-## Project layout
-
-```
-main.go, cli.go         config, wiring, the CLI commands
-internal/
-  config/               XDG config, keymap, settings persistence
-  cache/                on-disk JSON cache
-  store/                shared metadata the views publish and read
-  ui/                   list, rows, pills, picker, scrollbar, glyphs, refs
-  tui/                  root model: tabs, layout, key routing, settings overlay
-  views/prs|sessions|linear
-```
-
-`tui` never imports a view; `main` wires them in. A view is anything
-implementing `tui.View`.
 
 ## License
 

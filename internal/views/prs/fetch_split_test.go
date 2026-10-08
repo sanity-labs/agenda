@@ -53,14 +53,15 @@ func TestMineAndReviewDeliverIndependently(t *testing.T) {
 	}
 }
 
-func TestShowReviewDefaultsOff(t *testing.T) {
+// On by default: a toggle nobody knows about is a section nobody finds.
+func TestShowReviewDefaultsOn(t *testing.T) {
 	v := New(config.GitHubConfig{}, nil, nil, nil)
-	if v.showReview {
-		t.Error("review section must default off, matching config.ShowReviewRequested")
+	if !v.showReview {
+		t.Error("review section must default on, matching config.ShowReviewRequested")
 	}
-	on := true
-	if v := New(config.GitHubConfig{ShowReviewRequested: &on}, nil, nil, nil); !v.showReview {
-		t.Error("explicit true should enable the section")
+	off := false
+	if v := New(config.GitHubConfig{ShowReviewRequested: &off}, nil, nil, nil); v.showReview {
+		t.Error("explicit false should hide the section")
 	}
 }
 

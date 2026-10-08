@@ -15,7 +15,8 @@ func TestHighlighterMatchIndices(t *testing.T) {
 	}{
 		{"empty query", "", false, "banana", nil},
 		{"contiguous", "ban", false, "banana", []int{0, 1, 2}},
-		{"subsequence", "bnn", false, "banana", []int{0, 2, 4}},
+		{"word runs", "fioo", false, "fix oops", []int{0, 1, 4, 5}},
+		{"scattered letters", "bnn", false, "banana", nil},
 		{"no match", "xyz", false, "banana", nil},
 		{"case insensitive", "BAN", false, "banana", []int{0, 1, 2}},
 		{"case sensitive miss", "BAN", true, "banana", nil},

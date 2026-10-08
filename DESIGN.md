@@ -121,17 +121,21 @@ and the comments hint is clickable in both.
 
 ## esc
 
-`esc` steps back one layer and **never closes agenda** — that is `q`
-alone. The focused view gets the key first and reports whether it handled
-it, so a pane unwinds its own state before the root model closes
-anything. `←` and `esc` both step beside a list; they part ways in a
+`esc` steps back one layer and **never closes agenda**. `q` closes the
+same layers one at a time and quits only from the bare list, the way a
+pager's `q` closes the pager; `ctrl+c` quits from anywhere. The focused
+view gets the key first and reports whether it handled it, so a pane
+unwinds its own state before the root model closes anything. `←` and `esc` both step beside a list; they part ways in a
 float, where `←` steps a level and `esc` closes the window.
 
 With the preview pane on:
 
 ```
-job log → jobs/file-list focus → pane focus → the pane → zoom
+job log → jobs/file-list focus → pane focus → the pane → zoom → filter
 ```
+
+The filter is the floor: with nothing open over the list, `esc` clears the
+query that narrowed it (from `/` or `f` alike), so the list is whole again.
 
 Floated, `esc` does not step: it closes the whole float from any level.
 The arrows are what walk back a level at a time (see Focus), so `esc`
@@ -153,6 +157,30 @@ and closes, any other key returns to the panel. The file never says one
 thing while the running app does another. Changing a row back to its
 original value clears its pending state.
 
+## Selection across refreshes
+
+The list keeps the selection on the same *item*, not the same row: rows
+carry a stable identity (`Key`: a PR's URL, an issue's identifier, a
+session's transcript path) that `SetItems` follows, so a re-sort, a rename
+or a status change does not move the cursor onto something else. When the
+selected item leaves the list (approved and hidden, merged, filtered out),
+the cursor stays at its index, on the row that slid into its place, rather
+than jumping to the top and leaving you somewhere else entirely.
+
+## Cross-references
+
+`l` from a list raises the picker of what the selection links to, and
+`enter` there jumps in-app when a view can take it: loaded already, or
+fetched in by a view that can (`FetchRef`), so a Linear issue referenced
+from a PR lands in the Linear tab even when its source does not list it.
+The browser is the fallback, marked `↗` in the picker. An issue's detail
+lists its pull requests open, one per line with their status glyphs, and
+a PR's detail names its Linear issues as `status glyph · id · title`, the
+row the picker shows too; `l` from either raises the picker. A ticket the
+Linear tab does not list is resolved on demand: the PRs view sends
+`ResolveRefsMsg` once per id, the Linear view fetches it and publishes its
+status to the store without adding it to its list.
+
 ## Panes
 
 Each pane is one way of looking at the selected row, not a mode. They are
@@ -164,8 +192,10 @@ mutually exclusive, and the key that opened one closes it.
 | `c` | comments |
 | `t` | CI jobs |
 
-The review popup's "view diff" opens the **unified** diff rather than the
-file list: reviewing reads better against a flat diff.
+The review popup (`r`) opens the **file list** beside it by default, where
+`space` marks files reviewed as you go; `github.review_view: unified`
+opens the flat diff instead. A nudge in the popup for files not yet
+marked is still to come.
 
 Both show the inline review threads, boxed under the line they are
 anchored to. The file list derives each patch line's number in the new

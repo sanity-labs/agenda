@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // allIcons is every glyph constant, so a malformed escape in any of them
@@ -121,3 +123,25 @@ func parseIconLine(line string) (name, icon, comment string, ok bool) {
 
 // name = "value" // comment
 var iconLineRE = regexp.MustCompile(`^\s*(Icon\w+)\s*=\s*"([^"]*)"\s*(?://\s*(.*))?$`)
+
+// One glyph per Linear state type, a Duplicate of its own, and nothing
+// when the state is unknown.
+func TestIssueStatusIcon(t *testing.T) {
+	cases := []struct {
+		typ, name, want string
+	}{
+		{"backlog", "Backlog", IconIssueBacklog},
+		{"unstarted", "Todo", IconIssueTodo},
+		{"started", "In Progress", IconIssueInProgress},
+		{"completed", "Done", IconIssueDone},
+		{"canceled", "Canceled", IconIssueCanceled},
+		{"canceled", "Duplicate", IconIssueDuplicate},
+		{"triage", "Triage", IconIssueTriage},
+		{"", "", ""},
+	}
+	for _, c := range cases {
+		if got := ansi.Strip(IssueStatusIcon(c.typ, c.name)); got != c.want {
+			t.Errorf("IssueStatusIcon(%q, %q) = %q, want %q", c.typ, c.name, got, c.want)
+		}
+	}
+}

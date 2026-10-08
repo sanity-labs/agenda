@@ -39,6 +39,21 @@ type Item interface {
 	Filter() string
 }
 
+// Keyed is optionally implemented by items with a stable identity (a URL,
+// an issue identifier, a file path). SetItems uses it to keep the selection
+// on the same item across a refresh; without it the Filter text stands in,
+// and a title or state change then reads as a different item.
+type Keyed interface {
+	Key() string
+}
+
+func itemKey[T Item](it T) string {
+	if k, ok := any(it).(Keyed); ok {
+		return k.Key()
+	}
+	return it.Filter()
+}
+
 // NonSelectable is optionally implemented by items that render but can never
 // hold the cursor: section separators and group headers. They are also
 // dropped whenever a filter query is active, so filtered lists stay flat.
@@ -162,7 +177,7 @@ func (l *List[T]) SetItems(items []T) {
 	var prevKey string
 	var hadPrev bool
 	if any(prev) != nil {
-		prevKey = prev.Filter()
+		prevKey = itemKey(prev)
 		hadPrev = true
 	}
 
@@ -170,19 +185,15 @@ func (l *List[T]) SetItems(items []T) {
 	l.applyFilter()
 
 	if hadPrev {
-		found := false
 		for i, idx := range l.filtered {
-			if l.items[idx].Filter() == prevKey {
+			if itemKey(l.items[idx]) == prevKey {
 				l.cursor = i
-				found = true
 				break
 			}
 		}
-		// If the previously-selected item is gone, jump to the top rather than
-		// leaving the cursor on whatever now sits at the old index.
-		if !found {
-			l.cursor = 0
-		}
+		// Gone (hidden, merged, filtered out): the cursor stays where it
+		// was, on the row that slid into its place, rather than jumping to
+		// the top and leaving you somewhere else entirely.
 	}
 	l.clampCursor()
 }
@@ -591,7 +602,7 @@ func (l *List[T]) itemMatches(it T, q string) bool {
 			}
 			continue
 		}
-		if matchesSubsequence(text, q) {
+		if matchesFuzzy(text, q) {
 			return true
 		}
 	}
@@ -735,20 +746,8 @@ func RevMarker(reversed bool) string {
 	return ""
 }
 
-// matchesSubsequence reports whether all runes of q appear in s in order.
-func matchesSubsequence(s, q string) bool {
-	if q == "" {
-		return true
-	}
-	qi := 0
-	qr := []rune(q)
-	for _, sr := range s {
-		if sr == qr[qi] {
-			qi++
-			if qi == len(qr) {
-				return true
-			}
-		}
-	}
-	return false
+// matchesFuzzy reports whether q matches s as a substring or a word-anchored
+// subsequence (see fuzzyIndices).
+func matchesFuzzy(s, q string) bool {
+	return q == "" || fuzzyIndices([]rune(s), []rune(q)) != nil
 }

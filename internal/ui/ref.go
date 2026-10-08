@@ -67,9 +67,19 @@ func PRRef(p store.PR, repo string, num int, title, url string) Ref {
 	return ref
 }
 
-// IssueRef builds a Linear-issue cross-reference: the identifier on the main
-// line, the issue title on the dimmed second line. url (when known) enables
-// "open in browser" from the picker.
-func IssueRef(id, title, url string) Ref {
-	return Ref{Kind: "linear", ID: id, Label: "Linear  " + id, Detail: title, URL: url}
+// ResolveRefsMsg asks whichever view owns Kind to bring these ids' metadata
+// into the store: a PR's detail can then show the status of a ticket the
+// Linear tab does not list. Sent by the view that needs it, answered by
+// the owner publishing to the store.
+type ResolveRefsMsg struct {
+	Kind string
+	IDs  []string
+}
+
+// IssueRef builds a Linear-issue cross-reference: the status glyph and the
+// identifier on the main line, the issue title on the dimmed second line,
+// as the PR detail lists them. url (when known) enables "open in browser"
+// from the picker.
+func IssueRef(id, title, url, status string) Ref {
+	return Ref{Kind: "linear", ID: id, Label: strings.TrimSpace(status + " " + id), Detail: title, URL: url}
 }

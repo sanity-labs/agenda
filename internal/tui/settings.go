@@ -328,6 +328,9 @@ func settingsTable() []setting {
 		boolSetting("hide approved PRs", "github.hide_approved", noteReload,
 			func(c config.Config) bool { return c.GitHub.HideApproved },
 			func(c *config.Config, v bool) { c.GitHub.HideApproved = v }),
+		boolSetting("hide draft PRs", "github.hide_drafts", noteReload,
+			func(c config.Config) bool { return c.GitHub.HideDrafts },
+			func(c *config.Config, v bool) { c.GitHub.HideDrafts = v }),
 		numSetting("summary lines", "github.summary_lines", noteReload,
 			func(c config.Config) int { return c.GitHub.SummaryLines },
 			func(c *config.Config, v int) { c.GitHub.SummaryLines = v }),
@@ -335,6 +338,12 @@ func settingsTable() []setting {
 		boolSetting("inline diff pane", "github.diff_pane", noteReload,
 			func(c config.Config) bool { return c.GitHub.DiffPane },
 			func(c *config.Config, v bool) { c.GitHub.DiffPane = v }),
+		{
+			label: "review opens", path: "github.review_view", kind: kindEnum,
+			options: func() []string { return []string{"files", "unified"} },
+			get:     func(c config.Config) string { return c.GitHub.ResolvedReviewView() },
+			set:     func(c *config.Config, v string) { c.GitHub.ReviewView = v },
+		},
 		boolSetting("merge from review popup", "github.merge", noteReload,
 			func(c config.Config) bool { return c.GitHub.Merge },
 			func(c *config.Config, v bool) { c.GitHub.Merge = v }),
@@ -357,6 +366,14 @@ func settingsTable() []setting {
 		boolSetting("project pane", "linear.nav", noteReload,
 			func(c config.Config) bool { return c.Linear.Nav },
 			func(c *config.Config, v bool) { c.Linear.Nav = v }),
+		numSetting("page size", "linear.filter.limit", "",
+			func(c config.Config) int {
+				if c.Linear.Filter.Limit <= 0 {
+					return 100
+				}
+				return c.Linear.Filter.Limit
+			},
+			func(c *config.Config, v int) { c.Linear.Filter.Limit = v }),
 		header("Sessions"),
 		sortSetting("sessions.sort", config.SessionsSortNames,
 			func(c config.Config) string { return c.Sessions.Sort },

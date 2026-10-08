@@ -173,9 +173,8 @@ github:
   filter: "author:@me is:open archived:false"
   # Search query for the "needs your review" section (toggle it with 'w').
   review_filter: "review-requested:@me is:open archived:false"
-  # Show that section on startup. Off by default: the view opens with just
-  # your own PRs, as it always did.
-  show_review_requested: false
+  # Show that section on startup. On by default; 'w' hides it in-app.
+  show_review_requested: true
   # In the review-requested section, dim PRs you have already reviewed and
   # tag them "reviewed" so the eye can skip them. Off by default.
   mark_reviewed: false
@@ -195,6 +194,9 @@ github:
   # else approving is no reason for you to stop looking. Merged PRs are
   # handled by review_filter's is:open, not by this.
   hide_approved: false
+  # Leave draft PRs out of both sections: a draft is its author's business
+  # until it is marked ready. Off by default; 'D' toggles it in-app.
+  hide_drafts: false
   # Leave Renovate and Dependabot PRs out of the review-requested list. They
   # are excluded in the search itself (-author:app/renovate
   # -author:app/dependabot), so counts and paging only see the rest. Off by
@@ -221,6 +223,10 @@ github:
   # diff through less, the original behavior. The comments pane ('c') and
   # inline-thread annotations need this on to show threads in the diff.
   diff_pane: false
+  # What the review popup ('r') opens beside it when diff_pane is on:
+  # files (the file list, with 'space' marking files reviewed as you go,
+  # default) or unified (the flat diff).
+  review_view: files
   # Fetch PRs a page at a time, loading the next page when you scroll to the
   # end of the list. On by default: one request for 100 PRs measured 8-10s
   # against a large review-requested search and timed out often enough to
@@ -255,7 +261,7 @@ linear:
     # teams: [SRE]              # limit to these team keys
     # projects: [Some Project]  # limit to these project names
     # states: [In Progress]     # limit to these workflow states
-    # limit: 100
+    # limit: 100               # issues per page; the next page loads as you reach the end
   # Show the navigation tree (Inbox / My Issues / All Issues / pinned
   # projects) on startup. ctrl+p toggles it in-app either way; left/right
   # move between the tree and the list.

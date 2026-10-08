@@ -66,6 +66,22 @@ type pr struct {
 	ViewerLatestReview struct {
 		State string `json:"state"`
 	} `json:"viewerLatestReview"`
+	LatestOpinionatedReviews struct {
+		Nodes []struct {
+			State  string `json:"state"`
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+		} `json:"nodes"`
+	} `json:"latestOpinionatedReviews"`
+	ReviewRequests struct {
+		Nodes []struct {
+			RequestedReviewer struct {
+				Login        string `json:"login"`
+				CombinedSlug string `json:"combinedSlug"`
+			} `json:"requestedReviewer"`
+		} `json:"nodes"`
+	} `json:"reviewRequests"`
 	// Unread marks a row that arrived since the last fetch, cleared when you
 	// select it, so a notification you missed is still visible in the list.
 	// UnreadGutter reserves the column even when this row is read, so marks
@@ -173,6 +189,15 @@ func (p pr) Filter() string {
 		return "\x00sep:" + p.Separator
 	}
 	return fmt.Sprintf("%s #%d %s", p.repo(), p.Number, p.Title)
+}
+
+// Key is the row's identity across refreshes: the URL, which a title edit
+// or a review does not change.
+func (p pr) Key() string {
+	if p.Separator != "" {
+		return "\x00sep:" + p.Separator
+	}
+	return p.URL
 }
 
 func (p pr) Fields() []ui.Field {
@@ -597,6 +622,9 @@ type View struct {
 	sort             sortMode
 	rev              bool // sort order reversed
 	store            *store.Store
+	// resolveAsked is the Linear ids already sent for resolution, so a
+	// ticket is asked for once per run whatever the answer.
+	resolveAsked map[string]bool
 
 	// notifier posts "needs your review" notifications (nil = off); seeded
 	// gates them so the first data never fires a storm.
@@ -659,6 +687,8 @@ type View struct {
 
 	// hideApproved drops already-approved PRs from the review list.
 	hideApproved bool
+	// hideDrafts drops draft PRs from both sections.
+	hideDrafts bool
 
 	// filterEd is the open search-filter editor ('F'), nil when closed.
 	filterEd *filterEdit
@@ -686,7 +716,11 @@ type View struct {
 	// requested preview scroll the root model picks up. commentsRev bumps
 	// on every comments fetch so memoized panes invalidate; paneKey/
 	// paneText/paneAnchors memoize the last rendered data pane.
-	anchors     []ui.DiffAnchor
+	anchors []ui.DiffAnchor
+	// unfolded is the resolved threads clicked open; threadsRev bumps on
+	// each toggle so the memoized panes re-render.
+	unfolded    map[string]bool
+	threadsRev  int
 	annIdx      int
 	pendingJump *int
 	commentsRev int
@@ -699,8 +733,10 @@ type View struct {
 	// is an open reply/comment prompt. flash is a transient status-line
 	// result (cleared on the next fetch).
 	review *reviewFlow
-	input  *threadFlow
-	flash  string
+	// spinFrame follows the root spinner so the popup's glyph turns with it.
+	spinFrame int
+	input     *threadFlow
+	flash     string
 
 	// jobs caches each PR's check runs for the jobs pane ('t'), by URL;
 	// jobsGen supersedes pending watch ticks. rerun is the open rerun
@@ -738,6 +774,30 @@ type settleMsg struct {
 	gen  int
 }
 
+// resolveLinear asks the Linear view for the tickets the selected PR names
+// that the store does not know, so the detail can show their status. Each
+// id is asked for once.
+func (v *View) resolveLinear() tea.Cmd {
+	if v.store == nil {
+		return nil
+	}
+	var ids []string
+	for _, id := range v.list.Selected().linearRefs() {
+		if _, ok := v.store.Issue(id); ok || v.resolveAsked[id] {
+			continue
+		}
+		if v.resolveAsked == nil {
+			v.resolveAsked = map[string]bool{}
+		}
+		v.resolveAsked[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return func() tea.Msg { return ui.ResolveRefsMsg{Kind: "linear", IDs: ids} }
+}
+
 // scheduleSettle arms the debounce while a data pane is showing.
 func (v *View) scheduleSettle() tea.Cmd {
 	if v.pane == paneBody {
@@ -768,6 +828,9 @@ type reviewFlow struct {
 	verdict    string // "", then "approve" | "comment" | "request-changes"
 	body       string
 	submitting bool
+	// action is what gh is running, or ran: "review", "merge" or "auto".
+	// done and fail hold the outcome, and the popup stays up to show it.
+	action, done, fail string
 	// confirm names the merge awaiting a yes ("merge" or "auto"), and why
 	// it is a bad idea when it is: merging cannot be undone by another
 	// keypress, so it never happens on the first one.
@@ -826,6 +889,7 @@ type viewKeys struct {
 	Sort       key.Binding
 	Rev        key.Binding
 	Review     key.Binding
+	HideDrafts key.Binding
 	Start      key.Binding
 	Comments   key.Binding
 	NextThread key.Binding
@@ -888,7 +952,7 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 		// so it starts on the review search's own.
 		loading:       !reviewsOnly,
 		reviewLoading: reviewsOnly,
-		showReview:    reviewsOnly || (cfg.ShowReviewRequested != nil && *cfg.ShowReviewRequested),
+		showReview:    reviewsOnly || cfg.ShowReviewRequestedOn(),
 		reviewsOnly:   reviewsOnly,
 		keys: viewKeys{
 			Open:       bind("open", "open", "enter"),
@@ -897,6 +961,7 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 			Sort:       bind("sort", "sort", "s"),
 			Rev:        bind("reverse", "reverse", "S"),
 			Review:     bind("toggle_review", "review reqs", "w"),
+			HideDrafts: bind("hide_drafts", "drafts", "D"),
 			Start:      bind("review", "review", "r"),
 			Comments:   bind("comments", "comments", "c"),
 			NextThread: bind("next_thread", "", "]"),
@@ -918,6 +983,7 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 	v.rev = cfg.Reverse
 	v.rowRefresh = cfg.RefreshRowEnabled()
 	v.hideApproved = cfg.HideApproved
+	v.hideDrafts = cfg.HideDrafts
 	v.list.SetRowHeight(2) // two-line rows: metadata + title
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
 	v.nav = newNavKeys(km)
@@ -1028,7 +1094,9 @@ func (v *View) Init() tea.Cmd {
 	return tea.Batch(v.fetch(), v.maybeFetchJobs())
 }
 
-func (v *View) Loading() bool { return v.loading || v.reviewLoading }
+func (v *View) Loading() bool {
+	return v.loading || v.reviewLoading || (v.review != nil && v.review.submitting)
+}
 
 // graphqlQuery is one PR search. The own-PRs and review-requested searches
 // run as two separate requests; combining them into one aliased query makes
@@ -1044,6 +1112,11 @@ fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName baseRefName
   additions deletions mergeable reviewDecision body
   viewerLatestReview { state }
+  latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
+  reviewRequests(first: 10) { nodes { requestedReviewer {
+    ... on User { login }
+    ... on Team { combinedSlug }
+  } } }
   author { login }
   repository { nameWithOwner }
   comments { totalCount }
@@ -1294,6 +1367,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.foreign(msg.from) {
 			return nil
 		}
+		before := v.list.Selected()
 		v.loading = false
 		v.minePage.loading = false
 		// A partly forbidden search returns rows and an error together, so
@@ -1326,11 +1400,15 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.applySort()
 		v.publish(append(v.raw, v.reviewRaw...))
 		v.saveCache()
-		return partial
+		if !msg.more {
+			partial = tea.Batch(partial, v.departed(before, msg.page.prs))
+		}
+		return tea.Batch(partial, v.resolveLinear())
 	case reviewListMsg:
 		if v.foreign(msg.from) {
 			return nil
 		}
+		before := v.list.Selected()
 		v.reviewLoading = false
 		v.reviewPage.loading = false
 		if msg.err != nil && len(msg.page.prs) == 0 {
@@ -1364,6 +1442,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		v.applySort()
 		v.publish(append(v.raw, next...))
 		v.saveCache()
+		if !msg.more {
+			cmd = tea.Batch(cmd, v.departed(before, next))
+		}
 		return cmd
 	case filesMsg:
 		st := v.files[msg.url]
@@ -1371,6 +1452,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		st.files, st.err, st.done = msg.files, msg.err, true
+		if st.openAll && msg.err == nil {
+			st.expandAll()
+		}
 		v.bodyKey = ""
 		if msg.err != nil {
 			return statusCmd(ui.SeverityWarn, msg.err)
@@ -1424,17 +1508,28 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if !msg.ok || !v.applyFresh(msg.pr) {
 			return nil
 		}
+		before := v.list.Selected()
 		v.applySort()
 		v.bodyKey = "" // checks and review state render in the preview
-		return nil
+		return v.departed(before, []pr{msg.pr})
 	case mergeDoneMsg:
 		if v.foreign(msg.from) {
 			return nil
 		}
-		v.review = nil
+		// The popup stays up with the outcome; the next key closes it.
+		r := v.review
+		if r != nil {
+			r.submitting = false
+		}
 		if msg.err != nil {
+			if r != nil {
+				r.fail = "merge failed: " + msg.err.Error()
+			}
 			v.flash = ui.Red.Render("merge failed: " + msg.err.Error())
 			return statusCmd(ui.SeverityError, msg.err)
+		}
+		if r != nil {
+			r.done = msg.what
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
 		// A merged PR leaves the search on the next fetch; auto-merge
@@ -1471,6 +1566,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
+		return nil
+	case ui.SpinnerTickMsg:
+		v.spinFrame = msg.Frame
 		return nil
 	case ui.ListJumpMsg:
 		v.jump = int(msg)
@@ -1673,9 +1771,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 						v.clearUnread()
 					}
 				}
-				return tea.Batch(cmd, v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
+				return tea.Batch(cmd, v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync(), v.resolveLinear())
 			}
-			return tea.Batch(cmd, v.scheduleSettle(), more)
+			return tea.Batch(cmd, v.scheduleSettle(), more, v.resolveLinear())
 		}
 		if v.list.Filtering() {
 			return nil
@@ -1755,6 +1853,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg {
 				return ui.ToastMsg{Title: "Review requests", Body: "Toggle disabled while 'Reviews' view is active"}
 			}
+		case key.Matches(msg, v.keys.HideDrafts):
+			v.hideDrafts = !v.hideDrafts
+			v.applySort()
+			return nil
 		case key.Matches(msg, v.keys.Review):
 			v.showReview = !v.showReview
 			v.applySort()
@@ -1767,11 +1869,14 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Start):
 			if p := v.list.Selected(); p.URL != "" {
 				v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number}
-				// Reviewing reads better against the diff, where enabled.
+				// Reviewing reads better against the change, where the pane
+				// is enabled: the file list, or the flat diff by config.
+				// Through setPane, so the pane is in the same state as one
+				// toggled by hand once the popup goes.
 				if v.cfg.DiffPane && v.pane == paneBody {
-					v.pane = paneDiff
+					return v.setPane(v.reviewPane())
 				}
-				return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments())
+				return tea.Batch(v.maybeFetchDiff(), v.maybeFetchComments(), v.maybeFetchFiles())
 			}
 		}
 	}
@@ -1913,6 +2018,10 @@ type reviewDoneMsg struct {
 // submit.
 func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 	r := v.review
+	if r.done != "" || r.fail != "" {
+		v.review = nil // any key dismisses the outcome
+		return nil
+	}
 	if r.submitting {
 		return nil // ignore keys while gh runs
 	}
@@ -1994,13 +2103,24 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 	case "Request changes":
 		r.verdict = "request-changes"
 	case "View diff":
-		// Show the diff and get out of the way; 'r' reopens the popup.
+		// Show the change and get out of the way; 'r' reopens the popup.
 		v.review = nil
-		if v.cfg.DiffPane {
-			v.pane = paneDiff
-			return tea.Batch(ui.RevealPreview, v.maybeFetchDiff(), v.maybeFetchComments())
+		if !v.cfg.DiffPane {
+			return v.diffInPager()
 		}
-		return v.diffInPager()
+		target := v.reviewPane()
+		// Going through the change file by file: open them all.
+		if target == paneFiles {
+			if p := v.list.Selected(); p.URL != "" {
+				v.fileState(p).expandAll()
+			}
+		}
+		if v.pane == target {
+			// 'r' opened it behind the popup already: hand it the keys.
+			v.paneFocus = true
+			return ui.RevealPreview
+		}
+		return v.setPane(target)
 	case mergeLabel:
 		v.askMerge("merge")
 	case autoLabel:
@@ -2009,6 +2129,15 @@ func (v *View) activateReviewOption(label string) tea.Cmd {
 		v.review = nil
 	}
 	return nil
+}
+
+// reviewPane is the pane a review reads against: the file list, or the
+// flat diff when review_view asks for it.
+func (v *View) reviewPane() paneMode {
+	if v.cfg.ResolvedReviewView() == "unified" {
+		return paneDiff
+	}
+	return paneFiles
 }
 
 // reviewedNote says what the viewer's standing review on a PR is, for the
@@ -2023,6 +2152,28 @@ func reviewedNote(state string) string {
 		return "you have already commented on this"
 	}
 	return "you have already reviewed this"
+}
+
+// merging reports whether the popup is on a merge: staged, running or done.
+func (r *reviewFlow) merging() bool {
+	switch {
+	case r.confirm == "merge", r.confirm == "auto", r.action == "merge", r.action == "auto":
+		return true
+	}
+	return false
+}
+
+// mergeDetail is the method and branch fate, before or after the fact.
+func (v *View) mergeDetail(past bool) string {
+	detail := v.cfg.ResolvedMergeMethod()
+	switch {
+	case !v.cfg.MergeDeleteBranch:
+	case past:
+		detail += ", branch deleted"
+	default:
+		detail += ", then delete the branch"
+	}
+	return detail
 }
 
 // mergeTitle is the selected PR's title, so the confirmation names what is
@@ -2060,10 +2211,10 @@ func (v *View) askMerge(kind string) {
 	r.confirm = kind
 	// Say what is off about it rather than refusing: these are judgement
 	// calls, and the repo's own rules are what actually gate the merge.
-	switch {
-	case p.ReviewDecision == "CHANGES_REQUESTED":
+	switch p.ReviewDecision {
+	case "CHANGES_REQUESTED":
 		r.warn = "changes have been requested"
-	case p.ReviewDecision == "REVIEW_REQUIRED":
+	case "REVIEW_REQUIRED":
 		r.warn = "it has not been approved yet"
 	default:
 		if _, fail, _, _ := p.checkCounts(); fail > 0 {
@@ -2086,14 +2237,33 @@ func (v *View) Overlay() string {
 	var b strings.Builder
 	// The heading follows the step: "Review" is wrong above a merge.
 	heading := "Review"
-	if r.confirm == "merge" || r.confirm == "auto" {
+	if r.merging() {
 		heading = "Merge"
 	}
 	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s %s#%d", heading, r.repo, r.num)))
 	b.WriteString("\n\n")
 	switch {
+	case r.done != "":
+		b.WriteString(ui.Green.Render("✓ "+r.done) + "\n")
+		if r.action == "merge" {
+			b.WriteString(ui.Faint.Render("  "+v.mergeDetail(true)) + "\n")
+		}
+		b.WriteString("\n" + ui.Dim.Render("any key to close"))
+	case r.fail != "":
+		b.WriteString(ui.Red.Render("✗ "+r.fail) + "\n\n")
+		b.WriteString(ui.Dim.Render("any key to close"))
 	case r.submitting:
-		b.WriteString(ui.Faint.Render("submitting review…"))
+		verb := "submitting review…"
+		switch r.action {
+		case "merge":
+			verb = "merging…"
+		case "auto":
+			verb = "enabling auto-merge…"
+		}
+		b.WriteString(ui.SpinnerFrame(v.spinFrame) + " " + ui.Faint.Render(verb) + "\n")
+		if r.action == "merge" {
+			b.WriteString(ui.Faint.Render("  " + v.mergeDetail(false)))
+		}
 	case r.confirm != "":
 		what := "Merge this PR?"
 		switch r.confirm {
@@ -2107,11 +2277,7 @@ func (v *View) Overlay() string {
 			b.WriteString(ui.Dim.Render("  "+title) + "\n")
 		}
 		if r.confirm != "approve" {
-			detail := "  " + v.cfg.ResolvedMergeMethod()
-			if v.cfg.MergeDeleteBranch {
-				detail += ", then delete the branch"
-			}
-			b.WriteString(ui.Faint.Render(detail) + "\n")
+			b.WriteString(ui.Faint.Render("  "+v.mergeDetail(false)) + "\n")
 		}
 		if r.warn != "" {
 			b.WriteString("\n" + ui.Yellow.Render("! "+r.warn) + "\n")
@@ -2172,7 +2338,10 @@ type mergeDoneMsg struct {
 // gh reports a repo that forbids it rather than agenda guessing.
 func (v *View) submitMerge(auto bool) tea.Cmd {
 	r := v.review
-	r.submitting = true
+	r.submitting, r.action = true, "merge"
+	if auto {
+		r.action = "auto"
+	}
 	args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo,
 		"--" + v.cfg.ResolvedMergeMethod()}
 	if auto {
@@ -2210,7 +2379,7 @@ func ghErr(err error, out []byte) error {
 // submitReview shells out to gh pr review with the flow's verdict and body.
 func (v *View) submitReview(verdict string) tea.Cmd {
 	r := v.review
-	r.submitting = true
+	r.submitting, r.action = true, "review"
 	args := []string{"pr", "review", strconv.Itoa(r.num), "-R", r.repo, "--" + verdict}
 	if strings.TrimSpace(r.body) != "" {
 		args = append(args, "--body", r.body)
@@ -2239,13 +2408,11 @@ func (v *View) Refs() []ui.Ref {
 	sel := v.list.Selected()
 	var refs []ui.Ref
 	for _, id := range sel.linearRefs() {
-		var title, url string
+		var iss store.Issue
 		if v.store != nil {
-			if iss, ok := v.store.Issue(id); ok {
-				title, url = iss.Title, iss.URL
-			}
+			iss, _ = v.store.Issue(id)
 		}
-		refs = append(refs, ui.IssueRef(id, title, url))
+		refs = append(refs, ui.IssueRef(id, iss.Title, iss.URL, ui.IssueStatusIcon(iss.StateType, iss.State)))
 	}
 	if v.store != nil && sel.URL != "" {
 		for _, s := range v.store.SessionsMentioning(store.Key("pr", sel.URL)) {
@@ -2340,18 +2507,7 @@ func (v *View) openSelected() tea.Cmd {
 	}
 }
 
-func (v *View) copySelected() tea.Cmd {
-	p := v.list.Selected()
-	if p.URL == "" {
-		return nil
-	}
-	return func() tea.Msg {
-		c := exec.Command("pbcopy")
-		c.Stdin = strings.NewReader(p.URL)
-		_ = c.Run()
-		return nil
-	}
-}
+func (v *View) copySelected() tea.Cmd { return ui.CopyCmd(v.list.Selected().URL, "URL") }
 
 // diffInPager pages the selected PR's diff through less, the view's original
 // 'd' behavior (default; github.diff_pane opts into the in-pane diff).
@@ -2636,6 +2792,11 @@ func (v *View) applySort() {
 		}
 		rev = kept
 	}
+	// A draft is its author's business until it is marked ready. Both
+	// sections: your own drafts clutter the list as much as other people's.
+	if v.hideDrafts {
+		mine, rev = dropDrafts(mine), dropDrafts(rev)
+	}
 	if v.cfg.MarkReviewed {
 		for i := range rev {
 			rev[i].Reviewed = rev[i].reviewedByMe()
@@ -2669,6 +2830,44 @@ func (v *View) applySort() {
 		items = append(items, v.groupSection(rev)...)
 	}
 	v.list.SetItems(items)
+}
+
+// departed says why the row you were on is gone after a refresh, so the
+// cursor landing on another PR does not pass for the same one: the toast
+// names the PR and the reason (approved and hidden, merged, dropped by
+// the search), and the list is where it was.
+func (v *View) departed(before pr, next []pr) tea.Cmd {
+	if before.URL == "" || v.list.Any(matchURL(before.URL)) {
+		return nil
+	}
+	why := "no longer in the search results"
+	for _, p := range next {
+		if p.URL != before.URL {
+			continue
+		}
+		switch {
+		case p.State == "MERGED":
+			why = "merged"
+		case p.State == "CLOSED":
+			why = "closed"
+		case v.hideApproved && p.approvedAndOpen():
+			why = "approved, hidden by hide_approved"
+		case v.hideDrafts && p.IsDraft:
+			why = "a draft, hidden by hide_drafts"
+		}
+	}
+	body := fmt.Sprintf("%s#%d: %s", before.repo(), before.Number, why)
+	return func() tea.Msg { return ui.ToastMsg{Title: "Left the list", Body: body} }
+}
+
+func dropDrafts(prs []pr) []pr {
+	kept := prs[:0]
+	for _, p := range prs {
+		if !p.IsDraft {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }
 
 // reviewLabel is the review section's band text: a count, plus how many of
@@ -2909,7 +3108,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 			v.clearUnread()
 		}
 	}
-	return tea.Batch(v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
+	return tea.Batch(v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync(), v.resolveLinear())
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
@@ -3034,8 +3233,10 @@ func (v *View) PreviewView() string {
 	case paneJobs:
 		b.WriteString(v.renderedJobs(p))
 	case paneFiles:
-		b.WriteString(renderFilesPane(v.fileState(p), v.prevW,
-			v.PaneFocused(), v.filesHint(), v.threadsFor(p)))
+		text, anchors := renderFilesPane(v.fileState(p), v.prevW,
+			v.PaneFocused(), v.filesHint(), v.threadsFor(p), v.unfolded)
+		v.anchors = anchors
+		b.WriteString(text)
 	default:
 		// Description, then checks, then comments: the summary reads top to
 		// bottom in the order you want it, with the detail panes (diff,
@@ -3055,12 +3256,73 @@ func (v *View) PreviewView() string {
 		}
 		b.WriteString("\n\n")
 		b.WriteString(v.commentsBlock(p))
+		if blk := v.linearBlock(p); blk != "" {
+			b.WriteString("\n\n")
+			b.WriteString(blk)
+		}
 	}
 	return b.String()
 }
 
-// blockHeader labels a preview section. One style for all of them, so the
-// pane reads as a list of sections rather than three unrelated widgets.
+// linearBlock names the Linear issue(s) the PR references, with the
+// issue's title where the Linear view has it, and how to get there.
+func (v *View) linearBlock(p pr) string {
+	ids := p.linearRefs()
+	if len(ids) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(ui.BlockHeader("Linear"))
+	// Status glyph, id, title: the same row the picker shows.
+	for _, id := range ids {
+		var iss store.Issue
+		if v.store != nil {
+			iss, _ = v.store.Issue(id)
+		}
+		line := "  "
+		if icon := ui.IssueStatusIcon(iss.StateType, iss.State); icon != "" {
+			line += icon + " "
+		}
+		line += id
+		if iss.Title != "" {
+			line += "  " + ui.Truncate(iss.Title, max(10, v.prevW-lipgloss.Width(line)-2))
+		}
+		b.WriteString("\n" + line)
+	}
+	b.WriteString("\n" + ui.Faint.Render("  l to jump to ticket"))
+	return b.String()
+}
+
+// reviewers are the pending review requests as mentions: @login for a
+// person, @org/team for a team.
+func (p pr) reviewers() []string {
+	var out []string
+	for _, n := range p.ReviewRequests.Nodes {
+		switch r := n.RequestedReviewer; {
+		case r.Login != "":
+			out = append(out, "@"+r.Login)
+		case r.CombinedSlug != "":
+			out = append(out, "@"+r.CombinedSlug)
+		}
+	}
+	return out
+}
+
+// reviewedBy names who holds a review in the given state, as a dim line
+// under the decision; empty when the fetch did not say.
+func (p pr) reviewedBy(state string) string {
+	var who []string
+	for _, n := range p.LatestOpinionatedReviews.Nodes {
+		if n.State == state && n.Author.Login != "" {
+			who = append(who, "@"+n.Author.Login)
+		}
+	}
+	if len(who) == 0 {
+		return ""
+	}
+	return "\n" + ui.Dim.Render("  by "+strings.Join(who, ", "))
+}
+
 // checksBlock is the bordered CI summary: what is blocking the merge, and how
 // the checks are doing. Bordered in the colour of the worst state, so a
 // glance at the frame says whether anything needs attention.
@@ -3068,12 +3330,16 @@ func (v *View) checksBlock(p pr) string {
 	var rows []string
 	switch p.ReviewDecision {
 	case "APPROVED":
-		rows = append(rows, ui.Green.Render(ui.IconApproved+" Approved"))
+		rows = append(rows, ui.Green.Render(ui.IconApproved+" Approved")+p.reviewedBy("APPROVED"))
 	case "CHANGES_REQUESTED":
-		rows = append(rows, ui.Red.Render(ui.IconChanges+" Changes requested"))
+		rows = append(rows, ui.Red.Render(ui.IconChanges+" Changes requested")+p.reviewedBy("CHANGES_REQUESTED"))
 	case "REVIEW_REQUIRED":
+		waiting := "waiting on a reviewer"
+		if who := p.reviewers(); len(who) > 0 {
+			waiting = "waiting on " + strings.Join(who, ", ")
+		}
 		rows = append(rows, ui.Yellow.Render(ui.IconReviewReq+" Review required")+
-			"\n"+ui.Dim.Render("  waiting on a reviewer"))
+			"\n"+ui.Dim.Render("  "+waiting))
 	}
 
 	pass, fail, run, total := p.checkCounts()
@@ -3140,14 +3406,14 @@ func (v *View) renderedDiff(p pr) string {
 		return ui.Faint.Render("(empty diff)")
 	}
 
-	key := fmt.Sprintf("diff:%s:%d:%d:%d", p.URL, v.prevW, v.commentsRev, ui.PaletteGen())
+	key := fmt.Sprintf("diff:%s:%d:%d:%d:%d", p.URL, v.prevW, v.commentsRev, v.threadsRev, ui.PaletteGen())
 	if v.paneKey == key {
 		v.anchors = v.paneAnchors
 		return v.paneText
 	}
 	var anns []ui.DiffAnnotation
 	if st, ok := v.comments[p.URL]; ok && st.done && st.err == nil {
-		anns = threadAnnotations(st.data.ReviewThreads.Nodes, v.prevW)
+		anns = threadAnnotations(st.data.ReviewThreads.Nodes, v.prevW, v.unfolded)
 	}
 	text, anchors := ui.RenderAnnotatedDiff(d.text, v.prevW, anns)
 	v.paneKey, v.paneText, v.paneAnchors = key, text, anchors
@@ -3165,12 +3431,12 @@ func (v *View) renderedComments(p pr) string {
 		return ui.Red.Render(st.err.Error())
 	}
 
-	key := fmt.Sprintf("comments:%s:%d:%d:%d", p.URL, v.prevW, v.commentsRev, ui.PaletteGen())
+	key := fmt.Sprintf("comments:%s:%d:%d:%d:%d", p.URL, v.prevW, v.commentsRev, v.threadsRev, ui.PaletteGen())
 	if v.paneKey == key {
 		v.anchors = v.paneAnchors
 		return v.paneText
 	}
-	text, anchors := renderCommentsPane(st.data, v.prevW)
+	text, anchors := renderCommentsPane(st.data, v.prevW, v.unfolded)
 	v.paneKey, v.paneText, v.paneAnchors = key, text, anchors
 	v.anchors = anchors
 	return text
@@ -3232,6 +3498,21 @@ func (v *View) ClickPreview(line, col int) tea.Cmd {
 		return nil
 	}
 	text := ansi.Strip(lines[line])
+	// A resolved thread folds to one line; a click on it reads it, and a
+	// click on the open thread's first line folds it back.
+	for _, a := range v.anchors {
+		if a.Line+v.paneHeader != line {
+			continue
+		}
+		if t, ok := v.threadByID(a.ID); ok && t.IsResolved {
+			if v.unfolded == nil {
+				v.unfolded = map[string]bool{}
+			}
+			v.unfolded[t.ID] = !v.unfolded[t.ID]
+			v.threadsRev++
+			return nil
+		}
+	}
 	switch {
 	// A click anywhere in a diff or comments pane puts it away, the same
 	// as pressing the key again: hunting for the hint to close what you
@@ -3303,9 +3584,9 @@ func (v *View) Bindings() []key.Binding {
 		return v.filesBindings()
 	}
 	if v.reviewsOnly || v.reviewsElsewhere {
-		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.EditFilter}
+		return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.HideDrafts, v.keys.EditFilter}
 	}
-	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.EditFilter}
+	return []key.Binding{v.keys.Open, v.keys.Diff, v.keys.Comments, v.keys.Jobs, v.keys.Start, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Review, v.keys.HideDrafts, v.keys.EditFilter}
 }
 
 // Status is the footer's right-hand slot. The list header already carries

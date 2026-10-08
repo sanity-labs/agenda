@@ -129,9 +129,6 @@ type Model struct {
 // spinnerTickMsg advances the tab spinner animation.
 type spinnerTickMsg struct{}
 
-// spinnerFrames is a braille spinner cycled while a view is fetching.
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
 func spinnerTick() tea.Cmd {
 	return tea.Tick(time.Second/12, func(time.Time) tea.Msg { return spinnerTickMsg{} })
 }
@@ -276,6 +273,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.spinnerFrame++
+		// A view animating its own glyph (a popup waiting on gh) turns
+		// with the tab spinner.
+		for _, v := range m.views {
+			v.Update(ui.SpinnerTickMsg{Frame: m.spinnerFrame})
+		}
 		return m, spinnerTick()
 
 	case tea.MouseWheelMsg:
@@ -467,17 +469,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.String() == "esc":
 			// One rule for esc: step back one layer, and never close the
-			// app. The focused view gets it first, so a pane can unwind its
-			// own state (a log back to its jobs, focus back to the list)
-			// before the root model closes anything.
-			if len(m.views) > 0 {
-				if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
-					m.invalidateFrame()
-					return m, nil
+			// app. With nothing open over the list, it clears the filter.
+			if cmd, closed := m.closeTop(); closed {
+				return m, cmd
+			}
+			return m, m.clearFilter()
+		case key.Matches(msg, m.keys.Quit):
+			// q closes what is open before it closes agenda, the way a
+			// pager's q closes the pager; ctrl+c always quits.
+			if msg.String() != "ctrl+c" {
+				if cmd, closed := m.closeTop(); closed {
+					return m, cmd
 				}
 			}
-			return m.dismiss()
-		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.NextView):
 			m.current = (m.current + 1) % len(m.views)
@@ -677,10 +681,21 @@ func (m Model) updateCurrent(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if len(m.views) == 0 {
 		return m, nil
 	}
+	was := m.anyLoading()
 	cmd := m.views[m.current].Update(msg)
 	m.syncPreviewKey(false) // a key may have moved the selection
 	m.applyPreviewRequests()
-	return m, cmd
+	return m, m.spin(was, cmd)
+}
+
+// spin restarts the spinner loop when a view started loading on its own (a
+// next page, a fetch on settle): the loop only runs while something loads,
+// and nothing but Init and ctrl+r started it, so the glyph sat still.
+func (m Model) spin(wasLoading bool, cmd tea.Cmd) tea.Cmd {
+	if !wasLoading && m.anyLoading() {
+		return tea.Batch(cmd, spinnerTick())
+	}
+	return cmd
 }
 
 // applyPreviewRequests carries out a scroll the focused view asked for: a
@@ -704,6 +719,7 @@ func (m *Model) applyPreviewRequests() {
 
 // broadcast threads a message through every view, collecting their commands.
 func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
+	was := m.anyLoading()
 	cmds := make([]tea.Cmd, 0, len(m.views))
 	for _, v := range m.views {
 		if cmd := v.Update(msg); cmd != nil {
@@ -716,7 +732,7 @@ func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if len(m.views) > 0 {
 		m.applyPreviewRequests()
 	}
-	return m, tea.Batch(cmds...)
+	return m, m.spin(was, tea.Batch(cmds...))
 }
 
 // commitSetting writes a change to the live config, the file, and whatever
@@ -1116,18 +1132,41 @@ type dismisser interface {
 	Dismiss() bool
 }
 
-// dismiss closes the innermost open thing: a view's own pane first, then a
-// floated detail. Never the app, which is 'q' alone.
-func (m Model) dismiss() (tea.Model, tea.Cmd) {
+// closeTop closes the topmost layer over the list (a pane, the zoom, a
+// float), reporting whether there was one.
+func (m *Model) closeTop() (tea.Cmd, bool) {
+	// The focused view goes first, so a pane can unwind its own state (a
+	// log back to its jobs, focus back to the list) before the root model
+	// closes anything.
+	if len(m.views) > 0 {
+		if d, ok := m.views[m.current].(dismisser); ok && d.Dismiss() {
+			m.invalidateFrame()
+			return nil, true
+		}
+	}
 	if m.zoomed {
 		m.zoomed = false
 		m.layout()
-		return m, nil
+		return nil, true
 	}
 	if m.floating() {
-		return m, m.setPreview(true, false)
+		return m.setPreview(true, false), true
 	}
-	return m, nil
+	return nil, false
+}
+
+// clearFilter drops the query narrowing the focused list, if any.
+func (m *Model) clearFilter() tea.Cmd {
+	if len(m.views) == 0 {
+		return nil
+	}
+	if f, ok := m.views[m.current].(filterable); ok {
+		if q, enabled, cs := f.FilterState(); q != "" {
+			f.SetFilter("", enabled, cs)
+			m.syncPreviewKey(false)
+		}
+	}
+	return nil
 }
 
 // overlayProvider is optionally implemented by views that render their own
@@ -1157,14 +1196,27 @@ func (m Model) currentRefs() []ui.Ref {
 	return out
 }
 
-// resolves reports whether a loaded view can select the ref's target.
+// resolves reports whether a view can take the ref's target: it has it
+// loaded, or it can fetch it in.
 func (m Model) resolves(ref ui.Ref) bool {
 	for _, v := range m.views {
-		if t, ok := v.(ui.RefTarget); ok && t.RefKind() == ref.Kind && t.HasRef(ref.ID) {
-			return true
+		if t, ok := v.(ui.RefTarget); ok && t.RefKind() == ref.Kind {
+			if t.HasRef(ref.ID) {
+				return true
+			}
+			if _, can := v.(refFetcher); can {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// refFetcher is optionally implemented by a RefTarget that can bring an item
+// it does not have loaded into its list, so following a reference lands in
+// the app rather than a browser. url is the fallback if the fetch fails.
+type refFetcher interface {
+	FetchRef(id, url string) tea.Cmd
 }
 
 // followRef jumps to the ref's target if a view can resolve it, otherwise opens
@@ -1176,6 +1228,16 @@ func (m *Model) followRef(ref ui.Ref) tea.Cmd {
 			m.current = i
 			m.syncPreviewKey(true)
 			return nil
+		}
+	}
+	// Not loaded: a view that can fetch it brings it in and selects it.
+	for i, v := range m.views {
+		if t, ok := v.(ui.RefTarget); ok && t.RefKind() == ref.Kind {
+			if f, can := v.(refFetcher); can {
+				m.current = i
+				m.syncPreviewKey(true)
+				return f.FetchRef(ref.ID, ref.URL)
+			}
 		}
 	}
 	return ui.OpenURL(ref.URL) // unresolved → browser (no-op if URL is "")
@@ -1570,7 +1632,7 @@ func (m Model) tabLabels() []string {
 		}
 		// Append a spinner glyph while the view is fetching.
 		if v.Loading() {
-			label += " " + spinnerFrames[m.spinnerFrame%len(spinnerFrames)]
+			label += " " + ui.SpinnerFrame(m.spinnerFrame)
 		}
 		labels[i] = style.Render(label)
 	}

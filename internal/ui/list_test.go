@@ -108,12 +108,15 @@ func TestListSelectionPreservedAcrossSetItems(t *testing.T) {
 	}
 }
 
-func TestListSelectionResetsWhenItemGone(t *testing.T) {
+// A selected item that is gone leaves the cursor where it was, clamped to
+// the list, rather than jumping to the top: the row that slid into its
+// place is where the eye still is.
+func TestListSelectionStaysPutWhenItemGone(t *testing.T) {
 	l := newTestList("a", "b", "c")
 	l.cursor = 2
 	l.SetItems([]strItem{"x", "y"}) // "c" no longer present
-	if got := l.Selected(); got != "x" {
-		t.Errorf("Selected() = %q, want clamped to first %q", got, "x")
+	if got := l.Selected(); got != "y" {
+		t.Errorf("Selected() = %q, want the row at the old index, clamped (%q)", got, "y")
 	}
 }
 
@@ -188,20 +191,30 @@ func TestNavigateWhileFiltering(t *testing.T) {
 	}
 }
 
-func TestMatchesSubsequence(t *testing.T) {
+// A bare word matches as a substring or as runs that each open a word; a
+// free subsequence matched nearly every row for a three-letter query.
+func TestMatchesFuzzy(t *testing.T) {
 	cases := []struct {
 		s, q string
 		want bool
 	}{
 		{"banana", "ban", true},
-		{"banana", "bnn", true}, // subsequence, non-contiguous
+		{"banana", "nan", true},  // substring anywhere
+		{"banana", "bnn", false}, // scattered letters
 		{"banana", "xyz", false},
-		{"banana", "", true},   // empty query matches anything
-		{"abc", "abcd", false}, // query longer than string
+		{"banana", "", true},              // empty query matches anything
+		{"abc", "abcd", false},            // query longer than string
+		{"linear paging", "linpag", true}, // word prefixes in order
+		{"feat/linear-paging", "lipa", true},
+		{"fix: oops", "foo", true}, // f opens a word, oo opens the next
+		{"fetch the old owner", "foo", false},
+		{"SRE-3806 rotate keys", "3806rot", true},
+		{"hideDrafts", "hiDr", true},     // camelCase opens a word
+		{"hide the drafts", "hd", false}, // initials are not a match
 	}
 	for _, c := range cases {
-		if got := matchesSubsequence(c.s, c.q); got != c.want {
-			t.Errorf("matchesSubsequence(%q, %q) = %v, want %v", c.s, c.q, got, c.want)
+		if got := matchesFuzzy(c.s, c.q); got != c.want {
+			t.Errorf("matchesFuzzy(%q, %q) = %v, want %v", c.s, c.q, got, c.want)
 		}
 	}
 }
