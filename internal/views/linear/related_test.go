@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
@@ -63,5 +64,32 @@ func TestFetchedIssueIsAddedAndSelected(t *testing.T) {
 	}
 	if cmd := v.Update(issueFetchedMsg{id: "SRE-10", url: "u", err: errBoom}); cmd == nil {
 		t.Error("a failed fetch did not fall back to opening the URL")
+	}
+}
+
+// A ticket another view names that this list does not hold is fetched once
+// and published to the store with its status, not added to the list.
+func TestResolveRefsFetchesAndPublishesUnknownIssues(t *testing.T) {
+	v := floatIssue(t, 0)
+	s := store.New()
+	v.store = s
+	if cmd := v.Update(ui.ResolveRefsMsg{Kind: "linear", IDs: []string{"SRE-1"}}); cmd != nil {
+		t.Error("a listed issue was fetched again")
+	}
+	if cmd := v.Update(ui.ResolveRefsMsg{Kind: "linear", IDs: []string{"SRE-77"}}); cmd == nil {
+		t.Fatal("an unknown issue was not fetched")
+	}
+	if cmd := v.Update(ui.ResolveRefsMsg{Kind: "linear", IDs: []string{"SRE-77"}}); cmd != nil {
+		t.Error("the same issue was fetched twice")
+	}
+	i := issue{Identifier: "SRE-77", Title: "Parked", URL: "u"}
+	i.State.Name, i.State.Type = "Backlog", "backlog"
+	v.Update(issueResolvedMsg{id: "SRE-77", issue: i})
+	got, ok := s.Issue("SRE-77")
+	if !ok || got.StateType != "backlog" || got.Title != "Parked" {
+		t.Errorf("store record = %+v, %v; want the fetched issue with its state type", got, ok)
+	}
+	if v.HasRef("SRE-77") {
+		t.Error("a resolved issue was added to the list")
 	}
 }

@@ -284,8 +284,9 @@ func (i issue) Render(width int, selected bool, hl ui.Highlighter) string {
 	// grouping's lane header already announces.
 	plain, styled := "", ""
 	if !i.HideStatus {
-		plain = i.State.Name + "  "
-		styled = hexStyle(i.State.Color).Render(i.State.Name) + "  "
+		icon := ui.IssueStatusIcon(i.State.Type, i.State.Name)
+		plain = ansi.Strip(icon) + " " + i.State.Name + "  "
+		styled = icon + " " + hexStyle(i.State.Color).Render(i.State.Name) + "  "
 	}
 	plain += i.Identifier
 	styled += ui.Cyan.Render(i.Identifier)
@@ -505,14 +506,17 @@ type errMsg struct{ err error }
 // --- view -------------------------------------------------------------------
 
 type View struct {
-	cfg      config.LinearConfig
-	token    string
-	list     ui.List[issue]
-	raw      []issue
-	sort     sortMode
-	rev      bool // sort order reversed
-	grouping bool // swimlanes derived from the active sort
-	store    *store.Store
+	cfg   config.LinearConfig
+	token string
+	// resolving is the ids fetched for another view's references, so each
+	// is asked of Linear once.
+	resolving map[string]bool
+	list      ui.List[issue]
+	raw       []issue
+	sort      sortMode
+	rev       bool // sort order reversed
+	grouping  bool // swimlanes derived from the active sort
+	store     *store.Store
 
 	// Navigation tree state (ctrl+p). source drives what fetch() queries;
 	// defaultSource is the config-derived one whose results are cached.
@@ -677,6 +681,18 @@ func (v *View) saveFresh() { _ = cache.Save(freshCacheName, v.freshIDs()) }
 
 func (v *View) Title() string { return "Linear" }
 
+// record is the issue as the shared store carries it.
+func (i issue) record() store.Issue {
+	return store.Issue{
+		Identifier: i.Identifier,
+		Title:      i.Title,
+		State:      i.State.Name,
+		StateType:  i.State.Type,
+		StateColor: i.State.Color,
+		URL:        i.URL,
+	}
+}
+
 // publish pushes the loaded issues into the shared store so other views (PRs,
 // sessions) can show an issue's title when they reference it by identifier.
 func (v *View) publish(issues []issue) {
@@ -685,14 +701,7 @@ func (v *View) publish(issues []issue) {
 	}
 	recs := make([]store.Issue, 0, len(issues))
 	for _, i := range issues {
-		recs = append(recs, store.Issue{
-			Identifier: i.Identifier,
-			Title:      i.Title,
-			State:      i.State.Name,
-			StateType:  i.State.Type,
-			StateColor: i.State.Color,
-			URL:        i.URL,
-		})
+		recs = append(recs, i.record())
 	}
 	v.store.PutIssues(recs)
 }
@@ -1028,6 +1037,31 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.saveFresh()
 		}
 		return cmd
+	case ui.ResolveRefsMsg:
+		// Another view names tickets this list does not hold: fetch each
+		// once and publish it, so its status shows there.
+		if msg.Kind != "linear" || v.token == "" {
+			return nil
+		}
+		var cmds []tea.Cmd
+		for _, id := range msg.IDs {
+			if v.list.Any(matchID(id)) || v.resolving[id] {
+				continue
+			}
+			if v.resolving == nil {
+				v.resolving = map[string]bool{}
+			}
+			v.resolving[id] = true
+			cmds = append(cmds, v.fetchIssue(id, func(i issue, err error) tea.Msg {
+				return issueResolvedMsg{id: id, issue: i, err: err}
+			}))
+		}
+		return tea.Batch(cmds...)
+	case issueResolvedMsg:
+		if msg.err == nil && msg.issue.Identifier != "" {
+			v.publish([]issue{msg.issue})
+		}
+		return nil
 	case issueFetchedMsg:
 		if msg.err != nil || msg.issue.Identifier == "" {
 			// Could not bring it in: the browser is still a way to see it.
@@ -1457,7 +1491,7 @@ func (v *View) PreviewView() string {
 	b.WriteString(ui.Bold.Width(v.prevW).Render(i.Title))
 	b.WriteString("\n\n")
 
-	statusLine := hexStyle(i.State.Color).Render(i.State.Name)
+	statusLine := ui.IssueStatusIcon(i.State.Type, i.State.Name) + " " + hexStyle(i.State.Color).Render(i.State.Name)
 	if i.PriorityLabel != "" && i.Priority != 0 {
 		statusLine += "   " + i.priorityCell() + " " + i.PriorityLabel
 	}
@@ -1568,6 +1602,21 @@ const issueQuery = `query($id: String!) {
 // Appended rather than filtered in: it may not match the current source,
 // and the next refresh of that source will drop it again.
 func (v *View) FetchRef(id, url string) tea.Cmd {
+	return v.fetchIssue(id, func(i issue, err error) tea.Msg {
+		return issueFetchedMsg{id: id, url: url, issue: i, err: err}
+	})
+}
+
+// issueResolvedMsg carries an issue fetched for another view's reference,
+// to publish rather than to show.
+type issueResolvedMsg struct {
+	id    string
+	issue issue
+	err   error
+}
+
+// fetchIssue loads one issue by identifier and hands it to done.
+func (v *View) fetchIssue(id string, done func(issue, error) tea.Msg) tea.Cmd {
 	token := v.token
 	return func() tea.Msg {
 		body, _ := json.Marshal(map[string]any{"query": issueQuery, "variables": map[string]any{"id": id}})
@@ -1575,13 +1624,13 @@ func (v *View) FetchRef(id, url string) tea.Cmd {
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
-			return issueFetchedMsg{id: id, url: url, err: err}
+			return done(issue{}, err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return issueFetchedMsg{id: id, url: url, err: err}
+			return done(issue{}, err)
 		}
 		defer resp.Body.Close()
 		var out struct {
@@ -1593,12 +1642,12 @@ func (v *View) FetchRef(id, url string) tea.Cmd {
 			} `json:"errors"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			return issueFetchedMsg{id: id, url: url, err: err}
+			return done(issue{}, err)
 		}
 		if len(out.Errors) > 0 {
-			return issueFetchedMsg{id: id, url: url, err: fmt.Errorf("linear: %s", out.Errors[0].Message)}
+			return done(issue{}, fmt.Errorf("linear: %s", out.Errors[0].Message))
 		}
-		return issueFetchedMsg{id: id, url: url, issue: out.Data.Issue}
+		return done(out.Data.Issue, nil)
 	}
 }
 

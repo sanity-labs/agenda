@@ -176,7 +176,10 @@ from a PR lands in the Linear tab even when its source does not list it.
 The browser is the fallback, marked `↗` in the picker. An issue's detail
 lists its pull requests open, one per line with their status glyphs, and
 a PR's detail names its Linear issues as `status glyph · id · title`, the
-row the picker shows too; `l` from either raises the picker.
+row the picker shows too; `l` from either raises the picker. A ticket the
+Linear tab does not list is resolved on demand: the PRs view sends
+`ResolveRefsMsg` once per id, the Linear view fetches it and publishes its
+status to the store without adding it to its list.
 
 ## Panes
 

@@ -622,6 +622,9 @@ type View struct {
 	sort             sortMode
 	rev              bool // sort order reversed
 	store            *store.Store
+	// resolveAsked is the Linear ids already sent for resolution, so a
+	// ticket is asked for once per run whatever the answer.
+	resolveAsked map[string]bool
 
 	// notifier posts "needs your review" notifications (nil = off); seeded
 	// gates them so the first data never fires a storm.
@@ -769,6 +772,30 @@ type View struct {
 type settleMsg struct {
 	from *View
 	gen  int
+}
+
+// resolveLinear asks the Linear view for the tickets the selected PR names
+// that the store does not know, so the detail can show their status. Each
+// id is asked for once.
+func (v *View) resolveLinear() tea.Cmd {
+	if v.store == nil {
+		return nil
+	}
+	var ids []string
+	for _, id := range v.list.Selected().linearRefs() {
+		if _, ok := v.store.Issue(id); ok || v.resolveAsked[id] {
+			continue
+		}
+		if v.resolveAsked == nil {
+			v.resolveAsked = map[string]bool{}
+		}
+		v.resolveAsked[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return func() tea.Msg { return ui.ResolveRefsMsg{Kind: "linear", IDs: ids} }
 }
 
 // scheduleSettle arms the debounce while a data pane is showing.
@@ -1376,7 +1403,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if !msg.more {
 			partial = tea.Batch(partial, v.departed(before, msg.page.prs))
 		}
-		return partial
+		return tea.Batch(partial, v.resolveLinear())
 	case reviewListMsg:
 		if v.foreign(msg.from) {
 			return nil
@@ -1744,9 +1771,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 						v.clearUnread()
 					}
 				}
-				return tea.Batch(cmd, v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
+				return tea.Batch(cmd, v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync(), v.resolveLinear())
 			}
-			return tea.Batch(cmd, v.scheduleSettle(), more)
+			return tea.Batch(cmd, v.scheduleSettle(), more, v.resolveLinear())
 		}
 		if v.list.Filtering() {
 			return nil
@@ -3081,7 +3108,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 			v.clearUnread()
 		}
 	}
-	return tea.Batch(v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync())
+	return tea.Batch(v.scheduleSettle(), v.scheduleRowRefresh(), ui.ConcealPreview, more, v.drainSync(), v.resolveLinear())
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
