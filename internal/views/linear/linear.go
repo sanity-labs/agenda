@@ -1058,9 +1058,18 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		return tea.Batch(cmds...)
 	case issueResolvedMsg:
-		if msg.err == nil && msg.issue.Identifier != "" {
-			v.publish([]issue{msg.issue})
+		// A ticket that cannot be fetched keeps its placeholder; say why in
+		// the log, since a token without the team reads as "not found".
+		if msg.err != nil || msg.issue.Identifier == "" {
+			why := "not found, or the token has no access to its team"
+			if msg.err != nil {
+				why = msg.err.Error()
+			}
+			return func() tea.Msg {
+				return ui.Status(ui.SeverityWarn, "Linear", "could not resolve "+msg.id, why)
+			}
 		}
+		v.publish([]issue{msg.issue})
 		return nil
 	case issueFetchedMsg:
 		if msg.err != nil || msg.issue.Identifier == "" {

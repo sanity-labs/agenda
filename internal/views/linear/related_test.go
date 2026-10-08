@@ -92,4 +92,12 @@ func TestResolveRefsFetchesAndPublishesUnknownIssues(t *testing.T) {
 	if v.HasRef("SRE-77") {
 		t.Error("a resolved issue was added to the list")
 	}
+	// A failed fetch is said in the log, naming the id.
+	cmd := v.Update(issueResolvedMsg{id: "SRE-78", err: errBoom})
+	if cmd == nil {
+		t.Fatal("a failed resolve was silent")
+	}
+	if st, ok := cmd().(ui.StatusMsg); !ok || !strings.Contains(st.Summary, "SRE-78") {
+		t.Errorf("failed resolve reported %+v, want a status naming SRE-78", cmd())
+	}
 }
