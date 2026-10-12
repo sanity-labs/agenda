@@ -162,7 +162,10 @@ resolve) still run in the client, which refetches as before; the daemon's
 next fetch agrees with it. When the connection drops the client fetches
 for itself again and retries the socket; it never respawns a daemon on its
 own, since a stop was somebody's decision. One daemon per state dir; a
-second `agenda daemon` refuses a live socket and replaces a dead one.
+second `agenda daemon` refuses a live socket and replaces a dead one. A
+reload from the settings overlay stops the daemon before the exec, so the
+new process spawns one that read the config as it is now; otherwise a
+notification sound changed in the overlay would still play the old one.
 
 ## Settings that need a reload
 

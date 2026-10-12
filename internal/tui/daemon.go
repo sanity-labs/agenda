@@ -194,6 +194,35 @@ func (m Model) updateDaemon(msg tea.Msg) (Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
+// StopDaemonForReload stops the daemon this model is a client of and
+// waits for its socket to go, so the process a reload execs spawns a
+// fresh one that reads the config as it is now. A daemon that read the
+// old config would keep notifying with the old sound and searches, which
+// is the one thing a reload must not leave behind.
+func (m Model) StopDaemonForReload() {
+	if m.daemon == nil {
+		return
+	}
+	_ = m.daemon.Call(daemon.MethodStop, nil, nil)
+	select {
+	case <-m.daemon.Done():
+	case <-time.After(5 * time.Second):
+	}
+	sock, err := daemon.SocketPath()
+	if err != nil {
+		return
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		c, err := daemon.Dial(sock)
+		if err != nil {
+			return
+		}
+		c.Close()
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // daemonMarker is the footer's word on the daemon: present, or lost.
 func (m Model) daemonMarker() string {
 	switch {

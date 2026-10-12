@@ -133,7 +133,10 @@ func main() {
 		if m, ok := final.(tui.Model); ok && m.Restart() {
 			// The settings overlay asked for a reload. Exec rather than
 			// loop: it is a full restart, so every option takes effect the
-			// way it would after quitting and running agenda again.
+			// way it would after quitting and running agenda again. The
+			// daemon goes first, so the new process starts one on the new
+			// config rather than attaching to one still on the old.
+			m.StopDaemonForReload()
 			exe, err := os.Executable()
 			if err == nil {
 				err = syscall.Exec(exe, os.Args, append(os.Environ(), reloadEnv+"="+m.RestartState()))

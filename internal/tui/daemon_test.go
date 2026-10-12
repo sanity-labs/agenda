@@ -228,3 +228,29 @@ func shortSock(t *testing.T, name string) string {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, name)
 }
+
+// A reload stops the daemon first, so the new process spawns one on the
+// new config instead of attaching to one that read the old.
+func TestReloadStopsTheDaemon(t *testing.T) {
+	var s *daemon.Server
+	s, m, _, calls := daemonPair(t, func(_ context.Context, req daemon.Request) (any, error) {
+		if req.Method == daemon.MethodStop {
+			go func() { time.Sleep(50 * time.Millisecond); s.Close() }()
+		}
+		return nil, nil
+	})
+	m.StopDaemonForReload()
+	select {
+	case req := <-calls:
+		if req.Method != daemon.MethodStop {
+			t.Fatalf("daemon got %s, want stop", req.Method)
+		}
+	default:
+		t.Fatal("the daemon was not asked to stop")
+	}
+	select {
+	case <-m.daemon.Done():
+	default:
+		t.Fatal("StopDaemonForReload returned before the connection was gone")
+	}
+}
