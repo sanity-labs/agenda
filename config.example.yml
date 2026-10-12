@@ -109,7 +109,11 @@ notifications:
   # for a proper app icon; without it notifications still post through
   # osascript, just plainer and not clickable.
   # click: url
-  # sound: true
+  # The sound: off, or a bundled name (macOS: Basso, Blow, Bottle, Frog,
+  # Funk, Glass, Hero, Morse, Ping, Pop, Purr, Sosumi, Submarine, Tink;
+  # Linux: a freedesktop event id such as message or bell), or a file path.
+  # Ping by default; the settings row auditions each as you pick it.
+  # sound: Ping
 
 # Keybind overrides: scope -> action -> key(s). A binding may be a single key
 # or a list; an empty list disables the action. Defaults shown commented.

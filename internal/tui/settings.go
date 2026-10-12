@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
@@ -250,9 +251,17 @@ func settingsTable() []setting {
 			},
 			set: func(c *config.Config, v string) { c.Notify.Popup = v },
 		},
-		boolSetting("sound", "notifications.sound", noteReload,
-			func(c config.Config) bool { return optBool(c.Notify.Sound) },
-			func(c *config.Config, v bool) { setOptBool(&c.Notify.Sound, v) }),
+		{
+			label: "sound", path: "notifications.sound", kind: kindEnum, note: noteReload,
+			options: func() []string { return append([]string{"off"}, notify.Sounds()...) },
+			get: func(c config.Config) string {
+				if c.Notify.Sound.Off() {
+					return "off"
+				}
+				return c.Notify.Sound.Name()
+			},
+			set: func(c *config.Config, v string) { c.Notify.Sound = config.Sound(v) },
+		},
 		{
 			label: "send test notification", path: "action:test_notification", kind: kindAction,
 			get: func(config.Config) string { return "" },

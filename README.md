@@ -97,7 +97,7 @@ own PRs only and `w` says so.
 | `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `unread`, `unread_sync` | blue dot on rows that arrived since you last looked (on); keep it in step with GitHub notifications |
-| `notifications.popup` | `terminal` toast, `desktop` notification or `herdr` toast (over the active Herdr pane, window or not) on new review requests and assignments; `click` opens a desktop one (macOS needs `terminal-notifier`) |
+| `notifications.popup` | `terminal` toast, `desktop` notification or `herdr` toast (over the active Herdr pane, window or not) on new review requests and assignments; `click` opens a desktop one (macOS needs `terminal-notifier`); `sound` picks a bundled sound (`Glass`, `Submarine`…) or `off` |
 | `refresh.every` | auto-refresh interval, with per-view overrides |
 | `list_jump` | rows `pgup`/`pgdn` and `shift+↑↓` move (5) |
 | `mouse` | capture clicks and the wheel (on); off hands the mouse to the terminal so dragging selects and copies text, say from a CI log |

@@ -1065,9 +1065,9 @@ func (m *Model) runAction(path string) tea.Cmd {
 		m.settings.errMsg = ""
 		return nil
 	case "action:test_notification":
-		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.Sound == nil || *m.cfg.Notify.Sound, m.cfg.Notify.ClickAction())
+		n := notify.New(m.cfg.Notify.Popup, m.cfg.Notify.SoundName(), m.cfg.Notify.ClickAction())
 		if n == nil {
-			m.settings.errMsg = "set popup to terminal or desktop first"
+			m.settings.errMsg = "set popup to terminal, desktop or herdr first"
 			return nil
 		}
 		return func() tea.Msg {
@@ -1090,6 +1090,11 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 		ui.SetPalette(p)
 		ui.SetGlyphs(m.cfg.GlyphsEnabled())
 		m.theme = defaultTheme()
+	case path == "notifications.sound":
+		// Audition the choice, whatever the popup setting.
+		if name := m.cfg.Notify.Sound.Name(); !m.cfg.Notify.Sound.Off() {
+			return func() tea.Msg { notify.Play(name); return nil }
+		}
 	case path == "grouping":
 		return groupingCmd(m.cfg.Grouping)
 	case path == "toggles":
