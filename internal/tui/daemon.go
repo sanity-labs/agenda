@@ -2,9 +2,11 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -237,7 +239,36 @@ func ServeDaemon(cfg config.Config, views []View, version string) error {
 	defer server.Close()
 	cache.OnSave = func(name string) { server.Broadcast(daemon.EventCacheChanged, daemon.CacheChanged{Name: name}) }
 
+	// A toast raised with no window open would be lost; keep the last few
+	// and hand them to the next window as it connects, each as a log line
+	// and together as one toast.
+	var missedMu sync.Mutex
+	var missed []daemon.Toast
+	server.OnConnect = func(send func(event string, data any)) {
+		missedMu.Lock()
+		away := missed
+		missed = nil
+		missedMu.Unlock()
+		if len(away) == 0 {
+			return
+		}
+		titles := make([]string, 0, len(away))
+		for _, t := range away {
+			send(daemon.EventStatus, daemon.StatusLine{Severity: int(ui.SeverityInfo), Source: "notify", Summary: t.Title, Detail: t.Body, At: time.Now()})
+			titles = append(titles, t.Title)
+		}
+		send(daemon.EventToast, daemon.Toast{Title: fmt.Sprintf("%d while you were away", len(away)), Body: strings.Join(titles, " · ")})
+	}
 	m := New(cfg, views).WithVersion(version).withHeadless(func(event string, data any) {
+		if t, ok := data.(daemon.Toast); ok && event == daemon.EventToast && server.Clients() == 0 {
+			missedMu.Lock()
+			missed = append(missed, t)
+			if len(missed) > 20 {
+				missed = missed[len(missed)-20:]
+			}
+			missedMu.Unlock()
+			return
+		}
 		server.Broadcast(event, data)
 	})
 	p = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))

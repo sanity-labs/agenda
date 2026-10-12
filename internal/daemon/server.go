@@ -22,6 +22,9 @@ type Server struct {
 	handle  Handler
 	mu      sync.Mutex
 	clients map[net.Conn]*bufio.Writer
+	// OnConnect, when set, runs for each new client with a sender that
+	// reaches only that client: what it missed while away goes here.
+	OnConnect func(send func(event string, data any))
 }
 
 // Listen binds the socket. A socket file nobody answers on (a daemon that
@@ -105,6 +108,9 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 	s.mu.Lock()
 	s.clients[conn] = w
 	s.mu.Unlock()
+	if s.OnConnect != nil {
+		s.OnConnect(func(event string, data any) { s.send(conn, Event{Event: event, Data: marshal(data)}) })
+	}
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, conn)
@@ -136,8 +142,11 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 
 // reply writes one response under the clients lock, so it never
 // interleaves with a broadcast on the same connection.
-func (s *Server) reply(conn net.Conn, resp Response) {
-	line, _ := json.Marshal(resp)
+func (s *Server) reply(conn net.Conn, resp Response) { s.send(conn, resp) }
+
+// send writes one line to one client under the clients lock.
+func (s *Server) send(conn net.Conn, v any) {
+	line, _ := json.Marshal(v)
 	line = append(line, '\n')
 	s.mu.Lock()
 	defer s.mu.Unlock()

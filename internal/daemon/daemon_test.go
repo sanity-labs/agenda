@@ -130,3 +130,29 @@ func shortSock(t *testing.T, name string) string {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, name)
 }
+
+// A client that connects is handed what OnConnect has for it, and only it.
+func TestOnConnectReachesTheNewClient(t *testing.T) {
+	sock := shortSock(t, "a.sock")
+	s, err := Listen(sock, func(context.Context, Request) (any, error) { return nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.OnConnect = func(send func(event string, data any)) { send(EventToast, Toast{Title: "missed"}) }
+	ctx, cancel := context.WithCancel(context.Background())
+	go s.Serve(ctx)
+	t.Cleanup(func() { cancel(); s.Close() })
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	select {
+	case ev := <-c.Events():
+		if ev.Event != EventToast || string(ev.Data) != `{"title":"missed","body":""}` {
+			t.Fatalf("event = %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the new client got nothing")
+	}
+}

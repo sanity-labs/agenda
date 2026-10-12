@@ -161,7 +161,9 @@ type NotifyConfig struct {
 	Click string `yaml:"click"`
 }
 
-func (n NotifyConfig) Enabled() bool { return n.Popup == "terminal" || n.Popup == "desktop" }
+func (n NotifyConfig) Enabled() bool {
+	return n.Popup == "terminal" || n.Popup == "desktop" || n.Popup == "herdr"
+}
 
 // ClickAction is the notification click behaviour, defaulting to opening the
 // item.

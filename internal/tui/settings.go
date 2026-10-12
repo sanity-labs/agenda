@@ -241,7 +241,7 @@ func settingsTable() []setting {
 		},
 		{
 			label: "popup", path: "notifications.popup", kind: kindEnum, note: noteReload,
-			options: func() []string { return []string{"off", "terminal", "desktop"} },
+			options: func() []string { return []string{"off", "terminal", "desktop", "herdr"} },
 			get: func(c config.Config) string {
 				if c.Notify.Enabled() {
 					return c.Notify.Popup

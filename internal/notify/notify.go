@@ -5,6 +5,7 @@ package notify
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -22,34 +23,57 @@ type Notifier interface {
 	Notify(title, body, url string) tea.Msg
 }
 
-// New returns a notifier for the configured popup channel ("terminal" or
-// "desktop"), or nil when the channel is off; callers treat a nil Notifier
-// as "notifications disabled". click is what a desktop notification does
-// when clicked: "url" opens the item, "none" does nothing.
+// New returns a notifier for the configured popup channel ("terminal",
+// "desktop" or "herdr"), or nil when the channel is off; callers treat a
+// nil Notifier as "notifications disabled". click is what a desktop
+// notification does when clicked: "url" opens the item, "none" does
+// nothing.
 func New(popup string, sound bool, click string) Notifier {
-	if popup != "terminal" && popup != "desktop" {
-		return nil
+	switch popup {
+	case "terminal", "desktop", "herdr":
+		return system{channel: popup, sound: sound, click: click}
 	}
-	return system{desktop: popup == "desktop", sound: sound, click: click}
+	return nil
 }
 
 type system struct {
-	desktop bool
+	channel string
 	sound   bool
 	click   string
 }
 
 func (s system) Notify(title, body, url string) tea.Msg {
-	if s.desktop {
-		s.desktopNotify(title, body, url)
-	}
 	if s.sound {
 		s.playSound()
 	}
-	if !s.desktop {
-		return ui.ToastMsg{Title: title, Body: body}
+	switch s.channel {
+	case "desktop":
+		s.desktopNotify(title, body, url)
+		return nil
+	case "herdr":
+		// Herdr's own toast, over whichever pane is active, so it shows
+		// with no agenda window open. Outside Herdr it falls back to the
+		// in-app toast rather than going nowhere.
+		if herdrNotify(title, body) {
+			return nil
+		}
 	}
-	return nil
+	return ui.ToastMsg{Title: title, Body: body}
+}
+
+// herdrNotify posts through `herdr notification show`, which reaches the
+// Herdr this process was started under (HERDR_SOCKET_PATH). Reports
+// whether it did; the sound is agenda's own, so Herdr's is off.
+func herdrNotify(title, body string) bool {
+	if os.Getenv("HERDR_SOCKET_PATH") == "" {
+		return false
+	}
+	bin, err := exec.LookPath("herdr")
+	if err != nil {
+		return false
+	}
+	return exec.Command(bin, "notification", "show", title, "--body", body,
+		"--position", "top-right", "--sound", "none").Run() == nil
 }
 
 // desktopNotify posts an OS notification. On macOS it prefers

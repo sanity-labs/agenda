@@ -97,9 +97,11 @@ refresh:
 
 # Notify when something new appears: a PR waiting on your review, or a Linear
 # issue newly assigned to you. The popup channel is "off" (default),
-# "terminal" (an in-app toast, top right), or "desktop" (an OS
-# notification). Sound defaults on once the popup is on. Audition both via
-# ctrl+s -> "send test notification".
+# "terminal" (an in-app toast, top right), "desktop" (an OS notification),
+# or "herdr" (Herdr's own toast over whichever pane is active, so it shows
+# with no agenda window open; outside Herdr it falls back to the in-app
+# toast). Sound defaults on once the popup is on. Audition via ctrl+s ->
+# "send test notification".
 notifications:
   popup: off
   # What clicking a desktop notification does: "url" opens the PR or issue

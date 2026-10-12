@@ -97,7 +97,7 @@ own PRs only and `w` says so.
 | `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `unread`, `unread_sync` | blue dot on rows that arrived since you last looked (on); keep it in step with GitHub notifications |
-| `notifications.popup` | `terminal` toast or `desktop` notification on new review requests and assignments; `click` opens the item (macOS needs `terminal-notifier`) |
+| `notifications.popup` | `terminal` toast, `desktop` notification or `herdr` toast (over the active Herdr pane, window or not) on new review requests and assignments; `click` opens a desktop one (macOS needs `terminal-notifier`) |
 | `refresh.every` | auto-refresh interval, with per-view overrides |
 | `list_jump` | rows `pgup`/`pgdn` and `shift+↑↓` move (5) |
 | `mouse` | capture clicks and the wheel (on); off hands the mouse to the terminal so dragging selects and copies text, say from a CI log |
@@ -211,8 +211,10 @@ leaves fetching to it: a view repaints when the daemon rewrites its cache,
 `ctrl+r` asks the daemon to refetch, rows you look at are reported so their
 unread marks stay cleared, and the footer says `daemon` while it is
 connected (`daemon gone` if it drops, at which point the window fetches for
-itself and keeps trying the socket). Desktop notifications come from the
-daemon; terminal popups are forwarded to whichever windows are open.
+itself and keeps trying the socket). Desktop and `herdr` notifications come
+from the daemon and need no window; terminal toasts are forwarded to the
+windows that are open, and the ones raised while none was are handed to the
+next window that connects, with each in its message log (`!`).
 
 ```sh
 agenda status    # client and daemon versions, pid, uptime, views, clients
