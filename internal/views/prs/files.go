@@ -172,23 +172,30 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string,
 	out = append(out, filesSummary(st))
 	out = append(out, "")
 	for i, r := range rows {
-		st.rowLine[i] = len(out)
 		f := st.files[r.file]
+		// A blank line before each file after the first, and its hunks set
+		// in from the name, so one file's diff does not run into the next.
+		if r.patch == "" && i > 0 {
+			out = append(out, "")
+		}
+		st.rowLine[i] = len(out)
 		if r.patch != "" {
-			out = append(out, "    "+diffLine(r.patch, width-4))
+			out = append(out, "      "+diffLine(r.patch, width-6))
 			// A review thread anchored here goes under the line it is
 			// about, boxed so it reads as a conversation rather than more
 			// diff.
 			for _, t := range threadsAt(threads, f.Filename, r.line) {
 				if folded(t, unfolded) {
 					anchors = append(anchors, ui.DiffAnchor{Line: len(out), ID: t.ID})
-					out = append(out, "    "+foldedThread(t))
+					out = append(out, "      "+foldedThread(t))
 					continue
 				}
 				// The anchor is the first line inside the box, so a click
 				// on the author line folds it back.
 				anchors = append(anchors, ui.DiffAnchor{Line: len(out) + 1, ID: t.ID})
-				out = append(out, threadBox(t, width-4)...)
+				for _, l := range threadBox(t, width-6) {
+					out = append(out, "  "+l)
+				}
 			}
 			continue
 		}
@@ -206,15 +213,15 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string,
 		}
 		counts := ui.Green.Render("+"+compactCount(f.Additions)) + " " +
 			ui.Red.Render("-"+compactCount(f.Deletions))
-		name := f.Filename
-		if st.reviewed[f.Filename] {
-			name = ui.Faint.Render(name)
-		}
 		// Name first, counts right: the column of counts is what the eye
-		// scans for the big changes.
+		// scans for the big changes. The name reads as a heading, as in
+		// the unified diff: bold in the accent, faint once reviewed.
 		room := max(1, width-lipgloss.Width(cursor+mark+caret+counts)-4)
-		out = append(out, cursor+mark+caret+" "+
-			ui.PadCell(ui.Truncate(name, room), room)+" "+counts)
+		name := ui.Accent.Bold(true).Render(ui.Truncate(f.Filename, room))
+		if st.reviewed[f.Filename] {
+			name = ui.Faint.Render(ui.Truncate(f.Filename, room))
+		}
+		out = append(out, cursor+mark+caret+" "+ui.PadCell(name, room)+" "+counts)
 	}
 	if hint != "" {
 		out = append(out, "", ui.Faint.Render(hint))
