@@ -28,6 +28,7 @@ Short version: read two files, run one command, open a draft.
 | `internal/cache` | On-disk JSON cache, so the app paints before the first fetch lands |
 | `internal/notify` | Desktop and in-app notifications |
 | `internal/update` | The release check behind `agenda update` and the tab-bar marker |
+| `internal/daemon` | The background process's socket: protocol, server, client, spawn. The daemon itself is the root model run headless (`tui.ServeDaemon`) |
 
 `tui` never imports a view; `main` wires them in. A view is anything
 implementing `tui.View`; it gains cross-references by also implementing

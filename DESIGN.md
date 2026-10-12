@@ -144,6 +144,26 @@ is the one key that is always "get me out of this window".
 A preview pane you configured on is never closed by `esc`: it undoes what
 was opened over the list, not the configured state.
 
+## Daemon
+
+The daemon is not a service with its own protocol: it is the root model
+and the views run headless (`tea.WithoutRenderer`), so there is one fetch
+path, one notifier and one cache format. What a screen would have shown
+leaves over the socket instead: a toast, a message-log line. The cache
+files are the data contract between the two processes; the socket only
+carries "this cache changed", control (`status`, `refresh`, `stop`) and
+`seen` (rows a client looked at, so the daemon's next save does not revive
+their unread marks).
+
+A client model schedules no refresh ticks and runs no view `Init`: the
+cache painted in `New` is the daemon's, and `CacheChangedMsg` repaints a
+view by name, selection kept by identity. Mutations (merge, review,
+resolve) still run in the client, which refetches as before; the daemon's
+next fetch agrees with it. When the connection drops the client fetches
+for itself again and retries the socket; it never respawns a daemon on its
+own, since a stop was somebody's decision. One daemon per state dir; a
+second `agenda daemon` refuses a live socket and replaces a dead one.
+
 ## Settings that need a reload
 
 A row marked `reload required` changed in the `ctrl+s` overlay is
