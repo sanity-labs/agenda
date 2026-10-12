@@ -1,6 +1,7 @@
 package linear
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -113,5 +114,22 @@ func TestEmptyCacheFromTheDaemonEndsLoading(t *testing.T) {
 	v.Update(ui.CacheChangedMsg{Name: cacheName})
 	if v.Loading() {
 		t.Fatal("still loading after the daemon saved an empty cache")
+	}
+}
+
+// A lookup that fails to get through says nothing about the id; only
+// Linear's own "not found" marks it as not an issue.
+func TestOnlyANotFoundMarksAnIdMissing(t *testing.T) {
+	v := floatIssue(t, 0)
+	s := store.New()
+	s.PutIssues([]store.Issue{{Identifier: "SRE-1"}})
+	v.store = s
+	v.Update(issueResolvedMsg{id: "SRE-77", err: errBoom})
+	if !s.Vouched("SRE-77") {
+		t.Error("a transient error marked the id missing")
+	}
+	v.Update(issueResolvedMsg{id: "SRE-77", err: errors.New("linear: Entity not found: Issue")})
+	if s.Vouched("SRE-77") {
+		t.Error("Linear's not-found did not mark the id missing")
 	}
 }

@@ -1119,8 +1119,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			if v.store == nil {
 				return nil
 			}
+			// A network or server error says nothing about the id, so it
+			// is not marked; the next refresh asks again.
 			known := v.store.Vouched(msg.id)
-			v.store.MarkMissing(msg.id)
+			if msg.err == nil || notFound(msg.err) {
+				v.store.MarkMissing(msg.id)
+			}
 			if !known {
 				return nil
 			}
@@ -1688,6 +1692,14 @@ type issueResolvedMsg struct {
 	id    string
 	issue issue
 	err   error
+}
+
+// notFound reports Linear's answer for an identifier that is not an
+// issue the token can see, as opposed to a request that did not get
+// through.
+func notFound(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "not found") || strings.Contains(s, "could not find")
 }
 
 // fetchIssue loads one issue by identifier and hands it to done.

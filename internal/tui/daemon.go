@@ -282,58 +282,15 @@ func ServeDaemon(cfg config.Config, views []View, version string) error {
 	defer server.Close()
 	cache.OnSave = func(name string) { server.Broadcast(daemon.EventCacheChanged, daemon.CacheChanged{Name: name}) }
 
-	// A toast raised with no window open would be lost; keep the last few
-	// and hand them to the next window as it connects, each as a log line
-	// and together as one toast.
-	var missedMu sync.Mutex
-	var missed []daemon.Toast
-	var missedStatus []daemon.StatusLine
-	server.OnConnect = func(send func(event string, data any)) {
-		missedMu.Lock()
-		away, lines := missed, missedStatus
-		missed, missedStatus = nil, nil
-		missedMu.Unlock()
-		// Warnings and errors raised with no window open are not hidden
-		// by the daemon: the next window gets them, folded by the log.
-		for _, l := range lines {
-			send(daemon.EventStatus, l)
-		}
-		if len(away) == 0 {
-			return
-		}
-		titles := make([]string, 0, len(away))
-		for _, t := range away {
-			send(daemon.EventStatus, daemon.StatusLine{Severity: int(ui.SeverityInfo), Source: "notify", Summary: t.Title, Detail: t.Body, At: time.Now()})
-			titles = append(titles, t.Title)
-		}
-		send(daemon.EventToast, daemon.Toast{Title: fmt.Sprintf("%d while you were away", len(away)), Body: strings.Join(titles, " · ")})
-	}
 	if cfg.Refresh.Every == 0 {
 		cfg.Refresh.Every = config.Duration(daemonRefreshDefault)
 		log.Printf("refresh.every is unset; the daemon refreshes every %s", daemonRefreshDefault)
 	}
+	g := &greeter{}
+	server.OnConnect = g.greet
 	m := New(cfg, views).WithVersion(version).withHeadless(func(event string, data any) {
-		if server.Clients() == 0 {
-			switch d := data.(type) {
-			case daemon.Toast:
-				missedMu.Lock()
-				missed = append(missed, d)
-				if len(missed) > 20 {
-					missed = missed[len(missed)-20:]
-				}
-				missedMu.Unlock()
-				return
-			case daemon.StatusLine:
-				if d.Severity >= int(ui.SeverityWarn) {
-					missedMu.Lock()
-					missedStatus = append(missedStatus, d)
-					if len(missedStatus) > 50 {
-						missedStatus = missedStatus[len(missedStatus)-50:]
-					}
-					missedMu.Unlock()
-				}
-				return
-			}
+		if server.Clients() == 0 && g.keep(data) {
+			return
 		}
 		server.Broadcast(event, data)
 	})
@@ -345,6 +302,62 @@ func ServeDaemon(cfg config.Config, views []View, version string) error {
 	_, err = p.Run()
 	log.Printf("agenda daemon stopping")
 	return err
+}
+
+// greeter is what a window that connects is told first: that every cache
+// is the daemon's to repaint from (a window attaching to a running daemon
+// painted whatever was on disk, an empty file included, and nothing else
+// would end its loading state until the next save), and what it missed:
+// warnings and errors raised with no window open, and the toasts, each
+// as a log line and together as one toast.
+type greeter struct {
+	mu     sync.Mutex
+	toasts []daemon.Toast
+	lines  []daemon.StatusLine
+}
+
+// keep holds what a screen would have shown while no window was open.
+// Reports whether it did; anything else still goes out normally.
+func (g *greeter) keep(data any) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch d := data.(type) {
+	case daemon.Toast:
+		g.toasts = append(g.toasts, d)
+		if len(g.toasts) > 20 {
+			g.toasts = g.toasts[len(g.toasts)-20:]
+		}
+		return true
+	case daemon.StatusLine:
+		if d.Severity >= int(ui.SeverityWarn) {
+			g.lines = append(g.lines, d)
+			if len(g.lines) > 50 {
+				g.lines = g.lines[len(g.lines)-50:]
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func (g *greeter) greet(send func(event string, data any)) {
+	send(daemon.EventCacheChanged, daemon.CacheChanged{Name: ui.CacheAll})
+	g.mu.Lock()
+	toasts, lines := g.toasts, g.lines
+	g.toasts, g.lines = nil, nil
+	g.mu.Unlock()
+	for _, l := range lines {
+		send(daemon.EventStatus, l)
+	}
+	if len(toasts) == 0 {
+		return
+	}
+	titles := make([]string, 0, len(toasts))
+	for _, t := range toasts {
+		send(daemon.EventStatus, daemon.StatusLine{Severity: int(ui.SeverityInfo), Source: "notify", Summary: t.Title, Detail: t.Body, At: time.Now()})
+		titles = append(titles, t.Title)
+	}
+	send(daemon.EventToast, daemon.Toast{Title: fmt.Sprintf("%d while you were away", len(toasts)), Body: strings.Join(titles, " · ")})
 }
 
 // updateHeadless handles what only the daemon sees. ok is false for a

@@ -254,3 +254,35 @@ func TestReloadStopsTheDaemon(t *testing.T) {
 		t.Fatal("StopDaemonForReload returned before the connection was gone")
 	}
 }
+
+// A window that connects is first told to repaint every cache (so one that
+// painted an empty file still leaves its loading state), then given what
+// it missed: warnings as log lines, toasts folded into one.
+func TestGreeterRepaintsThenReplays(t *testing.T) {
+	g := &greeter{}
+	if !g.keep(daemon.Toast{Title: "review requested"}) || !g.keep(daemon.Toast{Title: "assigned"}) {
+		t.Fatal("toasts were not kept")
+	}
+	if !g.keep(daemon.StatusLine{Severity: int(ui.SeverityWarn), Summary: "forbidden"}) {
+		t.Fatal("a warning was not kept")
+	}
+	if g.keep(daemon.CacheChanged{Name: "prs"}) {
+		t.Fatal("a cache change must go out, not be kept")
+	}
+	var events []string
+	g.greet(func(event string, data any) {
+		if c, ok := data.(daemon.CacheChanged); ok {
+			event += ":" + c.Name
+		}
+		events = append(events, event)
+	})
+	want := "cache_changed:*,status,status,status,toast"
+	if got := strings.Join(events, ","); got != want {
+		t.Fatalf("greeting = %s, want %s", got, want)
+	}
+	events = nil
+	g.greet(func(event string, _ any) { events = append(events, event) })
+	if strings.Join(events, ",") != "cache_changed" {
+		t.Fatalf("second greeting replayed again: %v", events)
+	}
+}
