@@ -32,7 +32,15 @@ func (r *recView) FetchesLocally() bool       { return r.local }
 // A view whose data is local (Sessions) still scans for itself in a
 // client: the daemon's scan may predate this window.
 func TestClientStillFetchesLocalViews(t *testing.T) {
-	_, m, v, _ := daemonPair(t, nil)
+	s, m, v, _ := daemonPair(t, nil)
+	// Init's batch holds the event pump, which blocks on the socket; with
+	// the server gone it returns at once and the batch can be walked.
+	s.Close()
+	<-m.daemon.Done()
+	runBatch(m.Init())
+	if v.inits != 0 {
+		t.Fatalf("a client ran Init %d times on a view the daemon fetches for", v.inits)
+	}
 	v.local = true
 	runBatch(m.Init())
 	if v.inits != 1 {
@@ -90,10 +98,6 @@ func TestClientRepaintsWhenTheDaemonWrites(t *testing.T) {
 	s, m, v, calls := daemonPair(t, nil)
 	if cmd := m.refreshTick(0); cmd != nil {
 		t.Error("a client scheduled its own refresh tick")
-	}
-	runBatch(m.Init())
-	if v.inits != 0 {
-		t.Error("a client ran Init on a view the daemon fetches for")
 	}
 	_ = m.daemon.Call("ping", nil, nil) // registers the connection server-side
 	<-calls
