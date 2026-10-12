@@ -105,12 +105,12 @@ func TestCacheChangedRepaintsFromDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	v.Update(ui.CacheChangedMsg{Name: "linear"})
-	if v.list.Len() != 0 {
+	if len(v.raw) != 0 {
 		t.Fatal("another view's cache name repainted this list")
 	}
 	v.Update(ui.CacheChangedMsg{Name: ui.CacheAll})
-	if v.list.Len() != 1 || v.list.Selected().URL != "u9" {
-		t.Fatalf("reconnect did not repaint from the cache: %d rows", v.list.Len())
+	if len(v.raw) != 1 || v.list.Selected().URL != "u9" {
+		t.Fatalf("reconnect did not repaint from the cache: %d PRs, selected %q", len(v.raw), v.list.Selected().URL)
 	}
 	p.Title = "Rewritten"
 	_ = cache.Save("prs", cachedPRs{Mine: []pr{p}})
