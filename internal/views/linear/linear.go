@@ -1112,6 +1112,18 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// A ticket that cannot be fetched keeps its placeholder; say why in
 		// the log, since a token without the team reads as "not found".
 		if msg.err != nil || msg.issue.Identifier == "" {
+			// Not an issue after all (WAVE-2 in a PR body), or one the
+			// token cannot read: either way it stops being shown as one.
+			// Only a team Linear has shown issues from is worth a warning;
+			// anything else is just a word that looked like a ticket.
+			if v.store == nil {
+				return nil
+			}
+			known := v.store.Vouched(msg.id)
+			v.store.MarkMissing(msg.id)
+			if !known {
+				return nil
+			}
 			why := "not found, or the token has no access to its team"
 			if msg.err != nil {
 				why = msg.err.Error()

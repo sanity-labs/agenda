@@ -134,3 +134,33 @@ func TestEmptyCacheFromTheDaemonEndsLoading(t *testing.T) {
 		t.Fatal("still loading after the daemon saved an empty cache")
 	}
 }
+
+// Words that look like tickets (WAVE-2, SHARD-02 in a Terraform PR) are
+// not shown once Linear has shown which teams exist; a real id from a
+// known team is, even before its lookup lands.
+func TestLinearBlockShowsOnlyVouchedIds(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	s := store.New()
+	s.PutIssues([]store.Issue{{Identifier: "SRE-1", Title: "known"}})
+	v := New(config.GitHubConfig{}, nil, nil, s)
+	v.SetSize(90, 60, 24)
+	p := pr{Number: 1, URL: "u", Title: "Rotate WAVE-2 and SHARD-02 (SRE-12)", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	// The title at the top of the preview repeats the words; the Linear
+	// block is what is under test.
+	block := ansi.Strip(v.linearBlock(p))
+	if !strings.Contains(block, "SRE-12") {
+		t.Errorf("a known-team id is missing:\n%s", block)
+	}
+	if strings.Contains(block, "WAVE-2") || strings.Contains(block, "SHARD-02") {
+		t.Errorf("words that only look like tickets are shown:\n%s", block)
+	}
+	if got := len(v.Refs()); got != 1 {
+		t.Errorf("picker has %d Linear refs, want 1", got)
+	}
+	s.MarkMissing("SRE-12")
+	if block := v.linearBlock(p); block != "" {
+		t.Errorf("an id a lookup refused is still shown:\n%s", block)
+	}
+}
