@@ -326,6 +326,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.click(msg.X, msg.Y)
 
 	case ui.StatusMsg:
+		// A message that keeps coming (a forbidden search on every refresh)
+		// is one entry, most recent, with a count: the log says it is
+		// still happening without burying everything else.
+		if msg.Count == 0 {
+			msg.Count = 1
+		}
+		for i, s := range m.status {
+			if s.Same(msg) {
+				msg.Count = s.Count + 1
+				m.status = append(m.status[:i], m.status[i+1:]...)
+				break
+			}
+		}
 		m.status = append(m.status, msg)
 		if len(m.status) > statusLogMax {
 			m.status = m.status[len(m.status)-statusLogMax:]

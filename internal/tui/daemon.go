@@ -287,11 +287,17 @@ func ServeDaemon(cfg config.Config, views []View, version string) error {
 	// and together as one toast.
 	var missedMu sync.Mutex
 	var missed []daemon.Toast
+	var missedStatus []daemon.StatusLine
 	server.OnConnect = func(send func(event string, data any)) {
 		missedMu.Lock()
-		away := missed
-		missed = nil
+		away, lines := missed, missedStatus
+		missed, missedStatus = nil, nil
 		missedMu.Unlock()
+		// Warnings and errors raised with no window open are not hidden
+		// by the daemon: the next window gets them, folded by the log.
+		for _, l := range lines {
+			send(daemon.EventStatus, l)
+		}
 		if len(away) == 0 {
 			return
 		}
@@ -307,14 +313,27 @@ func ServeDaemon(cfg config.Config, views []View, version string) error {
 		log.Printf("refresh.every is unset; the daemon refreshes every %s", daemonRefreshDefault)
 	}
 	m := New(cfg, views).WithVersion(version).withHeadless(func(event string, data any) {
-		if t, ok := data.(daemon.Toast); ok && event == daemon.EventToast && server.Clients() == 0 {
-			missedMu.Lock()
-			missed = append(missed, t)
-			if len(missed) > 20 {
-				missed = missed[len(missed)-20:]
+		if server.Clients() == 0 {
+			switch d := data.(type) {
+			case daemon.Toast:
+				missedMu.Lock()
+				missed = append(missed, d)
+				if len(missed) > 20 {
+					missed = missed[len(missed)-20:]
+				}
+				missedMu.Unlock()
+				return
+			case daemon.StatusLine:
+				if d.Severity >= int(ui.SeverityWarn) {
+					missedMu.Lock()
+					missedStatus = append(missedStatus, d)
+					if len(missedStatus) > 50 {
+						missedStatus = missedStatus[len(missedStatus)-50:]
+					}
+					missedMu.Unlock()
+				}
+				return
 			}
-			missedMu.Unlock()
-			return
 		}
 		server.Broadcast(event, data)
 	})

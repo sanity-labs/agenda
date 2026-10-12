@@ -29,6 +29,15 @@ type StatusMsg struct {
 	Summary  string // one line, for the status row
 	Detail   string // optional, may wrap; shown in the overlay
 	At       time.Time
+	// Count is how many times this same message has arrived; the log
+	// keeps one entry with the latest time rather than a wall of repeats.
+	Count int
+}
+
+// Same reports whether two messages say the same thing, for folding
+// repeats: the time and count are what differ.
+func (m StatusMsg) Same(o StatusMsg) bool {
+	return m.Severity == o.Severity && m.Source == o.Source && m.Summary == o.Summary && m.Detail == o.Detail
 }
 
 // Status returns the tea.Msg form; the root model appends it to its log.
@@ -94,8 +103,12 @@ func detailBody(msgs []StatusMsg, width int) string {
 	wrap := max(30, width)
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
-		fmt.Fprintf(&b, "%s %s  %s\n",
-			m.style().Render(m.icon()), Dim.Render(Age(m.At)+" ago"), Bold.Render(m.Source))
+		times := ""
+		if m.Count > 1 {
+			times = Dim.Render(fmt.Sprintf("  ×%d", m.Count))
+		}
+		fmt.Fprintf(&b, "%s %s  %s%s\n",
+			m.style().Render(m.icon()), Dim.Render(Age(m.At)+" ago"), Bold.Render(m.Source), times)
 		b.WriteString(indentWrap(m.Summary, wrap, "   "))
 		if m.Detail != "" {
 			b.WriteString(indentWrap(m.Detail, wrap, "   "))
