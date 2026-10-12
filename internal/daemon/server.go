@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // Handler answers one request. Returning an *Error sends it as such; any
@@ -96,6 +97,9 @@ func (s *Server) Broadcast(event string, data any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for c, w := range s.clients {
+		// A client that stopped draining its socket must not stall every
+		// other one: bound the write, and drop it when it does not keep up.
+		_ = c.SetWriteDeadline(time.Now().Add(writeTimeout))
 		if _, err := w.Write(line); err != nil || w.Flush() != nil {
 			_ = c.Close()
 			delete(s.clients, c)
@@ -151,7 +155,12 @@ func (s *Server) send(conn net.Conn, v any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if w, ok := s.clients[conn]; ok {
+		_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 		_, _ = w.Write(line)
 		_ = w.Flush()
 	}
 }
+
+// writeTimeout bounds one write to one client; a local socket that takes
+// longer has a reader that is gone or wedged.
+const writeTimeout = 2 * time.Second

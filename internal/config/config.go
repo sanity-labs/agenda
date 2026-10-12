@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -189,8 +190,15 @@ func (n NotifyConfig) SoundName() string {
 // true/false, from when it was only on or off.
 type Sound string
 
-// DefaultSound is the bundled sound played when none is chosen.
-const DefaultSound = "Ping"
+// DefaultSound is the bundled sound played when none is chosen: a macOS
+// alert sound there, the freedesktop "message" event elsewhere, which is
+// what canberra knows.
+var DefaultSound = func() string {
+	if runtime.GOOS == "darwin" {
+		return "Ping"
+	}
+	return "message"
+}()
 
 // Off reports a sound turned off.
 func (s Sound) Off() bool {

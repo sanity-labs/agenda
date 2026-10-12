@@ -76,7 +76,11 @@ func runStop(w io.Writer, _ []string) int {
 }
 
 func runRestart(w io.Writer, args []string) int {
-	sock, _ := daemon.SocketPath()
+	sock, err := daemon.SocketPath()
+	if err != nil {
+		fmt.Fprintln(w, "agenda:", err)
+		return 1
+	}
 	if _, err := daemon.Dial(sock); err == nil {
 		if code := runStop(w, args); code != 0 {
 			return code

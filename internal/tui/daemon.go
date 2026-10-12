@@ -148,9 +148,11 @@ func (m Model) updateDaemon(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.daemon, m.daemonLost = nil, true
 		m.hookSeen()
 		m.refreshGen++
-		cmds := []tea.Cmd{daemonRetryTick()}
-		for i := range m.views {
-			cmds = append(cmds, m.refreshTick(i))
+		// Fetch now as well as on the ticks: the cache is only as fresh as
+		// the daemon's last write, and the next tick is an interval away.
+		cmds := []tea.Cmd{daemonRetryTick(), spinnerTick()}
+		for i, v := range m.views {
+			cmds = append(cmds, v.Init(), m.refreshTick(i))
 		}
 		return m, tea.Batch(cmds...), true
 	case daemonRetryMsg:

@@ -147,7 +147,7 @@ func Sounds() []string {
 	}
 	entries, err := os.ReadDir(soundsDir)
 	if err != nil {
-		return []string{"Ping"}
+		return []string{"Ping"} // the dir is part of macOS; this is for a stripped install
 	}
 	var names []string
 	for _, e := range entries {
