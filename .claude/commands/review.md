@@ -34,6 +34,10 @@ Treat a violation as a finding.
 Skip: style gofmt and golangci-lint already enforce, compliments,
 descriptions of what the code does, speculative refactors.
 
+macOS is the supported platform; the Linux paths exist and are best
+effort. A problem that only shows on Linux is a one-line note in the
+summary, not a thread: it must not hold a merge.
+
 ## How to report
 
 - One inline comment per finding that should block the merge or needs a
