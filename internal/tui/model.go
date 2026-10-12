@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/daemon"
 	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
@@ -44,9 +45,19 @@ type Model struct {
 	restart     bool
 	restartFrom string
 	reloaded    string
-	theme       theme
-	views       []View
-	current     int
+	// daemon is the connection when this model is a client of one;
+	// daemonLost says one was there and went. headless marks the model as
+	// the daemon itself, emit being its way to the clients. startup is
+	// what main wants in the message log once the screen exists.
+	daemon     *daemon.Client
+	daemonExe  string
+	daemonLost bool
+	headless   bool
+	emit       func(event string, data any)
+	startup    []ui.StatusMsg
+	theme      theme
+	views      []View
+	current    int
 
 	width, height int
 	ready         bool
@@ -191,7 +202,7 @@ type refreshTickMsg struct{ view, gen int }
 
 func (m Model) refreshTick(i int) tea.Cmd {
 	d := m.refresh[i]
-	if d <= 0 {
+	if d <= 0 || m.daemon != nil {
 		return nil
 	}
 	gen := m.refreshGen
@@ -200,9 +211,19 @@ func (m Model) refreshTick(i int) tea.Cmd {
 
 func (m Model) Init() tea.Cmd {
 	cmds := make([]tea.Cmd, 0, 2*len(m.views)+2)
-	for i, v := range m.views {
-		cmds = append(cmds, v.Init(), m.refreshTick(i))
+	switch {
+	case m.daemon != nil:
+		// The daemon fetches; the cache it keeps was painted in New.
+		cmds = append(cmds, m.daemonPump())
+	default:
+		if m.headless {
+			m.headlessSize()
+		}
+		for i, v := range m.views {
+			cmds = append(cmds, v.Init(), m.refreshTick(i))
+		}
 	}
+	cmds = append(cmds, m.startupCmds()...)
 	// Config keys that match nothing are reported rather than ignored: a typo
 	// otherwise looks exactly like the feature not working.
 	if len(m.cfg.Unknown) > 0 {
@@ -260,6 +281,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Assume the screen changed; the wheel path opts out when it provably
 	// did not, so a missed case costs a redraw rather than a stale frame.
 	m.invalidateFrame()
+	if m.headless {
+		if next, cmd, ok := m.updateHeadless(msg); ok {
+			return next, cmd
+		}
+	}
+	if next, cmd, ok := m.updateDaemon(msg); ok {
+		return next, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -525,6 +554,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previewPeeked = !m.previewHidden
 			return m, m.setPreview(!m.previewHidden, false)
 		case key.Matches(msg, m.keys.Refresh):
+			if m.daemon != nil {
+				return m, m.daemonRefresh(m.views[m.current].Title())
+			}
 			// Init() flips the view back into its loading state. Only start a
 			// spinner loop if one isn't already running (i.e. nothing was loading).
 			wasLoading := m.anyLoading()
@@ -1861,7 +1893,7 @@ func (m Model) renderFooter() string {
 			status = hint
 		}
 	}
-	left := mode + m.footerLine(full)
+	left := mode + m.footerLine(full) + m.daemonMarker()
 	if lipgloss.Width(left)+lipgloss.Width(status)+1 > m.width {
 		compact := view
 		if len(compact) > 4 {
@@ -1870,7 +1902,7 @@ func (m Model) renderFooter() string {
 		compact = append(append(append(append([]key.Binding{}, compact...), follow...),
 			filter...), pane...)
 		compact = append(compact, m.keys.Help, m.keys.Quit)
-		left = mode + m.footerLine(compact)
+		left = mode + m.footerLine(compact) + m.daemonMarker()
 	}
 
 	gap := max(1, m.width-lipgloss.Width(left)-lipgloss.Width(status))

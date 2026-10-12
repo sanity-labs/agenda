@@ -511,6 +511,7 @@ type View struct {
 	// resolving is the ids fetched for another view's references, so each
 	// is asked of Linear once.
 	resolving map[string]bool
+	onSeen    func(view string, ids []string)
 	list      ui.List[issue]
 	raw       []issue
 	sort      sortMode
@@ -639,22 +640,51 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 
 	// Paint last run's issues immediately; the live fetch refreshes them.
 	if v.token != "" {
-		if cached, ok := cache.Load[[]issue](cacheName); ok && len(cached) > 0 {
-			v.raw = cached
-			v.seeded = true
-			if ids, ok := cache.Load[[]string](freshCacheName); ok && len(ids) > 0 {
-				v.fresh = make(map[string]bool, len(ids))
-				for _, id := range ids {
-					v.fresh[id] = true
-				}
-			}
-			v.applySort()
-			v.publish(cached)
-			v.loading = false
-		}
+		v.loadCache()
 	}
 	return v
 }
+
+// loadCache paints the default source's cache: at startup, and again
+// whenever the daemon rewrites it. Reports whether there was anything.
+func (v *View) loadCache() bool {
+	cached, ok := cache.Load[[]issue](cacheName)
+	if !ok || len(cached) == 0 {
+		return false
+	}
+	v.raw = cached
+	v.seeded = true
+	v.fresh = map[string]bool{}
+	if ids, ok := cache.Load[[]string](freshCacheName); ok {
+		for _, id := range ids {
+			v.fresh[id] = true
+		}
+	}
+	v.applySort()
+	v.publish(cached)
+	v.loading = false
+	return true
+}
+
+// forgetFresh drops marks for issues a client has looked at, so the
+// daemon's next save does not revive them.
+func (v *View) forgetFresh(ids []string) {
+	changed := false
+	for _, id := range ids {
+		if v.fresh[id] {
+			delete(v.fresh, id)
+			changed = true
+		}
+	}
+	if changed {
+		v.applySort()
+		v.saveFresh()
+	}
+}
+
+// ReportSeen sets the hook told which issues the user looked at; the root
+// model forwards them to the daemon.
+func (v *View) ReportSeen(f func(view string, ids []string)) { v.onSeen = f }
 
 const cacheName = "linear"
 
@@ -1037,6 +1067,26 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.saveFresh()
 		}
 		return cmd
+	case ui.CacheChangedMsg:
+		// The daemon fetched the default source: repaint from its cache
+		// unless the list is showing another source right now.
+		if msg.Name != cacheName && msg.Name != freshCacheName {
+			return nil
+		}
+		var none navSource
+		if v.lastLoaded != none && v.lastLoaded != v.defaultSource {
+			return nil
+		}
+		before := v.list.Selected()
+		if !v.loadCache() {
+			return nil
+		}
+		return v.departed(before, v.raw)
+	case ui.SeenMsg:
+		if msg.View == cacheName {
+			v.forgetFresh(msg.IDs)
+		}
+		return nil
 	case ui.ResolveRefsMsg:
 		// Another view names tickets this list does not hold: fetch each
 		// once and publish it, so its status shows there.
@@ -1297,6 +1347,9 @@ func (v *View) clearFreshFor(id string) {
 	delete(v.fresh, id)
 	v.applySort()
 	v.saveFresh()
+	if v.onSeen != nil {
+		v.onSeen(cacheName, []string{id})
+	}
 }
 
 // notifyNew posts a notification for issues that appeared since the last

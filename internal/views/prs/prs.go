@@ -622,6 +622,7 @@ type View struct {
 	sort             sortMode
 	rev              bool // sort order reversed
 	store            *store.Store
+	onSeen           func(view string, ids []string)
 	// resolveAsked is the Linear ids already sent for resolution, so a
 	// ticket is asked for once per run whatever the answer.
 	resolveAsked map[string]bool
@@ -989,27 +990,53 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 	v.nav = newNavKeys(km)
 
 	// Paint last run's PRs immediately; the live fetch refreshes them.
+	v.loadCache()
+	return v
+}
+
+// loadCache paints the cache: at startup, and again whenever the daemon
+// rewrites it. Reports whether there was anything to paint.
+func (v *View) loadCache() bool {
 	cached, ok := cache.Load[cachedPRs](v.cacheName())
-	if reviewsOnly {
+	if v.reviewsOnly {
 		// Own PRs have no place here whatever an earlier run wrote: the
 		// tab never fetches them, so a stale row would never be replaced.
 		cached.Mine = nil
 	}
-	if ok && len(cached.Mine)+len(cached.Review) > 0 {
-		v.raw, v.reviewRaw = cached.Mine, cached.Review
-		v.seeded, v.mineSeeded = true, true
-		if len(cached.Unread) > 0 {
-			v.unread = make(map[string]bool, len(cached.Unread))
-			for _, url := range cached.Unread {
-				v.unread[url] = true
-			}
-		}
-		v.applySort()
-		v.publish(append(cached.Mine, cached.Review...))
-		v.loading = false
+	if !ok || len(cached.Mine)+len(cached.Review) == 0 {
+		return false
 	}
-	return v
+	v.raw, v.reviewRaw = cached.Mine, cached.Review
+	v.seeded, v.mineSeeded = true, true
+	v.unread = make(map[string]bool, len(cached.Unread))
+	for _, url := range cached.Unread {
+		v.unread[url] = true
+	}
+	v.applySort()
+	v.publish(append(cached.Mine, cached.Review...))
+	v.loading = false
+	return true
 }
+
+// forgetUnread drops marks for rows a client has looked at, so the
+// daemon's next save does not revive them.
+func (v *View) forgetUnread(urls []string) {
+	changed := false
+	for _, url := range urls {
+		if v.unread[url] {
+			delete(v.unread, url)
+			changed = true
+		}
+	}
+	if changed {
+		v.applySort()
+		v.saveCache()
+	}
+}
+
+// ReportSeen sets the hook told which rows the user looked at, by cache
+// name; the root model forwards them to the daemon.
+func (v *View) ReportSeen(f func(view string, ids []string)) { v.onSeen = f }
 
 // cachedPRs is the on-disk shape of the last fetch. Unread rides along: a
 // mark you never looked at has to survive a restart, or quitting silently
@@ -1569,6 +1596,22 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.SpinnerTickMsg:
 		v.spinFrame = msg.Frame
+		return nil
+	case ui.CacheChangedMsg:
+		// The daemon fetched: repaint from its cache, selection kept by
+		// identity, and say so if the selected row left.
+		if msg.Name != v.cacheName() {
+			return nil
+		}
+		before := v.list.Selected()
+		if !v.loadCache() {
+			return nil
+		}
+		return v.departed(before, append(v.raw, v.reviewRaw...))
+	case ui.SeenMsg:
+		if msg.View == v.cacheName() {
+			v.forgetUnread(msg.IDs)
+		}
 		return nil
 	case ui.ListJumpMsg:
 		v.jump = int(msg)
@@ -3003,6 +3046,9 @@ func (v *View) clearUnreadFor(url string) {
 	delete(v.unread, url)
 	v.applySort()
 	v.saveCache()
+	if v.onSeen != nil {
+		v.onSeen(v.cacheName(), []string{url})
+	}
 	if p, ok := v.prByURL(url); v.unreadSync && ok && p.repo() != "" && p.Number != 0 {
 		v.syncPending = append(v.syncPending, markThreadRead(p.repo(), p.Number))
 	}
