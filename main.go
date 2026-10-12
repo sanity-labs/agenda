@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/daemon"
 	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/tui"
@@ -80,6 +81,15 @@ func main() {
 		}
 	}
 
+	// `agenda daemon`: the same views, headless, behind the socket.
+	if len(os.Args) > 1 && os.Args[1] == "daemon" {
+		if err := tui.ServeDaemon(cfg, views, versionString()); err != nil {
+			fmt.Fprintln(os.Stderr, "agenda daemon:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// `agenda linear` (or prs/sessions) opens on that view.
 	initial := 0
 	if len(os.Args) > 1 {
@@ -102,7 +112,22 @@ func main() {
 	// clear it so a later manual launch does not reopen the settings.
 	reloaded := os.Getenv(reloadEnv)
 	os.Unsetenv(reloadEnv)
-	p := tea.NewProgram(tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithReloaded(reloaded))
+	m := tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithReloaded(reloaded)
+	if cfg.Daemon {
+		// Find the daemon or start one; it fetches from here on. Failing
+		// that, this process fetches for itself and says why.
+		exe, err := os.Executable()
+		var c *daemon.Client
+		if err == nil {
+			c, err = daemon.Connect(exe)
+		}
+		if err != nil {
+			m = m.WithStartupStatus(ui.Status(ui.SeverityWarn, "daemon", "no daemon: fetching here", err.Error()))
+		} else {
+			m = m.WithDaemon(c, exe)
+		}
+	}
+	p := tea.NewProgram(m)
 	final, err := p.Run()
 	if err == nil {
 		if m, ok := final.(tui.Model); ok && m.Restart() {

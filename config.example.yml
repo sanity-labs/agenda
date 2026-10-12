@@ -55,6 +55,13 @@ list_jump: 5
 # other PR in diff view; "persist" keeps it until you toggle back.
 toggles: ephemeral
 
+# Keep a background agenda (the daemon) running the fetch loops, cache and
+# notifications, so they carry on with no window open and the next window
+# paints from fresh data. The TUI starts one when none answers and leaves
+# fetching to it; `agenda status`, `agenda stop`, `agenda restart` manage it.
+# Off by default.
+daemon: false
+
 # Capture clicks and the wheel. On by default. Off hands the mouse back to
 # the terminal, so dragging selects text and copies it the way the terminal
 # does (handy for a CI log); clicks and the wheel then do nothing in agenda.

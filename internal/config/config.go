@@ -77,6 +77,12 @@ type Config struct {
 	// toggle_preview key (default "v") flips it at runtime either way.
 	HidePreview bool `yaml:"hide_preview"`
 
+	// Daemon keeps a background agenda running the fetch loops, cache and
+	// notifications, so they go on with no window open and the next
+	// window paints from fresh data. The TUI starts one when none answers
+	// and leaves fetching to it. Off by default.
+	Daemon bool `yaml:"daemon"`
+
 	// Mouse captures clicks and the wheel (on by default). Off hands the
 	// mouse back to the terminal, so dragging selects text and copies it
 	// the way the terminal does, with no bypass modifier.
