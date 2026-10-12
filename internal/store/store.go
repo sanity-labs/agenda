@@ -99,9 +99,14 @@ func Key(kind, id string) string {
 // --- store ------------------------------------------------------------------
 
 type Store struct {
-	mu              sync.RWMutex
-	prs             map[string]PR
-	issues          map[string]Issue
+	mu     sync.RWMutex
+	prs    map[string]PR
+	issues map[string]Issue
+	// teams is every team key an issue has been seen from; missing is
+	// every identifier a lookup said does not exist. Together they say
+	// whether an ABC-123 in some text is a ticket or just a word.
+	teams           map[string]bool
+	missing         map[string]bool
 	sessionMentions map[string][]SessionRef
 }
 
@@ -110,6 +115,8 @@ func New() *Store {
 		prs:             map[string]PR{},
 		issues:          map[string]Issue{},
 		sessionMentions: map[string][]SessionRef{},
+		teams:           map[string]bool{},
+		missing:         map[string]bool{},
 	}
 }
 
@@ -136,8 +143,42 @@ func (s *Store) PutIssues(issues []Issue) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, i := range issues {
-		s.issues[strings.ToUpper(i.Identifier)] = i
+		id := strings.ToUpper(i.Identifier)
+		s.issues[id] = i
+		delete(s.missing, id)
+		if key, _, ok := strings.Cut(id, "-"); ok {
+			s.teams[key] = true
+		}
 	}
+}
+
+// MarkMissing records that a lookup found no issue with this identifier,
+// so it stops being shown as one.
+func (s *Store) MarkMissing(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.missing[strings.ToUpper(id)] = true
+}
+
+// Vouched reports whether an identifier should be shown as a Linear issue:
+// one that is loaded, or one from a team issues have been seen from that
+// no lookup has refused yet. With no team seen yet nothing is refused, so
+// the first paint before Linear loads still shows what it finds.
+func (s *Store) Vouched(id string) bool {
+	id = strings.ToUpper(id)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.issues[id]; ok {
+		return true
+	}
+	if s.missing[id] {
+		return false
+	}
+	if len(s.teams) == 0 {
+		return true
+	}
+	key, _, _ := strings.Cut(id, "-")
+	return s.teams[key]
 }
 
 // Issue returns the stored metadata for an issue identifier (case-insensitive).

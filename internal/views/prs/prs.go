@@ -287,6 +287,23 @@ func (p pr) checksTerm() string {
 // tokens like "v2-foo" don't match.
 var linearRefRe = regexp.MustCompile(`(?i)\b([a-z]{2,}-\d+)\b`)
 
+// vouchedRefs is linearRefs minus what the store knows is not a ticket:
+// an id a lookup refused, or one from a team Linear has never shown an
+// issue from (WAVE-2 in a Terraform PR). Without a store, everything.
+func (v *View) vouchedRefs(p pr) []string {
+	ids := p.linearRefs()
+	if v.store == nil {
+		return ids
+	}
+	out := ids[:0:0]
+	for _, id := range ids {
+		if v.store.Vouched(id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // linearRefs returns the Linear identifiers this PR references (uppercased,
 // de-duplicated, in order of appearance). It scans the title, branch, then
 // body — the places a Linear issue is conventionally named.
@@ -782,6 +799,8 @@ func (v *View) resolveLinear() tea.Cmd {
 		return nil
 	}
 	var ids []string
+	// Every id is asked for, vouched or not: the lookup is what settles
+	// whether an unknown-team id is a ticket or a word.
 	for _, id := range v.list.Selected().linearRefs() {
 		if _, ok := v.store.Issue(id); ok || v.resolveAsked[id] {
 			continue
@@ -2407,7 +2426,7 @@ func (v *View) submitReview(verdict string) tea.Cmd {
 func (v *View) Refs() []ui.Ref {
 	sel := v.list.Selected()
 	var refs []ui.Ref
-	for _, id := range sel.linearRefs() {
+	for _, id := range v.vouchedRefs(sel) {
 		var iss store.Issue
 		if v.store != nil {
 			iss, _ = v.store.Issue(id)
@@ -3267,7 +3286,7 @@ func (v *View) PreviewView() string {
 // linearBlock names the Linear issue(s) the PR references, with the
 // issue's title where the Linear view has it, and how to get there.
 func (v *View) linearBlock(p pr) string {
-	ids := p.linearRefs()
+	ids := v.vouchedRefs(p)
 	if len(ids) == 0 {
 		return ""
 	}

@@ -735,6 +735,9 @@ func (v *View) Refs() []ui.Ref {
 		case "linear":
 			var iss store.Issue
 			if v.store != nil {
+				if !v.store.Vouched(mn.ID) {
+					continue
+				}
 				iss, _ = v.store.Issue(mn.ID)
 			}
 			refs = append(refs, ui.IssueRef(mn.ID, iss.Title, iss.URL, ui.IssueStatusIcon(iss.StateType, iss.State)))

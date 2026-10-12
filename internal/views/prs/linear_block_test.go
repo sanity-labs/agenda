@@ -91,3 +91,32 @@ func resolveIDs(cmd tea.Cmd) []string {
 	walk(cmd)
 	return ids
 }
+
+// Words that look like tickets (WAVE-2, SHARD-02 in a Terraform PR) are
+// not shown once Linear has shown which teams exist; a real id from a
+// known team is, even before its lookup lands.
+func TestLinearBlockShowsOnlyVouchedIds(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	s := store.New()
+	s.PutIssues([]store.Issue{{Identifier: "SRE-1", Title: "known"}})
+	v := New(config.GitHubConfig{}, nil, nil, s)
+	v.SetSize(90, 60, 24)
+	p := pr{Number: 1, URL: "u", Title: "Rotate WAVE-2 and SHARD-02 (SRE-12)", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	text := ansi.Strip(v.PreviewView())
+	if !strings.Contains(text, "SRE-12") {
+		t.Errorf("a known-team id is missing:\n%s", text)
+	}
+	if strings.Contains(text, "WAVE-2") || strings.Contains(text, "SHARD-02") {
+		t.Errorf("words that only look like tickets are shown:\n%s", text)
+	}
+	if got := len(v.Refs()); got != 1 {
+		t.Errorf("picker has %d Linear refs, want 1", got)
+	}
+	s.MarkMissing("SRE-12")
+	v.bodyKey = ""
+	if text := ansi.Strip(v.PreviewView()); strings.Contains(text, "SRE-12") {
+		t.Errorf("an id a lookup refused is still shown:\n%s", text)
+	}
+}

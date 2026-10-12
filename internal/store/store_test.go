@@ -41,3 +41,28 @@ func TestSessionMentions(t *testing.T) {
 		t.Errorf("unknown key = %+v, want nil", got)
 	}
 }
+
+// An ABC-123 is shown as an issue when it is loaded, or from a team
+// issues have come from and no lookup refused it; before any team is
+// known everything is shown, since nothing can be ruled out yet.
+func TestVouched(t *testing.T) {
+	s := New()
+	if !s.Vouched("WAVE-2") {
+		t.Error("with no teams seen, nothing should be ruled out")
+	}
+	s.PutIssues([]Issue{{Identifier: "SRE-1"}})
+	if !s.Vouched("SRE-1") || !s.Vouched("sre-99") {
+		t.Error("a loaded issue, and its team's other ids, should be vouched")
+	}
+	if s.Vouched("WAVE-2") {
+		t.Error("an id from a team never seen should not be vouched once teams are known")
+	}
+	s.MarkMissing("SRE-99")
+	if s.Vouched("SRE-99") {
+		t.Error("an id a lookup refused should not be vouched")
+	}
+	s.PutIssues([]Issue{{Identifier: "SRE-99"}})
+	if !s.Vouched("SRE-99") {
+		t.Error("a later load clears the refusal")
+	}
+}
