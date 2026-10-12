@@ -44,10 +44,13 @@ jobs:
           BASE: ${{ github.base_ref }}
         run: |
           git fetch --depth=1 origin "$BASE"
+          # The PR's own copy only when the base has none yet (the PR that
+          # introduces the prompt); otherwise a PR could rewrite its rules.
+          prompt=$(git show "FETCH_HEAD:.claude/commands/review.md" 2>/dev/null || cat .claude/commands/review.md)
           delim="prompt-$(openssl rand -hex 16)"
           {
             echo "content<<$delim"
-            git show "FETCH_HEAD:.claude/commands/review.md"
+            printf '%s\n' "$prompt"
             echo "$delim"
           } >> "$GITHUB_OUTPUT"
 
