@@ -119,3 +119,18 @@ func TestCacheChangedRepaintsFromDisk(t *testing.T) {
 		t.Fatal("a cache_changed for this view did not repaint")
 	}
 }
+
+// A daemon fetch that found nothing still ends the loading state: an
+// empty queue is an empty list, not a spinner for good.
+func TestEmptyCacheFromTheDaemonEndsLoading(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{}, nil, nil, nil)
+	if !v.Loading() {
+		t.Fatal("a fresh view should be loading")
+	}
+	_ = cache.Save("prs", cachedPRs{})
+	v.Update(ui.CacheChangedMsg{Name: "prs"})
+	if v.Loading() {
+		t.Fatal("still loading after the daemon saved an empty cache")
+	}
+}

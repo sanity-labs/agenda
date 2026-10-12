@@ -1077,6 +1077,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.lastLoaded != none && v.lastLoaded != v.defaultSource {
 			return nil
 		}
+		v.loading = false // the daemon finished a fetch, whatever it found
 		before := v.list.Selected()
 		if !v.loadCache() {
 			return nil

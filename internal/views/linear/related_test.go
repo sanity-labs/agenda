@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sanity-labs/agenda/internal/cache"
+	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
@@ -99,5 +101,17 @@ func TestResolveRefsFetchesAndPublishesUnknownIssues(t *testing.T) {
 	}
 	if st, ok := cmd().(ui.StatusMsg); !ok || !strings.Contains(st.Summary, "SRE-78") {
 		t.Errorf("failed resolve reported %+v, want a status naming SRE-78", cmd())
+	}
+}
+
+// A daemon fetch that found nothing still ends the loading state.
+func TestEmptyCacheFromTheDaemonEndsLoading(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
+	v.loading = true
+	_ = cache.Save(cacheName, []issue{})
+	v.Update(ui.CacheChangedMsg{Name: cacheName})
+	if v.Loading() {
+		t.Fatal("still loading after the daemon saved an empty cache")
 	}
 }

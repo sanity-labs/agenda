@@ -1603,6 +1603,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if !msg.Matches(v.cacheName()) {
 			return nil
 		}
+		// The daemon finished a fetch whatever it found: an empty cache is
+		// an empty list, not a list still loading.
+		v.loading, v.reviewLoading = false, false
 		before := v.list.Selected()
 		if !v.loadCache() {
 			return nil
