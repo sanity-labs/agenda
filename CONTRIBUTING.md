@@ -61,6 +61,12 @@ them rather than reasoning about the arithmetic.
   existing behaviour, with a row in the `ctrl+s` overlay.
 - Say what the problem was, what caused it, and what the change does.
   Skip the tour.
+- Every PR gets an **automatic review** (`claude-code-review.yml`, prompt
+  in `.claude/commands/review.md`) once it leaves draft. It opens an inline
+  thread per finding, and `main` requires every thread resolved before a
+  merge; resolving one, with a fix or a reason, is the human step. No
+  approval is required. A human review is welcome whenever you want one,
+  and the `skip-review` label turns the bot off for a PR.
 
 ## Releasing
 
