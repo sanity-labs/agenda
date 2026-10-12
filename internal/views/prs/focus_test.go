@@ -503,3 +503,23 @@ func TestPaneOverTheDescriptionTakesFocus(t *testing.T) {
 		}
 	}
 }
+
+// 'r' over a 'v' float opens the file list behind the popup; "View diff"
+// then hands that pane the keys rather than swapping in a flat diff with
+// half its state unset.
+func TestViewDiffFromThePopupTakesThePaneROpened(t *testing.T) {
+	v := floatView(t)
+	pressV(v)
+	v.Update(press('r'))
+	if v.review == nil || v.pane != paneFiles {
+		t.Fatalf("after 'r': review=%v pane=%v, want the popup over the file list", v.review != nil, v.pane)
+	}
+	v.Update(press('d'))
+	if v.review != nil {
+		t.Fatal("View diff left the popup open")
+	}
+	if v.pane != paneFiles || !v.floatReveal || !v.PaneFocused() {
+		t.Errorf("after View diff: pane=%v floatReveal=%v focused=%v, want the focused file list in the float",
+			v.pane, v.floatReveal, v.PaneFocused())
+	}
+}

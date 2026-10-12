@@ -22,8 +22,8 @@ func highlightStyle() lipgloss.Style {
 }
 
 // matchIndices returns the rune indices of plain (indexing into []rune(plain))
-// that match Query as a subsequence, in order. nil if Query is empty or there
-// is no match.
+// that match Query, in order: the same positions the list filter accepted.
+// nil if Query is empty or there is no match.
 func (hl Highlighter) matchIndices(plain string) []int {
 	if hl.Query == "" {
 		return nil
@@ -34,18 +34,7 @@ func (hl Highlighter) matchIndices(plain string) []int {
 		s = []rune(strings.ToLower(plain))
 		q = []rune(strings.ToLower(hl.Query))
 	}
-	var idx []int
-	qi := 0
-	for i, r := range s {
-		if qi < len(q) && r == q[qi] {
-			idx = append(idx, i)
-			qi++
-		}
-	}
-	if qi != len(q) {
-		return nil // not a full subsequence match
-	}
-	return idx
+	return fuzzyIndices(s, q)
 }
 
 // HighlightSubstr wraps every literal (contiguous) occurrence of Query in plain

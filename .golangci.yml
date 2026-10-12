@@ -1,0 +1,17 @@
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # Deferred closes and writes to a builder or stdout: nothing useful
+      # can be done with those errors here, and `_ =` on every one is noise.
+      exclude-functions:
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (*os.File).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - os.Remove
+        - os.Unsetenv

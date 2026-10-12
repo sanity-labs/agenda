@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func intp(i int) *int { return &i }
@@ -22,7 +24,7 @@ func TestThreadAnnotations(t *testing.T) {
 	anns := threadAnnotations([]prThread{
 		mkThread("t1", "foo.go", intp(42), false, false, "why this?"),
 		mkThread("t2", "bar.go", nil, true, true, "old note"),
-	}, 80)
+	}, 80, nil)
 
 	if anns[0].Path != "foo.go" || anns[0].Line != 42 {
 		t.Errorf("ann[0] pinned at %s:%d, want foo.go:42", anns[0].Path, anns[0].Line)
@@ -53,7 +55,7 @@ func TestRenderCommentsPane(t *testing.T) {
 	data.Reviews.Nodes = append(data.Reviews.Nodes, shell)
 	data.ReviewThreads.Nodes = []prThread{mkThread("t1", "foo.go", intp(3), false, false, "hm")}
 
-	out, anchors := renderCommentsPane(data, 60)
+	out, anchors := renderCommentsPane(data, 60, nil)
 	if !strings.Contains(out, "@bob") || !strings.Contains(out, "first") {
 		t.Error("conversation comment missing")
 	}
@@ -70,5 +72,36 @@ func TestRenderCommentsPane(t *testing.T) {
 	lines := strings.Split(out, "\n")
 	if !strings.Contains(lines[anchors[0].Line], "foo.go:3") {
 		t.Errorf("anchor line = %q, want the thread header", lines[anchors[0].Line])
+	}
+}
+
+// In the comments pane a resolved thread is one line until unfolded; the
+// unfolded map opens it with its body.
+func TestCommentsPaneFoldsResolvedThreads(t *testing.T) {
+	var data prComments
+	data.ReviewThreads.Nodes = []prThread{
+		mkThread("t1", "foo.go", intp(3), true, false, "nit", "done"),
+		mkThread("t2", "bar.go", intp(5), false, false, "still open"),
+	}
+	raw, anchors := renderCommentsPane(data, 60, nil)
+	out := ansi.Strip(raw)
+	if strings.Contains(out, "nit") || !strings.Contains(out, "2 comments · click to read") {
+		t.Errorf("resolved thread not folded:\n%s", out)
+	}
+	if !strings.Contains(out, "still open") {
+		t.Errorf("an open thread was folded too:\n%s", out)
+	}
+	if len(anchors) != 2 {
+		t.Errorf("anchors = %v, want one per thread, folded or not", anchors)
+	}
+	raw, _ = renderCommentsPane(data, 60, map[string]bool{"t1": true})
+	out = ansi.Strip(raw)
+	if !strings.Contains(out, "nit") || !strings.Contains(out, "done") {
+		t.Errorf("unfolded thread missing its body:\n%s", out)
+	}
+	// The unified diff's annotation folds the same way.
+	anns := threadAnnotations(data.ReviewThreads.Nodes, 80, nil)
+	if strings.Contains(anns[0].Text, "nit") || !strings.Contains(anns[0].Text, "resolved") {
+		t.Errorf("diff annotation not folded: %q", anns[0].Text)
 	}
 }

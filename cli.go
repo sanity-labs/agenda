@@ -128,7 +128,7 @@ complete -F _agenda agenda
 		b.WriteString("compdef _agenda agenda\n")
 		b.WriteString("_agenda() {\n  local -a commands\n  commands=(\n")
 		for _, c := range commands() {
-			b.WriteString(fmt.Sprintf("    '%s:%s'\n", c.name, c.summary))
+			fmt.Fprintf(&b, "    '%s:%s'\n", c.name, c.summary)
 		}
 		b.WriteString("  )\n")
 		b.WriteString(`  _arguments -C '1: :->cmd' '*:: :->args'
@@ -155,7 +155,7 @@ fi
 		b.WriteString("# agenda completion for fish\n")
 		b.WriteString("# install: agenda completion fish > ~/.config/fish/completions/agenda.fish\n")
 		for _, c := range commands() {
-			b.WriteString(fmt.Sprintf("complete -c agenda -n __fish_use_subcommand -a %s -d '%s'\n", c.name, c.summary))
+			fmt.Fprintf(&b, "complete -c agenda -n __fish_use_subcommand -a %s -d '%s'\n", c.name, c.summary)
 		}
 		b.WriteString("complete -c agenda -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'\n")
 		return b.String(), true

@@ -57,7 +57,7 @@ func TestRenderAnnotatedDiffPinsThreads(t *testing.T) {
 		byID[a.ID] = a.Line
 	}
 	// t2 pins under the file header, before t1.
-	if !(byID["t2"] < byID["t1"]) {
+	if byID["t2"] >= byID["t1"] {
 		t.Errorf("file-level anchor at %d should precede line anchor at %d", byID["t2"], byID["t1"])
 	}
 	// t1 pins directly after right-side line 2 ("+// added line" is line 2:

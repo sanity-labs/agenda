@@ -67,6 +67,15 @@ func (s session) Filter() string {
 	return fmt.Sprintf("%s %s %s %s", s.Tool, shortenPath(s.Cwd), s.Title, s.Model)
 }
 
+// Key is the row's identity across rescans: the transcript path, which a
+// session's title and model can change under.
+func (s session) Key() string {
+	if s.Separator != "" {
+		return "\x00sep:" + s.Separator
+	}
+	return s.Path
+}
+
 func (s session) Fields() []ui.Field {
 	if s.Separator != "" {
 		return nil
@@ -232,6 +241,7 @@ type View struct {
 
 type viewKeys struct {
 	Resume key.Binding
+	Copy   key.Binding
 	Sort   key.Binding
 	Rev    key.Binding
 	Agents key.Binding
@@ -249,6 +259,7 @@ func New(cfg config.SessionsConfig, km config.Keymap, st *store.Store) *View {
 		loading: true,
 		keys: viewKeys{
 			Resume: bind("resume", "resume", "enter"),
+			Copy:   bind("copy_path", "copy path", "y"),
 			Sort:   bind("sort", "sort", "s"),
 			Rev:    bind("reverse", "reverse", "S"),
 			Agents: bind("agents", "agents", "a"),
@@ -369,6 +380,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		case key.Matches(msg, v.keys.Resume):
 			return v.resume()
+		case key.Matches(msg, v.keys.Copy):
+			// A session has no URL; its transcript path is the thing to
+			// hand to another tool.
+			return ui.CopyCmd(v.list.Selected().Path, "path")
 		case key.Matches(msg, v.keys.Sort):
 			v.sort = sortOrder[(int(v.sort)+1)%len(sortOrder)]
 			v.applyView()
@@ -653,7 +668,7 @@ func (v *View) fold(s string) string {
 }
 
 func (v *View) Bindings() []key.Binding {
-	b := []key.Binding{v.keys.Resume, v.keys.Sort, v.keys.Rev, v.keys.Agents, v.keys.Delete}
+	b := []key.Binding{v.keys.Resume, v.keys.Copy, v.keys.Sort, v.keys.Rev, v.keys.Agents, v.keys.Delete}
 	// Offer expand only when the last-rendered preview had turns above the fold
 	// (computed in PreviewView, which renders earlier in the same frame).
 	if v.hasHiddenTurns {
@@ -718,13 +733,11 @@ func (v *View) Refs() []ui.Ref {
 	for _, mn := range v.list.Selected().Mentions {
 		switch mn.Kind {
 		case "linear":
-			var title, url string
+			var iss store.Issue
 			if v.store != nil {
-				if iss, ok := v.store.Issue(mn.ID); ok {
-					title, url = iss.Title, iss.URL
-				}
+				iss, _ = v.store.Issue(mn.ID)
 			}
-			refs = append(refs, ui.IssueRef(mn.ID, title, url))
+			refs = append(refs, ui.IssueRef(mn.ID, iss.Title, iss.URL, ui.IssueStatusIcon(iss.StateType, iss.State)))
 		case "pr":
 			repo, num, _ := ui.ParsePRURL(mn.ID)
 			var pr store.PR

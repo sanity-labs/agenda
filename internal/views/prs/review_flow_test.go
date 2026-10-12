@@ -97,12 +97,19 @@ func TestReviewPopupCursorAndDiffOption(t *testing.T) {
 		t.Error("View diff should close the popup")
 	}
 
-	// With the diff pane enabled, the same option switches panes instead.
+	// With the diff pane enabled, the same option opens the review view
+	// (the file list by default, the flat diff when review_view says so).
 	v = startFlow(t)
 	v.cfg.DiffPane = true
 	v.updateReview(press('d'))
+	if v.pane != paneFiles {
+		t.Errorf("pane = %v after View diff with diff_pane on, want paneFiles", v.pane)
+	}
+	v = startFlow(t)
+	v.cfg.DiffPane, v.cfg.ReviewView = true, "unified"
+	v.updateReview(press('d'))
 	if v.pane != paneDiff {
-		t.Errorf("pane = %v after View diff with diff_pane on, want paneDiff", v.pane)
+		t.Errorf("pane = %v after View diff with review_view unified, want paneDiff", v.pane)
 	}
 }
 

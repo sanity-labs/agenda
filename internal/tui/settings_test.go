@@ -147,7 +147,7 @@ func TestEveryConfigKeyHasASettingRow(t *testing.T) {
 		"refresh": true, "notifications": true, "keys": true, "filter": true,
 		// Free text, edited in the file.
 		"token": true, "review_filter": true, "views": true, "palette": true,
-		"glyphs": true, "command": true, "limit": true, "scope": true,
+		"glyphs": true, "command": true, "scope": true,
 		"teams": true, "projects": true, "states": true,
 		"include_completed": true, "include_canceled": true,
 	}

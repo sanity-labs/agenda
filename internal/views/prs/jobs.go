@@ -893,19 +893,7 @@ func (v *View) openJob() tea.Cmd {
 	return ui.OpenURL(v.jobURL())
 }
 
-func (v *View) copyJobURL() tea.Cmd {
-	u := v.jobURL()
-	if u == "" {
-		return nil
-	}
-	v.flash = ui.Green.Render("✓ copied job URL")
-	return func() tea.Msg {
-		c := exec.Command("pbcopy")
-		c.Stdin = strings.NewReader(u)
-		_ = c.Run()
-		return nil
-	}
-}
+func (v *View) copyJobURL() tea.Cmd { return ui.CopyCmd(v.jobURL(), "job URL") }
 
 // logScript pages one job's log. Arguments are positional ($1 job id, $2
 // repo, $3 the gh log flag, $4 a step name to narrow to, $5 less's start

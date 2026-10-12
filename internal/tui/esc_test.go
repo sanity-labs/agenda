@@ -136,3 +136,61 @@ func TestEscReachesTheViewFirst(t *testing.T) {
 		t.Error("esc both unwound the view and hid the preview")
 	}
 }
+
+// filterView is a list with a filter query and one closable layer.
+type filterView struct {
+	paneView
+	query string
+}
+
+func (f *filterView) Fields() []string                       { return []string{"title"} }
+func (f *filterView) FilterState() (string, []string, bool)  { return f.query, []string{"title"}, false }
+func (f *filterView) SetFilter(q string, _ []string, _ bool) { f.query = q }
+
+// With nothing open over the list, esc clears the filter; a pane still
+// open closes first and the query survives that press.
+func TestEscClearsTheFilterLast(t *testing.T) {
+	v := &filterView{paneView: paneView{open: 1}, query: "foo"}
+	m := escModel(t, true, v)
+	m = esc(m)
+	if v.open != 0 || v.query != "foo" {
+		t.Fatalf("after one esc: open=%d query=%q, want the pane closed and the query kept", v.open, v.query)
+	}
+	m = esc(m)
+	if v.query != "" {
+		t.Fatalf("after the second esc: query=%q, want it cleared", v.query)
+	}
+	esc(m) // nothing left: still no quit, no panic
+}
+
+// q closes what is open before it closes agenda; ctrl+c quits outright.
+func TestQClosesTheTopLayerBeforeQuitting(t *testing.T) {
+	v := &paneView{open: 1}
+	m := escModel(t, true, v)
+	got, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	m = got.(Model)
+	if v.open != 0 {
+		t.Fatal("q did not close the pane")
+	}
+	if cmd != nil {
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("q quit with a pane open")
+		}
+	}
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	if cmd == nil {
+		t.Fatal("q on the bare list did nothing")
+	}
+	if _, quit := cmd().(tea.QuitMsg); !quit {
+		t.Fatal("q on the bare list did not quit")
+	}
+
+	v.open = 1
+	_, cmd = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+c did nothing")
+	}
+	if _, quit := cmd().(tea.QuitMsg); !quit {
+		t.Fatal("ctrl+c did not quit with a pane open")
+	}
+}

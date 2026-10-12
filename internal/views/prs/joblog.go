@@ -323,8 +323,14 @@ func (v *View) logBindings() []key.Binding {
 	help := func(k, desc string) key.Binding {
 		return key.NewBinding(key.WithKeys(k), key.WithHelp(k, desc))
 	}
+	// In a float esc closes the window outright; beside a list it steps
+	// back to the jobs. The hint says which, or it lies half the time.
+	esc := "back to jobs"
+	if v.floatReveal {
+		esc = "close"
+	}
 	return []key.Binding{
-		help("esc", "back to jobs"),
+		help("esc", esc),
 		help(v.keyHint("next_thread")+"/"+v.keyHint("prev_thread"), "errors"),
 		help(v.keyHint("job_log"), "pager"),
 		help(v.keyHint("open_job"), "open"),
@@ -368,7 +374,8 @@ func (v *View) renderedLog() string {
 		meta = append(meta, ui.Red.Render(fmt.Sprintf("%d errors", n)))
 	}
 	head = append(head, ui.Dim.Render(strings.Join(meta, " · ")),
-		ui.Faint.Render(fmt.Sprintf("esc back · %s/%s errors · %s pager · %s open",
+		ui.Faint.Render(fmt.Sprintf("esc %s · %s/%s errors · %s pager · %s open",
+			map[bool]string{true: "close", false: "back"}[v.floatReveal],
 			v.keyHint("next_thread"), v.keyHint("prev_thread"), v.keyHint("job_log"), v.keyHint("open_job"))),
 		"")
 	if lv.hidden > 0 {

@@ -157,9 +157,29 @@ func (v *View) fetchCommentsCmd(p pr) tea.Cmd {
 	}
 }
 
+// folded reports whether a thread shows as one line: resolved ones do,
+// until clicked open. What is settled should not read like what is not.
+func folded(t prThread, unfolded map[string]bool) bool {
+	return t.IsResolved && !unfolded[t.ID]
+}
+
+// foldedThread is the one line a folded thread collapses to.
+func foldedThread(t prThread) string {
+	n := len(t.Comments.Nodes)
+	who := ""
+	if n > 0 {
+		who = " · @" + t.Comments.Nodes[0].Author.Login
+	}
+	count := fmt.Sprintf("%d comments", n)
+	if n == 1 {
+		count = "1 comment"
+	}
+	return ui.Green.Render("✓ resolved") + ui.Faint.Render(who+" · "+count+" · click to read")
+}
+
 // threadAnnotations converts inline review threads into diff annotations,
 // pinned by right-side line (0 = under the file header for outdated threads).
-func threadAnnotations(threads []prThread, width int) []ui.DiffAnnotation {
+func threadAnnotations(threads []prThread, width int, unfolded map[string]bool) []ui.DiffAnnotation {
 	anns := make([]ui.DiffAnnotation, 0, len(threads))
 	for _, t := range threads {
 		line := 0
@@ -170,17 +190,21 @@ func threadAnnotations(threads []prThread, width int) []ui.DiffAnnotation {
 			ID:   t.ID,
 			Path: t.Path,
 			Line: line,
-			Text: renderThreadBlock(t, width),
+			Text: renderThreadBlock(t, width, folded(t, unfolded)),
 		})
 	}
 	return anns
 }
 
-// renderThreadBlock renders one inline thread as a gutter-barred block.
-func renderThreadBlock(t prThread, width int) string {
+// renderThreadBlock renders one inline thread as a gutter-barred block, or
+// its one folded line.
+func renderThreadBlock(t prThread, width int, fold bool) string {
 	bar := ui.Yellow.Render("┃ ")
 	if t.IsResolved {
 		bar = ui.Dim.Render("┃ ")
+	}
+	if fold {
+		return bar + ui.Truncate(ui.Bold.Render("󰆉 "+t.Path+lineSuffix(t))+"  "+foldedThread(t), max(1, width-2))
 	}
 	var b []string
 	state := ""
@@ -217,7 +241,7 @@ func firstLine(s string) string {
 // renderCommentsPane renders the comments pane body: the conversation and
 // review verdicts chronologically, then each inline thread in full. It
 // returns jump anchors (rendered-line offsets) per thread.
-func renderCommentsPane(data prComments, width int) (string, []ui.DiffAnchor) {
+func renderCommentsPane(data prComments, width int, unfolded map[string]bool) (string, []ui.DiffAnchor) {
 	var out []string
 	var anchors []ui.DiffAnchor
 
@@ -261,6 +285,10 @@ func renderCommentsPane(data prComments, width int) (string, []ui.DiffAnchor) {
 		for _, t := range data.ReviewThreads.Nodes {
 			anchors = append(anchors, ui.DiffAnchor{Line: len(out), ID: t.ID})
 			head := ui.Bold.Render("󰆉 " + t.Path + lineSuffix(t))
+			if folded(t, unfolded) {
+				out = append(out, head+"  "+foldedThread(t), "")
+				continue
+			}
 			if t.IsResolved {
 				head += ui.Green.Render("  ✓ resolved")
 			}
@@ -380,14 +408,18 @@ func toggleResolve(from *View, url, threadID string, resolved bool) tea.Cmd {
 // currentThread resolves the thread the jump cursor sits on, for reply and
 // resolve.
 func (v *View) currentThread() (prThread, bool) {
-	if (v.pane != paneDiff && v.pane != paneComments) || len(v.anchors) == 0 {
+	if v.pane == paneBody || len(v.anchors) == 0 {
 		return prThread{}, false
 	}
 	idx := v.annIdx
 	if idx >= len(v.anchors) {
 		idx = 0
 	}
-	id := v.anchors[idx].ID
+	return v.threadByID(v.anchors[idx].ID)
+}
+
+// threadByID finds a loaded review thread of the selected PR.
+func (v *View) threadByID(id string) (prThread, bool) {
 	st, ok := v.comments[v.list.Selected().URL]
 	if !ok || !st.done {
 		return prThread{}, false

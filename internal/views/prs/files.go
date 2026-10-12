@@ -35,7 +35,10 @@ type filesState struct {
 	done     bool
 	open     map[string]bool
 	reviewed map[string]bool
-	sel      int
+	// openAll asks for every file expanded once the list lands: a review
+	// started from the popup walks them one by one.
+	openAll bool
+	sel     int
 	// rowLine is where each row started in the last render, in pane body
 	// lines: thread boxes make rows and lines diverge, and the arrows need
 	// to know whether the next file is on screen.
@@ -132,19 +135,36 @@ func hunkStart(header string) int {
 	return n
 }
 
+// expandAll opens every file not marked reviewed, now or when the list
+// lands.
+func (st *filesState) expandAll() {
+	if !st.done {
+		st.openAll = true
+		return
+	}
+	for _, f := range st.files {
+		if !st.reviewed[f.Filename] {
+			st.open[f.Filename] = true
+		}
+	}
+	st.openAll = false
+}
+
 // renderFilesPane draws the file list: one row per file with its counts
 // and a reviewed marker, the hunks of whatever is expanded beneath it.
+// The anchors mark each thread shown, for the jump keys and a click.
 func renderFilesPane(st *filesState, width int, focused bool, hint string,
-	threads []prThread) string {
+	threads []prThread, unfolded map[string]bool) (string, []ui.DiffAnchor) {
 	if st.err != nil {
-		return ui.Red.Render("could not list files: " + st.err.Error())
+		return ui.Red.Render("could not list files: " + st.err.Error()), nil
 	}
 	if !st.done {
-		return ui.Faint.Render("Loading files…")
+		return ui.Faint.Render("Loading files…"), nil
 	}
 	if len(st.files) == 0 {
-		return ui.Faint.Render("No files changed.")
+		return ui.Faint.Render("No files changed."), nil
 	}
+	var anchors []ui.DiffAnchor
 
 	rows := st.rows()
 	st.rowLine = make([]int, len(rows))
@@ -152,15 +172,30 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string,
 	out = append(out, filesSummary(st))
 	out = append(out, "")
 	for i, r := range rows {
-		st.rowLine[i] = len(out)
 		f := st.files[r.file]
+		// A blank line before each file after the first, and its hunks set
+		// in from the name, so one file's diff does not run into the next.
+		if r.patch == "" && i > 0 {
+			out = append(out, "")
+		}
+		st.rowLine[i] = len(out)
 		if r.patch != "" {
-			out = append(out, "    "+diffLine(r.patch, width-4))
+			out = append(out, "      "+diffLine(r.patch, width-6))
 			// A review thread anchored here goes under the line it is
 			// about, boxed so it reads as a conversation rather than more
 			// diff.
 			for _, t := range threadsAt(threads, f.Filename, r.line) {
-				out = append(out, threadBox(t, width-4)...)
+				if folded(t, unfolded) {
+					anchors = append(anchors, ui.DiffAnchor{Line: len(out), ID: t.ID})
+					out = append(out, "      "+foldedThread(t))
+					continue
+				}
+				// The anchor is the first line inside the box, so a click
+				// on the author line folds it back.
+				anchors = append(anchors, ui.DiffAnchor{Line: len(out) + 1, ID: t.ID})
+				for _, l := range threadBox(t, width-6) {
+					out = append(out, "  "+l)
+				}
 			}
 			continue
 		}
@@ -178,20 +213,20 @@ func renderFilesPane(st *filesState, width int, focused bool, hint string,
 		}
 		counts := ui.Green.Render("+"+compactCount(f.Additions)) + " " +
 			ui.Red.Render("-"+compactCount(f.Deletions))
-		name := f.Filename
-		if st.reviewed[f.Filename] {
-			name = ui.Faint.Render(name)
-		}
 		// Name first, counts right: the column of counts is what the eye
-		// scans for the big changes.
+		// scans for the big changes. The name reads as a heading, as in
+		// the unified diff: bold in the accent, faint once reviewed.
 		room := max(1, width-lipgloss.Width(cursor+mark+caret+counts)-4)
-		out = append(out, cursor+mark+caret+" "+
-			ui.PadCell(ui.Truncate(name, room), room)+" "+counts)
+		name := ui.Accent.Bold(true).Render(ui.Truncate(f.Filename, room))
+		if st.reviewed[f.Filename] {
+			name = ui.Faint.Render(ui.Truncate(f.Filename, room))
+		}
+		out = append(out, cursor+mark+caret+" "+ui.PadCell(name, room)+" "+counts)
 	}
 	if hint != "" {
 		out = append(out, "", ui.Faint.Render(hint))
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n"), anchors
 }
 
 // filesSummary counts the files and how many are marked read, so progress

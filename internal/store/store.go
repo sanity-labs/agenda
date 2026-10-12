@@ -70,6 +70,8 @@ type Issue struct {
 	Identifier string
 	Title      string
 	State      string
+	StateType  string // backlog, unstarted, started, completed, canceled, triage
+	StateColor string // Linear's hex for the state
 	URL        string
 }
 
