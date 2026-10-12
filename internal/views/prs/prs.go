@@ -1600,7 +1600,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.CacheChangedMsg:
 		// The daemon fetched: repaint from its cache, selection kept by
 		// identity, and say so if the selected row left.
-		if msg.Name != v.cacheName() {
+		if !msg.Matches(v.cacheName()) {
 			return nil
 		}
 		before := v.list.Selected()

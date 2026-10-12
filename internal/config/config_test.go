@@ -316,7 +316,7 @@ func TestSoundAcceptsBoolAndName(t *testing.T) {
 		enabled  bool
 		wantName string
 	}{
-		{"true", true, "Ping"},
+		{"true", true, DefaultSound},
 		{"false", false, ""},
 		{"off", false, ""},
 		{"Glass", true, "Glass"},

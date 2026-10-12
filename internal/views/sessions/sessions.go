@@ -344,7 +344,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return v.fetch()
 	case ui.CacheChangedMsg:
 		// The daemon rescanned: a rescan here is cheap, it reads that cache.
-		if msg.Name == cacheName {
+		if msg.Matches(cacheName) {
 			return v.fetch()
 		}
 		return nil

@@ -154,8 +154,8 @@ func TestClientFallsBackWhenTheDaemonGoes(t *testing.T) {
 	}
 	if n := len(v.got); n == 0 {
 		t.Fatal("no repaint asked of the view on reconnect")
-	} else if c, ok := v.got[n-1].(ui.CacheChangedMsg); !ok || c.Name != "*" {
-		t.Errorf("last view msg = %v, want CacheChangedMsg{*}", v.got[n-1])
+	} else if c, ok := v.got[n-1].(ui.CacheChangedMsg); !ok || !c.Matches("prs") {
+		t.Errorf("last view msg = %v, want a CacheChangedMsg every view answers", v.got[n-1])
 	}
 }
 

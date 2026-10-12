@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -90,4 +91,31 @@ func resolveIDs(cmd tea.Cmd) []string {
 	}
 	walk(cmd)
 	return ids
+}
+
+// A cache the daemon rewrote repaints the list when it names this view,
+// or every view (a reconnect); another view's name is ignored.
+func TestCacheChangedRepaintsFromDisk(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{}, nil, nil, nil)
+	v.SetSize(90, 60, 24)
+	p := pr{Number: 9, URL: "u9", Title: "From the daemon", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	if err := cache.Save("prs", cachedPRs{Mine: []pr{p}}); err != nil {
+		t.Fatal(err)
+	}
+	v.Update(ui.CacheChangedMsg{Name: "linear"})
+	if v.list.Len() != 0 {
+		t.Fatal("another view's cache name repainted this list")
+	}
+	v.Update(ui.CacheChangedMsg{Name: ui.CacheAll})
+	if v.list.Len() != 1 || v.list.Selected().URL != "u9" {
+		t.Fatalf("reconnect did not repaint from the cache: %d rows", v.list.Len())
+	}
+	p.Title = "Rewritten"
+	_ = cache.Save("prs", cachedPRs{Mine: []pr{p}})
+	v.Update(ui.CacheChangedMsg{Name: "prs"})
+	if v.list.Selected().Title != "Rewritten" {
+		t.Fatal("a cache_changed for this view did not repaint")
+	}
 }

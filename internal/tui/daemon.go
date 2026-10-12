@@ -175,7 +175,7 @@ func (m Model) updateDaemon(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.daemon, m.daemonLost = msg.c, false
 		m.hookSeen()
 		m.refreshGen++ // our own ticks stop; the daemon fetches again
-		next, bcmd := m.broadcast(ui.CacheChangedMsg{Name: "*"})
+		next, bcmd := m.broadcast(ui.CacheChangedMsg{Name: ui.CacheAll})
 		m = next.(Model)
 		return m, tea.Batch(m.daemonPump(), bcmd), true
 	}

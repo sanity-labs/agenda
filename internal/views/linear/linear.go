@@ -1070,7 +1070,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.CacheChangedMsg:
 		// The daemon fetched the default source: repaint from its cache
 		// unless the list is showing another source right now.
-		if msg.Name != cacheName && msg.Name != freshCacheName {
+		if !msg.Matches(cacheName) && !msg.Matches(freshCacheName) {
 			return nil
 		}
 		var none navSource
