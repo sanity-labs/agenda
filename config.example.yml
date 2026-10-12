@@ -55,6 +55,11 @@ list_jump: 5
 # other PR in diff view; "persist" keeps it until you toggle back.
 toggles: ephemeral
 
+# Capture clicks and the wheel. On by default. Off hands the mouse back to
+# the terminal, so dragging selects text and copies it the way the terminal
+# does (handy for a CI log); clicks and the wheel then do nothing in agenda.
+mouse: true
+
 # Start with the preview (detail) pane hidden so the list takes the full
 # width — friendlier to narrow terminals. The toggle_preview key (default
 # "v") shows/hides it at runtime either way. Off by default.

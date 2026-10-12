@@ -100,6 +100,7 @@ own PRs only and `w` says so.
 | `notifications.popup` | `terminal` toast or `desktop` notification on new review requests and assignments; `click` opens the item (macOS needs `terminal-notifier`) |
 | `refresh.every` | auto-refresh interval, with per-view overrides |
 | `list_jump` | rows `pgup`/`pgdn` and `shift+↑↓` move (5) |
+| `mouse` | capture clicks and the wheel (on); off hands the mouse to the terminal so dragging selects and copies text, say from a CI log |
 | `github.merge` | `m`/`M` in the review popup merge or enable auto-merge, after confirming |
 | `github.sort`, `linear.sort`, `sessions.sort` | the sort each view opens on |
 | `theme.name` | `catppuccin-mocha`, `tokyonight`, `gruvbox`, `dracula`, `nord`, `rose-pine`, … |
@@ -144,7 +145,9 @@ them elsewhere).
 
 The mouse works: click tabs, rows, the tree and the hints in the preview;
 double-click runs `enter`; the wheel scrolls the pane it is over. Selecting
-text needs your terminal's bypass modifier (`shift`, or `option` in iTerm2).
+text needs your terminal's bypass modifier (`shift`, or `option` in iTerm2),
+or `mouse: false` (General › Mouse in `ctrl+s`), which hands the mouse back
+to the terminal so a drag selects and copies as it normally would.
 
 A pane that has the keys dims the list, so one cursor is lit. A float
 (`hide_preview`) has levels: `v` is the description, `c`/`d`/`t` over it is

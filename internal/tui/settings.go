@@ -255,6 +255,10 @@ func settingsTable() []setting {
 			get: func(config.Config) string { return "" },
 			set: func(*config.Config, string) {},
 		},
+		header("Mouse"),
+		boolSetting("capture the mouse", "mouse", "off: drag selects and copies text",
+			func(c config.Config) bool { return c.MouseEnabled() },
+			func(c *config.Config, v bool) { setOptBool(&c.Mouse, v) }),
 		header("Views"),
 		boolSetting("prs", "github.enabled", noteReload,
 			func(c config.Config) bool { return optBool(c.GitHub.Enabled) },
@@ -421,7 +425,7 @@ var settingsTabs = []struct {
 	name     string
 	sections []string
 }{
-	{"general", []string{"Behavior", "Views", "Keybinds"}},
+	{"general", []string{"Behavior", "Mouse", "Views", "Keybinds"}},
 	{"appearance", []string{"Theme"}},
 	{"alerts", []string{"Auto-refresh", "Notifications"}},
 	{"prs", []string{"Search", "Fetching", "List", "Review"}},

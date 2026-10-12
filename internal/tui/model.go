@@ -1368,7 +1368,12 @@ func (m Model) View() tea.View {
 	}
 	var v tea.View
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion // wheel and click events (see mouse.go)
+	// Wheel and click events (see mouse.go); none when the user wants the
+	// terminal's own selection, which mouse capture would otherwise eat.
+	v.MouseMode = tea.MouseModeNone
+	if m.cfg.MouseEnabled() {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	v.WindowTitle = m.windowTitle()
 	if !m.ready || len(m.views) == 0 {
 		v.Content = "Loading agenda…"

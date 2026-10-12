@@ -225,3 +225,23 @@ func TestWheelNotchScrollsPreviewPerEvent(t *testing.T) {
 		t.Errorf("a three-event notch over the preview scrolled %d lines, want 3", m.previewScroll)
 	}
 }
+
+// mouse: false hands the mouse back to the terminal: the view asks for no
+// mouse mode, so a drag selects text as it would in any other program.
+func TestMouseSettingTurnsCaptureOff(t *testing.T) {
+	cfg := config.Default()
+	m := New(cfg, []View{&fatView{title: "x"}})
+	m.width, m.height, m.ready = 80, 24, true
+	m.layout()
+	if m.View().MouseMode != tea.MouseModeCellMotion {
+		t.Fatal("mouse capture is off by default")
+	}
+	off := false
+	cfg.Mouse = &off
+	m = New(cfg, []View{&fatView{title: "x"}})
+	m.width, m.height, m.ready = 80, 24, true
+	m.layout()
+	if m.View().MouseMode != tea.MouseModeNone {
+		t.Fatal("mouse: false still captures the mouse")
+	}
+}

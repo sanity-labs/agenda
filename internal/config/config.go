@@ -77,6 +77,11 @@ type Config struct {
 	// toggle_preview key (default "v") flips it at runtime either way.
 	HidePreview bool `yaml:"hide_preview"`
 
+	// Mouse captures clicks and the wheel (on by default). Off hands the
+	// mouse back to the terminal, so dragging selects text and copies it
+	// the way the terminal does, with no bypass modifier.
+	Mouse *bool `yaml:"mouse"`
+
 	// Keys overrides key bindings: scope -> action -> keys. Scopes are
 	// "global", "prs", "sessions", "linear"; actions and defaults are listed
 	// in config.example.yml. A binding may be a single key or a list.
@@ -108,6 +113,9 @@ type ThemeConfig struct {
 
 // UpdateCheckEnabled reports whether the startup release check runs.
 func (c Config) UpdateCheckEnabled() bool { return c.UpdateCheck == nil || *c.UpdateCheck }
+
+// MouseEnabled reports whether the app captures the mouse; on unless set off.
+func (c Config) MouseEnabled() bool { return c.Mouse == nil || *c.Mouse }
 
 // TogglesPersist reports whether a per-item toggle survives moving to
 // another item. Only "persist" does; anything else, including the default,
