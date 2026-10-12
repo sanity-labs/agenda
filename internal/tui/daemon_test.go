@@ -19,11 +19,38 @@ import (
 // recView records the messages the root model hands it.
 type recView struct {
 	fatView
-	got  []tea.Msg
-	seen func(string, []string)
+	got   []tea.Msg
+	seen  func(string, []string)
+	inits int
+	local bool
 }
 
-func (r *recView) Update(msg tea.Msg) tea.Cmd                   { r.got = append(r.got, msg); return nil }
+func (r *recView) Update(msg tea.Msg) tea.Cmd { r.got = append(r.got, msg); return nil }
+func (r *recView) Init() tea.Cmd              { r.inits++; return nil }
+func (r *recView) FetchesLocally() bool       { return r.local }
+
+// A view whose data is local (Sessions) still scans for itself in a
+// client: the daemon's scan may predate this window.
+func TestClientStillFetchesLocalViews(t *testing.T) {
+	_, m, v, _ := daemonPair(t, nil)
+	v.local = true
+	runBatch(m.Init())
+	if v.inits != 1 {
+		t.Fatalf("local view Init ran %d times in a client, want 1", v.inits)
+	}
+}
+
+// runBatch runs a command tree far enough for synchronous Inits to count.
+func runBatch(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if b, ok := cmd().(tea.BatchMsg); ok {
+		for _, c := range b {
+			runBatch(c)
+		}
+	}
+}
 func (r *recView) ReportSeen(f func(view string, ids []string)) { r.seen = f }
 
 // daemonPair is a live server on a temp socket, a client on it, and a
@@ -63,6 +90,10 @@ func TestClientRepaintsWhenTheDaemonWrites(t *testing.T) {
 	s, m, v, calls := daemonPair(t, nil)
 	if cmd := m.refreshTick(0); cmd != nil {
 		t.Error("a client scheduled its own refresh tick")
+	}
+	runBatch(m.Init())
+	if v.inits != 0 {
+		t.Error("a client ran Init on a view the daemon fetches for")
 	}
 	_ = m.daemon.Call("ping", nil, nil) // registers the connection server-side
 	<-calls

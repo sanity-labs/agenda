@@ -213,8 +213,15 @@ func (m Model) Init() tea.Cmd {
 	cmds := make([]tea.Cmd, 0, 2*len(m.views)+2)
 	switch {
 	case m.daemon != nil:
-		// The daemon fetches; the cache it keeps was painted in New.
+		// The daemon fetches; the cache it keeps was painted in New. A
+		// view whose data is local scans for itself, since the daemon's
+		// scan may predate this window and it has no list cache to paint.
 		cmds = append(cmds, m.daemonPump())
+		for _, v := range m.views {
+			if l, ok := v.(localFetcher); ok && l.FetchesLocally() {
+				cmds = append(cmds, v.Init())
+			}
+		}
 	default:
 		if m.headless {
 			m.headlessSize()

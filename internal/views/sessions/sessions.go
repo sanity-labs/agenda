@@ -288,6 +288,10 @@ func (v *View) Init() tea.Cmd {
 
 func (v *View) Loading() bool { return v.loading }
 
+// FetchesLocally: the scan reads transcripts on this machine, so a daemon
+// client runs it too rather than waiting on the daemon's.
+func (v *View) FetchesLocally() bool { return true }
+
 func (v *View) fetch() tea.Cmd {
 	return func() tea.Msg { return loadedMsg(collect()) }
 }

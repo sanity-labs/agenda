@@ -226,7 +226,9 @@ agenda daemon    # run it in the foreground, for a service manager or a look at 
 The socket and log live in `$XDG_STATE_HOME/agenda` (`~/.local/state/agenda`).
 The daemon reads the config when it starts, so a change that affects
 fetching (tokens, searches, intervals) wants `agenda restart`; the settings
-overlay says so on the `daemon` row.
+overlay says so on the `daemon` row. With `refresh.every` unset the daemon
+refreshes every 5 minutes (a window with no daemon still fetches only on
+`ctrl+r`, as before); set it to choose.
 
 ## Releasing
 

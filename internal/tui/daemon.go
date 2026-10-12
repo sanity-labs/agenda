@@ -23,6 +23,18 @@ import (
 // run their fetch loops with no screen, and what would have been drawn
 // (toasts, message-log lines) goes out over the socket instead.
 
+// localFetcher is a view whose data is on this machine (the Sessions
+// scan), so a client still fetches it itself: cheap, no API, and the
+// daemon's scan may have happened before this window existed.
+type localFetcher interface {
+	FetchesLocally() bool
+}
+
+// daemonRefreshDefault is the interval the daemon falls back to when the
+// config sets none: a daemon that fetched once at start and never again
+// would be a cache, not a daemon.
+const daemonRefreshDefault = 5 * time.Minute
+
 // seenReporter is a view that can say which rows the user looked at, so
 // the daemon drops their unread marks rather than reviving them.
 type seenReporter interface {
@@ -260,6 +272,10 @@ func ServeDaemon(cfg config.Config, views []View, version string) error {
 			titles = append(titles, t.Title)
 		}
 		send(daemon.EventToast, daemon.Toast{Title: fmt.Sprintf("%d while you were away", len(away)), Body: strings.Join(titles, " · ")})
+	}
+	if cfg.Refresh.Every == 0 {
+		cfg.Refresh.Every = config.Duration(daemonRefreshDefault)
+		log.Printf("refresh.every is unset; the daemon refreshes every %s", daemonRefreshDefault)
 	}
 	m := New(cfg, views).WithVersion(version).withHeadless(func(event string, data any) {
 		if t, ok := data.(daemon.Toast); ok && event == daemon.EventToast && server.Clients() == 0 {
