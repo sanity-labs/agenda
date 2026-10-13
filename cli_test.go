@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -82,5 +83,34 @@ func TestZshCompletionOnlyDefinesWhenSourced(t *testing.T) {
 	}
 	if strings.Contains(script, "\n_agenda \"$@\"\n") {
 		t.Error("the zsh script still calls _agenda unguarded at top level")
+	}
+}
+
+// A summary with a quote in it must not break the script: the zsh one is
+// single-quoted, and "the daemon's state" once ended a string early and
+// left the rest unparseable. Every emitted script must parse.
+func TestCompletionScriptsParseWithQuotedSummaries(t *testing.T) {
+	saved := extraCommands
+	extraCommands = []command{{name: "quoted", summary: "it's got a 'quote' (and parens)"}}
+	t.Cleanup(func() { extraCommands = saved })
+	for shell, check := range map[string][]string{
+		"zsh":  {"zsh", "-n"},
+		"bash": {"bash", "-n"},
+		"fish": {"fish", "--no-execute"},
+	} {
+		script, ok := completionScript(shell)
+		if !ok {
+			t.Fatalf("%s: no script", shell)
+		}
+		bin, err := exec.LookPath(check[0])
+		if err != nil {
+			t.Logf("%s not installed; skipping the parse check", check[0])
+			continue
+		}
+		cmd := exec.Command(bin, check[1:]...)
+		cmd.Stdin = strings.NewReader(script)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("%s: the completion script does not parse: %v\n%s", shell, err, out)
+		}
 	}
 }

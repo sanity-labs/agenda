@@ -14,21 +14,24 @@ type command struct {
 	run                 func(w io.Writer, args []string) int
 }
 
+// extraCommands is appended by tests to exercise the generators.
+var extraCommands []command
+
 func commands() []command {
-	return []command{
+	return append([]command{
 		{name: "prs", summary: "open the TUI on the PRs view"},
 		{name: "reviews", summary: "open the TUI on the Reviews view (when listed in views)"},
 		{name: "sessions", summary: "open the TUI on the Sessions view"},
 		{name: "linear", summary: "open the TUI on the Linear view"},
 		{name: "daemon", summary: "run the background daemon in the foreground (the TUI starts one when daemon: true)"},
-		{name: "status", summary: "show the daemon's state", run: runStatus},
+		{name: "status", summary: "show whether the daemon is running", run: runStatus},
 		{name: "stop", summary: "stop the daemon", run: runStop},
 		{name: "restart", summary: "stop the daemon and start a fresh one", run: runRestart},
 		{name: "version", summary: "print the version", run: runVersion},
 		{name: "update", summary: "check whether a newer release is available", run: runUpdate},
 		{name: "completion", args: "<bash|zsh|fish>", summary: "print a shell completion script", run: runCompletion},
 		{name: "help", args: "[command]", summary: "show this help", run: runHelp},
-	}
+	}, extraCommands...)
 }
 
 // lookup finds a command by name. Views have no run func, so callers must
@@ -102,6 +105,9 @@ func completionNames() []string {
 	return names
 }
 
+// zshQuote escapes s for the inside of a single-quoted zsh string.
+func zshQuote(s string) string { return strings.ReplaceAll(s, "'", `'\''`) }
+
 func completionScript(shell string) (string, bool) {
 	names := strings.Join(completionNames(), " ")
 	switch shell {
@@ -132,7 +138,10 @@ complete -F _agenda agenda
 		b.WriteString("compdef _agenda agenda\n")
 		b.WriteString("_agenda() {\n  local -a commands\n  commands=(\n")
 		for _, c := range commands() {
-			fmt.Fprintf(&b, "    '%s:%s'\n", c.name, c.summary)
+			// A summary is quoted into the script, so a quote in one has
+			// to be escaped or it ends the string and the rest will not
+			// parse ("the daemon's state" did exactly that).
+			fmt.Fprintf(&b, "    '%s:%s'\n", c.name, zshQuote(c.summary))
 		}
 		b.WriteString("  )\n")
 		b.WriteString(`  _arguments -C '1: :->cmd' '*:: :->args'
@@ -159,7 +168,7 @@ fi
 		b.WriteString("# agenda completion for fish\n")
 		b.WriteString("# install: agenda completion fish > ~/.config/fish/completions/agenda.fish\n")
 		for _, c := range commands() {
-			fmt.Fprintf(&b, "complete -c agenda -n __fish_use_subcommand -a %s -d '%s'\n", c.name, c.summary)
+			fmt.Fprintf(&b, "complete -c agenda -n __fish_use_subcommand -a %s -d '%s'\n", c.name, strings.ReplaceAll(c.summary, "'", `\'`))
 		}
 		b.WriteString("complete -c agenda -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'\n")
 		return b.String(), true
