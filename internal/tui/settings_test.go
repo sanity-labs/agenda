@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func press(r rune) tea.KeyPressMsg   { return tea.KeyPressMsg{Code: r, Text: string(r)} }
@@ -238,5 +239,50 @@ func TestReviewsRowEditsTheViewsList(t *testing.T) {
 	list, ok := fv.([]string)
 	if !ok || len(list) != 4 || list[0] != "reviews" {
 		t.Errorf("file value = %#v, want the full views list led by reviews", fv)
+	}
+}
+
+// Every config write leaves a line in the message log naming the key, the
+// values and who wrote it, so a setting that seems to change on its own
+// can be traced.
+func TestConfigWritesAreLogged(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := New(config.Default(), []View{&fatView{title: "x"}})
+	m.width, m.height, m.ready = 100, 30, true
+	m.layout()
+	m.settings = newConfigOverlay()
+	var row *setting
+	for i := range m.settings.rows {
+		if m.settings.rows[i].path == "unread" {
+			row = &m.settings.rows[i]
+		}
+	}
+	if row == nil {
+		t.Fatal("no unread row")
+	}
+	cmd := m.commitSetting(&settingChange{s: row, val: "off"})
+	if cmd == nil {
+		t.Fatal("commit returned no command")
+	}
+	found := false
+	var walk func(tea.Cmd)
+	walk = func(c tea.Cmd) {
+		if c == nil {
+			return
+		}
+		switch msg := c().(type) {
+		case tea.BatchMsg:
+			for _, sub := range msg {
+				walk(sub)
+			}
+		case ui.StatusMsg:
+			if msg.Source == "config" && strings.Contains(msg.Summary, "unread: on → off") && strings.Contains(msg.Detail, "settings overlay") {
+				found = true
+			}
+		}
+	}
+	walk(cmd)
+	if !found {
+		t.Fatal("the config write was not logged")
 	}
 }

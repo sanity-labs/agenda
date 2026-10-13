@@ -377,6 +377,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return ui.Status(ui.SeverityError, "config", err.Error(), "")
 			}
 		}
+		written := configWritten(msg.Path, "", fmt.Sprint(msg.Value), "view that edited it")
 		switch msg.Path {
 		case "github.filter":
 			m.cfg.GitHub.Filter = msg.Value
@@ -384,7 +385,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cfg.GitHub.ReviewFilter = msg.Value
 		}
 		m.invalidateFrame()
-		return m, nil
+		return m, written
 	case ui.ToastMsg:
 		m.toast = &msg
 		m.toastGen++
@@ -802,7 +803,18 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 	if change.s.note == noteReload {
 		m.settings.markPending(change.s, prev, change.s.get(m.cfg))
 	}
-	return m.applyConfigChange(change.s.path)
+	// Every write to the config file leaves a line in the message log, so
+	// a setting that seems to change by itself can be traced to the
+	// overlay, a revert, or a view, and to when.
+	return tea.Batch(m.applyConfigChange(change.s.path),
+		configWritten(change.s.path, prev, change.s.get(m.cfg), "settings overlay"))
+}
+
+// configWritten is the message-log line for one config write.
+func configWritten(path, prev, now, by string) tea.Cmd {
+	return func() tea.Msg {
+		return ui.Status(ui.SeverityInfo, "config", fmt.Sprintf("%s: %s → %s", path, prev, now), "written by the "+by)
+	}
 }
 
 // revertPending puts the restart-marked rows back to the values they had
@@ -810,9 +822,10 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 func (m *Model) revertPending(o *configOverlay) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, p := range o.pending {
+		now := p.s.get(m.cfg)
 		p.s.set(&m.cfg, p.prev)
 		_ = config.Set(p.s.path, settingChange{s: p.s, val: p.prev}.fileValue(m.cfg))
-		cmds = append(cmds, m.applyConfigChange(p.s.path))
+		cmds = append(cmds, m.applyConfigChange(p.s.path), configWritten(p.s.path, now, p.prev, "overlay's revert"))
 	}
 	return tea.Batch(cmds...)
 }
