@@ -110,10 +110,18 @@ func TestEmptyCacheFromTheDaemonEndsLoading(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
 	v.loading = true
+	_ = cache.Save(cacheName, []issue{{Identifier: "SRE-5", Title: "done elsewhere"}})
+	v.Update(ui.CacheChangedMsg{Name: cacheName})
+	if len(v.raw) != 1 {
+		t.Fatalf("rows after a non-empty cache: %d, want 1", len(v.raw))
+	}
 	_ = cache.Save(cacheName, []issue{})
 	v.Update(ui.CacheChangedMsg{Name: cacheName})
 	if v.Loading() {
 		t.Fatal("still loading after the daemon saved an empty cache")
+	}
+	if len(v.raw) != 0 {
+		t.Fatalf("rows after an empty cache: %d, want 0 (the issue is gone)", len(v.raw))
 	}
 }
 

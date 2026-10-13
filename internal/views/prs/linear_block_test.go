@@ -120,18 +120,34 @@ func TestCacheChangedRepaintsFromDisk(t *testing.T) {
 	}
 }
 
-// A daemon fetch that found nothing still ends the loading state: an
-// empty queue is an empty list, not a spinner for good.
-func TestEmptyCacheFromTheDaemonEndsLoading(t *testing.T) {
+// A daemon fetch that found nothing still ends the loading state and
+// clears what was there: an empty queue is an empty list, not a spinner
+// for good and not yesterday's rows. A missing cache file changes nothing.
+func TestEmptyCacheFromTheDaemonEndsLoadingAndClears(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	v := New(config.GitHubConfig{}, nil, nil, nil)
 	if !v.Loading() {
 		t.Fatal("a fresh view should be loading")
 	}
+	p := pr{Number: 3, URL: "u3", Title: "Merged elsewhere", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	_ = cache.Save("prs", cachedPRs{Mine: []pr{p}})
+	v.Update(ui.CacheChangedMsg{Name: "prs"})
+	if len(v.raw) != 1 {
+		t.Fatalf("rows after a non-empty cache: %d, want 1", len(v.raw))
+	}
 	_ = cache.Save("prs", cachedPRs{})
 	v.Update(ui.CacheChangedMsg{Name: "prs"})
 	if v.Loading() {
 		t.Fatal("still loading after the daemon saved an empty cache")
+	}
+	if len(v.raw) != 0 {
+		t.Fatalf("rows after an empty cache: %d, want 0 (the PR is gone)", len(v.raw))
+	}
+	// Startup with an empty cache file: nothing painted, the fetch decides.
+	fresh := New(config.GitHubConfig{}, nil, nil, nil)
+	if !fresh.Loading() || len(fresh.raw) != 0 {
+		t.Error("an empty cache at startup should leave the view loading")
 	}
 }
 

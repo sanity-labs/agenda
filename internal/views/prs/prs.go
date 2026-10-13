@@ -1009,20 +1009,25 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 	v.nav = newNavKeys(km)
 
 	// Paint last run's PRs immediately; the live fetch refreshes them.
-	v.loadCache()
+	v.loadCache(false)
 	return v
 }
 
 // loadCache paints the cache: at startup, and again whenever the daemon
-// rewrites it. Reports whether there was anything to paint.
-func (v *View) loadCache() bool {
+// rewrites it. An empty cache is painted only when asked (the daemon's
+// fetch found nothing, so rows that were there have gone); at startup an
+// empty one is left for the first fetch. Reports whether it painted.
+func (v *View) loadCache(acceptEmpty bool) bool {
 	cached, ok := cache.Load[cachedPRs](v.cacheName())
+	if !ok {
+		return false
+	}
 	if v.reviewsOnly {
 		// Own PRs have no place here whatever an earlier run wrote: the
 		// tab never fetches them, so a stale row would never be replaced.
 		cached.Mine = nil
 	}
-	if !ok || len(cached.Mine)+len(cached.Review) == 0 {
+	if len(cached.Mine)+len(cached.Review) == 0 && !acceptEmpty {
 		return false
 	}
 	v.raw, v.reviewRaw = cached.Mine, cached.Review
@@ -1626,7 +1631,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// an empty list, not a list still loading.
 		v.loading, v.reviewLoading = false, false
 		before := v.list.Selected()
-		if !v.loadCache() {
+		if !v.loadCache(true) {
 			return nil
 		}
 		return v.departed(before, append(v.raw, v.reviewRaw...))

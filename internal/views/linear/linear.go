@@ -640,16 +640,19 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 
 	// Paint last run's issues immediately; the live fetch refreshes them.
 	if v.token != "" {
-		v.loadCache()
+		v.loadCache(false)
 	}
 	return v
 }
 
 // loadCache paints the default source's cache: at startup, and again
-// whenever the daemon rewrites it. Reports whether there was anything.
-func (v *View) loadCache() bool {
+// whenever the daemon rewrites it. An empty cache is painted only when
+// asked (the daemon found nothing, so rows that were there have gone); at
+// startup an empty one is left for the first fetch. Reports whether it
+// painted.
+func (v *View) loadCache(acceptEmpty bool) bool {
 	cached, ok := cache.Load[[]issue](cacheName)
-	if !ok || len(cached) == 0 {
+	if !ok || (len(cached) == 0 && !acceptEmpty) {
 		return false
 	}
 	v.raw = cached
@@ -1079,7 +1082,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		v.loading = false // the daemon finished a fetch, whatever it found
 		before := v.list.Selected()
-		if !v.loadCache() {
+		if !v.loadCache(true) {
 			return nil
 		}
 		return v.departed(before, v.raw)

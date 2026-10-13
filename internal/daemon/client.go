@@ -38,7 +38,7 @@ func Dial(path string) (*Client, error) {
 		conn:    conn,
 		w:       bufio.NewWriter(conn),
 		pending: map[string]chan Response{},
-		events:  make(chan Event, 64),
+		events:  make(chan Event, 256), // a greeting can be ~70 events; losing the last would lose the summary toast
 		closed:  make(chan struct{}),
 	}
 	go c.read()
