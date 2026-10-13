@@ -90,6 +90,7 @@ const (
 	IconTabSessions = "\uf120"     //  terminal
 	IconTabLinear   = "\uf4a0"     //  linear
 	IconLinearIssue = "\U000f1591" // 󱖑 a Linear issue
+	IconCycle       = "\uf523"     //  the settings overlay's "arrows cycle this row"
 	IconNavMine     = "\uf007"     //  user
 	IconNavInbox    = "\uf01c"     //  inbox
 	IconNavAll      = "\uf0ca"     //  list
