@@ -299,7 +299,13 @@ func (m Model) clickSettings(x, y int) (tea.Model, tea.Cmd) {
 	if row < 0 {
 		return m, nil // the chrome, a header, or a blank line
 	}
-	m.settings.SetCursor(row)
+	// The first click selects; a click on the selected row acts. A single
+	// click that landed on the first row while the terminal was being
+	// brought to front used to flip a setting unnoticed.
+	if m.settings.cursor != row {
+		m.settings.SetCursor(row)
+		return m, nil
+	}
 	// An editable row needs the keyboard, so a click selects it and waits
 	// rather than opening an edit the pointer cannot finish.
 	s := &m.settings.rows[row]

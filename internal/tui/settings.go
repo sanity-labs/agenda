@@ -784,7 +784,10 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 		o.cursor, o.errMsg = o.next(o.cursor, -1), ""
 	case "down", "j":
 		o.cursor, o.errMsg = o.next(o.cursor, +1), ""
-	case "enter", "space", "right", "l":
+	case "enter", "space":
+		// A bool flips only on a deliberate key: the overlay opens with the
+		// cursor on its first row, and an arrow or 'l' pressed out of pane
+		// habit used to turn that row off unnoticed.
 		switch s.kind {
 		case kindAction:
 			if msg.String() == "enter" {
@@ -802,6 +805,10 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 			if msg.String() == "enter" {
 				o.editing, o.buf = true, ""
 			}
+		}
+	case "right", "l":
+		if s.kind == kindEnum {
+			return &settingChange{s: s, val: cycle(s.options(), s.get(cfg), +1)}, false
 		}
 	case "left", "h":
 		if s.kind == kindEnum {

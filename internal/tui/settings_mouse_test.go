@@ -1,6 +1,7 @@
 package tui
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"strings"
 	"testing"
 
@@ -58,9 +59,10 @@ func TestRowAtMatchesTheRender(t *testing.T) {
 	}
 }
 
-// A click on a bool toggles it on the first click: the row under the
-// pointer is the one you meant.
-func TestClickTogglesABool(t *testing.T) {
+// The first click on a row selects it; a click on the selected row acts.
+// One click used to toggle, and a click meant for the terminal that landed
+// on the first row flipped a setting unnoticed.
+func TestClickSelectsThenToggles(t *testing.T) {
 	m, bx, by := settingsAt(t)
 	// Find a bool row and the line it renders on.
 	lines := strings.Split(m.settings.View(m.cfg), "\n")
@@ -76,18 +78,53 @@ func TestClickTogglesABool(t *testing.T) {
 		t.Fatal("no bool row on the first tab")
 	}
 	before := m.settings.rows[target].get(m.cfg)
+	// Put the cursor elsewhere first, so the clicked row is not selected.
+	m.settings.cursor = m.settings.next(target, +1)
 
 	got, cmd := m.clickSettings(bx+4, by+line)
 	m = got.(Model)
-	if cmd == nil {
-		t.Fatal("clicking a bool produced no change")
+	if cmd != nil || m.settings.rows[target].get(m.cfg) != before {
+		t.Fatal("the first click on an unselected row changed the setting")
 	}
 	if m.settings.cursor != target {
-		t.Errorf("cursor is %d after the click, want the clicked row %d",
+		t.Fatalf("cursor is %d after the click, want the clicked row %d",
 			m.settings.cursor, target)
 	}
+	got, cmd = m.clickSettings(bx+4, by+line)
+	m = got.(Model)
+	if cmd == nil {
+		t.Fatal("clicking the selected bool produced no change")
+	}
 	if after := m.settings.rows[target].get(m.cfg); after == before {
-		t.Errorf("the bool is still %q after a click", after)
+		t.Errorf("the bool is still %q after a second click", after)
+	}
+}
+
+// Arrows and l/h only cycle enums; a bool flips on enter or space alone,
+// since the overlay opens with the cursor on its first row.
+func TestArrowsDoNotToggleBools(t *testing.T) {
+	m, _, _ := settingsAt(t)
+	o := m.settings
+	if o.rows[o.cursor].kind != kindBool {
+		t.Fatalf("first row is %v, this test wants a bool there", o.rows[o.cursor].kind)
+	}
+	before := o.rows[o.cursor].get(m.cfg)
+	for _, k := range []string{"right", "l", "left", "h"} {
+		var msg tea.KeyPressMsg
+		switch k {
+		case "right":
+			msg = tea.KeyPressMsg{Code: tea.KeyRight}
+		case "left":
+			msg = tea.KeyPressMsg{Code: tea.KeyLeft}
+		default:
+			msg = tea.KeyPressMsg{Code: rune(k[0]), Text: k}
+		}
+		if change, _ := o.Update(msg, m.cfg); change != nil {
+			t.Errorf("%s toggled a bool", k)
+		}
+	}
+	if change, _ := o.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}, m.cfg); change == nil || change.val == before {
+		t.Error("space did not toggle the bool")
 	}
 }
 
