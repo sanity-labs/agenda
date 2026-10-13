@@ -66,6 +66,12 @@ func (s *Server) Serve(ctx context.Context) {
 		if err != nil {
 			return
 		}
+		// Registered here, not in the goroutine: a Close between the accept
+		// and the goroutine's first line would otherwise miss this
+		// connection and leave its client reading forever.
+		s.mu.Lock()
+		s.clients[conn] = bufio.NewWriter(conn)
+		s.mu.Unlock()
 		go s.serveConn(ctx, conn)
 	}
 }
@@ -108,10 +114,6 @@ func (s *Server) Broadcast(event string, data any) {
 }
 
 func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
-	w := bufio.NewWriter(conn)
-	s.mu.Lock()
-	s.clients[conn] = w
-	s.mu.Unlock()
 	if s.OnConnect != nil {
 		s.OnConnect(func(event string, data any) { s.send(conn, Event{Event: event, Data: marshal(data)}) })
 	}
