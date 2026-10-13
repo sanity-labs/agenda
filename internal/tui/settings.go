@@ -915,8 +915,8 @@ func (o *configOverlay) View(cfg config.Config) string {
 	path, _ := config.Path()
 	b.WriteString(ui.Faint.Render(path))
 	b.WriteByte('\n')
-	cycle := ui.Glyph(ui.IconCycle, "cycle")
-	hint := "↑↓ move · ←→ " + cycle + " · enter edit/toggle · esc close"
+	tab, enter, esc := ui.Glyph(ui.IconKeyTab, "←→"), ui.Glyph(ui.IconKeyEnter, "enter"), ui.Glyph(ui.IconKeyEsc, "esc")
+	hint := "↑↓ move · " + tab + "cycle · " + enter + "edit/toggle · " + esc + "close"
 	if n := len(o.pending); n > 0 {
 		// Boxed and centred, with a blank line each side: a plain line here
 		// read as part of the navigation hint under it.
@@ -928,7 +928,7 @@ func (o *configOverlay) View(cfg config.Config) string {
 		b.WriteByte('\n')
 		b.WriteString(lipgloss.PlaceHorizontal(overlayContent, lipgloss.Center, notice))
 		b.WriteString("\n\n")
-		hint = "↑↓ move · ←→ " + cycle + " · enter edit/toggle · r reload · esc revert"
+		hint = "↑↓ move · " + tab + "cycle · " + enter + "edit/toggle · r reload · " + esc + "revert"
 	}
 	b.WriteString(ui.Dim.Render(hint))
 
