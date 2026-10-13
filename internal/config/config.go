@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -76,6 +77,12 @@ type Config struct {
 	// list full-width — friendlier to narrow terminals. Off by default; the
 	// toggle_preview key (default "v") flips it at runtime either way.
 	HidePreview bool `yaml:"hide_preview"`
+
+	// Daemon keeps a background agenda running the fetch loops, cache and
+	// notifications, so they go on with no window open and the next
+	// window paints from fresh data. The TUI starts one when none answers
+	// and leaves fetching to it. Off by default.
+	Daemon bool `yaml:"daemon"`
 
 	// Mouse captures clicks and the wheel (on by default). Off hands the
 	// mouse back to the terminal, so dragging selects text and copies it
@@ -145,17 +152,20 @@ type RefreshConfig struct {
 // waiting on your review, a new Linear issue assigned to you).
 type NotifyConfig struct {
 	// Popup picks the channel: "off" (default), "terminal" (an in-app
-	// toast), or "desktop" (an OS notification).
+	// toast), "desktop" (an OS notification), or "herdr" (Herdr's toast).
 	Popup string `yaml:"popup"`
-	// Sound plays a sound alongside the popup (default true when on).
-	Sound *bool `yaml:"sound"`
+	// Sound is what plays alongside the popup: "" (the default, Ping),
+	// "off", a bundled name (Glass, Submarine…), or a file path.
+	Sound Sound `yaml:"sound"`
 	// Click is what a desktop notification does when clicked: "url" opens
 	// the PR or issue (default), "none" does nothing. macOS needs
 	// terminal-notifier for this; osascript notifications are not clickable.
 	Click string `yaml:"click"`
 }
 
-func (n NotifyConfig) Enabled() bool { return n.Popup == "terminal" || n.Popup == "desktop" }
+func (n NotifyConfig) Enabled() bool {
+	return n.Popup == "terminal" || n.Popup == "desktop" || n.Popup == "herdr"
+}
 
 // ClickAction is the notification click behaviour, defaulting to opening the
 // item.
@@ -166,7 +176,68 @@ func (n NotifyConfig) ClickAction() string {
 	return "url"
 }
 
-func (n NotifyConfig) SoundEnabled() bool { return n.Enabled() && (n.Sound == nil || *n.Sound) }
+func (n NotifyConfig) SoundEnabled() bool { return n.Enabled() && !n.Sound.Off() }
+
+// SoundName is the sound to play, or "" when none should.
+func (n NotifyConfig) SoundName() string {
+	if !n.SoundEnabled() {
+		return ""
+	}
+	return n.Sound.Name()
+}
+
+// Sound is the notification sound. The file still accepts the old
+// true/false, from when it was only on or off.
+type Sound string
+
+// DefaultSound is the bundled sound played when none is chosen: a macOS
+// alert sound there, the freedesktop "message" event elsewhere, which is
+// what canberra knows.
+var DefaultSound = func() string {
+	if runtime.GOOS == "darwin" {
+		return "Ping"
+	}
+	return "message"
+}()
+
+// Off reports a sound turned off.
+func (s Sound) Off() bool {
+	switch strings.ToLower(string(s)) {
+	case "off", "false", "none", "no":
+		return true
+	}
+	return false
+}
+
+// Name is the sound to play: the default for an empty or "on" value.
+func (s Sound) Name() string {
+	switch strings.ToLower(string(s)) {
+	case "", "on", "true", "yes", "default":
+		return DefaultSound
+	}
+	return string(s)
+}
+
+func (s *Sound) UnmarshalYAML(n *yaml.Node) error {
+	if n.Tag == "!!bool" {
+		var b bool
+		if err := n.Decode(&b); err != nil {
+			return err
+		}
+		if b {
+			*s = ""
+		} else {
+			*s = "off"
+		}
+		return nil
+	}
+	var str string
+	if err := n.Decode(&str); err != nil {
+		return err
+	}
+	*s = Sound(str)
+	return nil
+}
 
 type GitHubConfig struct {
 	// Enabled toggles the PRs view (default true).

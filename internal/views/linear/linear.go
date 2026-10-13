@@ -511,6 +511,7 @@ type View struct {
 	// resolving is the ids fetched for another view's references, so each
 	// is asked of Linear once.
 	resolving map[string]bool
+	onSeen    func(view string, ids []string)
 	list      ui.List[issue]
 	raw       []issue
 	sort      sortMode
@@ -639,22 +640,54 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 
 	// Paint last run's issues immediately; the live fetch refreshes them.
 	if v.token != "" {
-		if cached, ok := cache.Load[[]issue](cacheName); ok && len(cached) > 0 {
-			v.raw = cached
-			v.seeded = true
-			if ids, ok := cache.Load[[]string](freshCacheName); ok && len(ids) > 0 {
-				v.fresh = make(map[string]bool, len(ids))
-				for _, id := range ids {
-					v.fresh[id] = true
-				}
-			}
-			v.applySort()
-			v.publish(cached)
-			v.loading = false
-		}
+		v.loadCache(false)
 	}
 	return v
 }
+
+// loadCache paints the default source's cache: at startup, and again
+// whenever the daemon rewrites it. An empty cache is painted only when
+// asked (the daemon found nothing, so rows that were there have gone); at
+// startup an empty one is left for the first fetch. Reports whether it
+// painted.
+func (v *View) loadCache(acceptEmpty bool) bool {
+	cached, ok := cache.Load[[]issue](cacheName)
+	if !ok || (len(cached) == 0 && !acceptEmpty) {
+		return false
+	}
+	v.raw = cached
+	v.seeded = true
+	v.fresh = map[string]bool{}
+	if ids, ok := cache.Load[[]string](freshCacheName); ok {
+		for _, id := range ids {
+			v.fresh[id] = true
+		}
+	}
+	v.applySort()
+	v.publish(cached)
+	v.loading = false
+	return true
+}
+
+// forgetFresh drops marks for issues a client has looked at, so the
+// daemon's next save does not revive them.
+func (v *View) forgetFresh(ids []string) {
+	changed := false
+	for _, id := range ids {
+		if v.fresh[id] {
+			delete(v.fresh, id)
+			changed = true
+		}
+	}
+	if changed {
+		v.applySort()
+		v.saveFresh()
+	}
+}
+
+// ReportSeen sets the hook told which issues the user looked at; the root
+// model forwards them to the daemon.
+func (v *View) ReportSeen(f func(view string, ids []string)) { v.onSeen = f }
 
 const cacheName = "linear"
 
@@ -1037,6 +1070,27 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.saveFresh()
 		}
 		return cmd
+	case ui.CacheChangedMsg:
+		// The daemon fetched the default source: repaint from its cache
+		// unless the list is showing another source right now.
+		if !msg.Matches(cacheName) && !msg.Matches(freshCacheName) {
+			return nil
+		}
+		var none navSource
+		if v.lastLoaded != none && v.lastLoaded != v.defaultSource {
+			return nil
+		}
+		v.loading = false // the daemon finished a fetch, whatever it found
+		before := v.list.Selected()
+		if !v.loadCache(true) {
+			return nil
+		}
+		return v.departed(before, v.raw)
+	case ui.SeenMsg:
+		if msg.View == cacheName {
+			v.forgetFresh(msg.IDs)
+		}
+		return nil
 	case ui.ResolveRefsMsg:
 		// Another view names tickets this list does not hold: fetch each
 		// once and publish it, so its status shows there.
@@ -1061,6 +1115,22 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// A ticket that cannot be fetched keeps its placeholder; say why in
 		// the log, since a token without the team reads as "not found".
 		if msg.err != nil || msg.issue.Identifier == "" {
+			// Not an issue after all (WAVE-2 in a PR body), or one the
+			// token cannot read: either way it stops being shown as one.
+			// Only a team Linear has shown issues from is worth a warning;
+			// anything else is just a word that looked like a ticket.
+			if v.store == nil {
+				return nil
+			}
+			// A network or server error says nothing about the id, so it
+			// is not marked; the next refresh asks again.
+			known := v.store.Vouched(msg.id)
+			if msg.err == nil || notFound(msg.err) {
+				v.store.MarkMissing(msg.id)
+			}
+			if !known {
+				return nil
+			}
 			why := "not found, or the token has no access to its team"
 			if msg.err != nil {
 				why = msg.err.Error()
@@ -1297,6 +1367,9 @@ func (v *View) clearFreshFor(id string) {
 	delete(v.fresh, id)
 	v.applySort()
 	v.saveFresh()
+	if v.onSeen != nil {
+		v.onSeen(cacheName, []string{id})
+	}
 }
 
 // notifyNew posts a notification for issues that appeared since the last
@@ -1622,6 +1695,14 @@ type issueResolvedMsg struct {
 	id    string
 	issue issue
 	err   error
+}
+
+// notFound reports Linear's answer for an identifier that is not an
+// issue the token can see, as opposed to a request that did not get
+// through.
+func notFound(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "not found") || strings.Contains(s, "could not find")
 }
 
 // fetchIssue loads one issue by identifier and hands it to done.

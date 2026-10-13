@@ -5,8 +5,11 @@ package notify
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,34 +25,58 @@ type Notifier interface {
 	Notify(title, body, url string) tea.Msg
 }
 
-// New returns a notifier for the configured popup channel ("terminal" or
-// "desktop"), or nil when the channel is off; callers treat a nil Notifier
-// as "notifications disabled". click is what a desktop notification does
-// when clicked: "url" opens the item, "none" does nothing.
-func New(popup string, sound bool, click string) Notifier {
-	if popup != "terminal" && popup != "desktop" {
-		return nil
+// New returns a notifier for the configured popup channel ("terminal",
+// "desktop" or "herdr"), or nil when the channel is off; callers treat a
+// nil Notifier as "notifications disabled". sound is the sound to play
+// with each notification, "" for none. click is what a desktop
+// notification does when clicked: "url" opens the item, "none" does
+// nothing.
+func New(popup string, sound string, click string) Notifier {
+	switch popup {
+	case "terminal", "desktop", "herdr":
+		return system{channel: popup, sound: sound, click: click}
 	}
-	return system{desktop: popup == "desktop", sound: sound, click: click}
+	return nil
 }
 
 type system struct {
-	desktop bool
-	sound   bool
+	channel string
+	sound   string
 	click   string
 }
 
 func (s system) Notify(title, body, url string) tea.Msg {
-	if s.desktop {
+	if s.sound != "" {
+		Play(s.sound)
+	}
+	switch s.channel {
+	case "desktop":
 		s.desktopNotify(title, body, url)
+		return nil
+	case "herdr":
+		// Herdr's own toast, over whichever pane is active, so it shows
+		// with no agenda window open. Outside Herdr it falls back to the
+		// in-app toast rather than going nowhere.
+		if herdrNotify(title, body) {
+			return nil
+		}
 	}
-	if s.sound {
-		s.playSound()
+	return ui.ToastMsg{Title: title, Body: body}
+}
+
+// herdrNotify posts through `herdr notification show`, which reaches the
+// Herdr this process was started under (HERDR_SOCKET_PATH). Reports
+// whether it did; the sound is agenda's own, so Herdr's is off.
+func herdrNotify(title, body string) bool {
+	if os.Getenv("HERDR_SOCKET_PATH") == "" {
+		return false
 	}
-	if !s.desktop {
-		return ui.ToastMsg{Title: title, Body: body}
+	bin, err := exec.LookPath("herdr")
+	if err != nil {
+		return false
 	}
-	return nil
+	return exec.Command(bin, "notification", "show", title, "--body", body,
+		"--position", "top-right", "--sound", "none").Run() == nil
 }
 
 // desktopNotify posts an OS notification. On macOS it prefers
@@ -89,13 +116,54 @@ func (s system) desktopNotify(title, body, url string) {
 	}
 }
 
-func (s system) playSound() {
+// Play plays a sound by bundled name or file path, blocking until it is
+// done (so run it from a tea.Cmd).
+func Play(sound string) {
 	switch runtime.GOOS {
 	case "darwin":
-		_ = exec.Command("afplay", "/System/Library/Sounds/Ping.aiff").Run()
+		path := sound
+		if !strings.ContainsAny(sound, "/.") {
+			path = filepath.Join(soundsDir, sound+".aiff")
+		}
+		_ = exec.Command("afplay", path).Run()
 	default:
-		_ = exec.Command("canberra-gtk-play", "-i", "message").Run()
+		if strings.Contains(sound, "/") {
+			_ = exec.Command("canberra-gtk-play", "-f", sound).Run()
+			return
+		}
+		_ = exec.Command("canberra-gtk-play", "-i", sound).Run()
 	}
+}
+
+// soundsDir holds macOS's bundled alert sounds.
+const soundsDir = "/System/Library/Sounds"
+
+// Sounds lists the bundled sounds a config may name: on macOS the system
+// alert sounds (Basso, Blow, … Tink), elsewhere the freedesktop event ids
+// canberra knows. The default comes first.
+func Sounds() []string {
+	if runtime.GOOS != "darwin" {
+		return []string{"message", "bell", "complete", "dialog-information", "dialog-warning"}
+	}
+	entries, err := os.ReadDir(soundsDir)
+	if err != nil {
+		return []string{"Ping"} // the dir is part of macOS; this is for a stripped install
+	}
+	var names []string
+	for _, e := range entries {
+		if name, ok := strings.CutSuffix(e.Name(), ".aiff"); ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	// The default first, so the row reads off / Ping / the rest.
+	for i, n := range names {
+		if n == "Ping" {
+			names = append([]string{"Ping"}, append(names[:i:i], names[i+1:]...)...)
+			break
+		}
+	}
+	return names
 }
 
 // ClickHint explains why a click might do nothing, for the config overlay

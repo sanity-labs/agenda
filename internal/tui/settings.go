@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
@@ -199,6 +200,9 @@ func settingsTable() []setting {
 		numSetting("list jump (pgup/pgdn, ⇧↑↓)", "list_jump", "",
 			func(c config.Config) int { return c.ListJumpSize() },
 			func(c *config.Config, v int) { c.ListJump = v }),
+		boolSetting("background daemon", "daemon", noteReload,
+			func(c config.Config) bool { return c.Daemon },
+			func(c *config.Config, v bool) { c.Daemon = v }),
 		boolSetting("check for updates", "update_check", noteReload,
 			func(c config.Config) bool { return c.UpdateCheckEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.UpdateCheck, v) }),
@@ -238,7 +242,7 @@ func settingsTable() []setting {
 		},
 		{
 			label: "popup", path: "notifications.popup", kind: kindEnum, note: noteReload,
-			options: func() []string { return []string{"off", "terminal", "desktop"} },
+			options: func() []string { return []string{"off", "terminal", "desktop", "herdr"} },
 			get: func(c config.Config) string {
 				if c.Notify.Enabled() {
 					return c.Notify.Popup
@@ -247,9 +251,17 @@ func settingsTable() []setting {
 			},
 			set: func(c *config.Config, v string) { c.Notify.Popup = v },
 		},
-		boolSetting("sound", "notifications.sound", noteReload,
-			func(c config.Config) bool { return optBool(c.Notify.Sound) },
-			func(c *config.Config, v bool) { setOptBool(&c.Notify.Sound, v) }),
+		{
+			label: "sound", path: "notifications.sound", kind: kindEnum, note: noteReload,
+			options: func() []string { return append([]string{"off"}, notify.Sounds()...) },
+			get: func(c config.Config) string {
+				if c.Notify.Sound.Off() {
+					return "off"
+				}
+				return c.Notify.Sound.Name()
+			},
+			set: func(c *config.Config, v string) { c.Notify.Sound = config.Sound(v) },
+		},
 		{
 			label: "send test notification", path: "action:test_notification", kind: kindAction,
 			get: func(config.Config) string { return "" },
@@ -772,7 +784,10 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 		o.cursor, o.errMsg = o.next(o.cursor, -1), ""
 	case "down", "j":
 		o.cursor, o.errMsg = o.next(o.cursor, +1), ""
-	case "enter", "space", "right", "l":
+	case "enter", "space":
+		// A bool flips only on a deliberate key: the overlay opens with the
+		// cursor on its first row, and an arrow or 'l' pressed out of pane
+		// habit used to turn that row off unnoticed.
 		switch s.kind {
 		case kindAction:
 			if msg.String() == "enter" {
@@ -790,6 +805,10 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 			if msg.String() == "enter" {
 				o.editing, o.buf = true, ""
 			}
+		}
+	case "right", "l":
+		if s.kind == kindEnum {
+			return &settingChange{s: s, val: cycle(s.options(), s.get(cfg), +1)}, false
 		}
 	case "left", "h":
 		if s.kind == kindEnum {

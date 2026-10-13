@@ -288,6 +288,10 @@ func (v *View) Init() tea.Cmd {
 
 func (v *View) Loading() bool { return v.loading }
 
+// FetchesLocally: the scan reads transcripts on this machine, so a daemon
+// client runs it too rather than waiting on the daemon's.
+func (v *View) FetchesLocally() bool { return true }
+
 func (v *View) fetch() tea.Cmd {
 	return func() tea.Msg { return loadedMsg(collect()) }
 }
@@ -342,6 +346,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case resumedMsg:
 		// Resuming likely appended new turns; rescan so order/age stay accurate.
 		return v.fetch()
+	case ui.CacheChangedMsg:
+		// The daemon rescanned: a rescan here is cheap, it reads that cache.
+		if msg.Matches(cacheName) {
+			return v.fetch()
+		}
+		return nil
 	case ui.ListJumpMsg:
 		v.list.SetJump(int(msg))
 		return nil
@@ -735,6 +745,9 @@ func (v *View) Refs() []ui.Ref {
 		case "linear":
 			var iss store.Issue
 			if v.store != nil {
+				if !v.store.Vouched(mn.ID) {
+					continue
+				}
 				iss, _ = v.store.Issue(mn.ID)
 			}
 			refs = append(refs, ui.IssueRef(mn.ID, iss.Title, iss.URL, ui.IssueStatusIcon(iss.StateType, iss.State)))

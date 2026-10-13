@@ -1,11 +1,14 @@
 package linear
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sanity-labs/agenda/internal/cache"
+	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
@@ -99,5 +102,42 @@ func TestResolveRefsFetchesAndPublishesUnknownIssues(t *testing.T) {
 	}
 	if st, ok := cmd().(ui.StatusMsg); !ok || !strings.Contains(st.Summary, "SRE-78") {
 		t.Errorf("failed resolve reported %+v, want a status naming SRE-78", cmd())
+	}
+}
+
+// A daemon fetch that found nothing still ends the loading state.
+func TestEmptyCacheFromTheDaemonEndsLoading(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
+	v.loading = true
+	_ = cache.Save(cacheName, []issue{{Identifier: "SRE-5", Title: "done elsewhere"}})
+	v.Update(ui.CacheChangedMsg{Name: cacheName})
+	if len(v.raw) != 1 {
+		t.Fatalf("rows after a non-empty cache: %d, want 1", len(v.raw))
+	}
+	_ = cache.Save(cacheName, []issue{})
+	v.Update(ui.CacheChangedMsg{Name: cacheName})
+	if v.Loading() {
+		t.Fatal("still loading after the daemon saved an empty cache")
+	}
+	if len(v.raw) != 0 {
+		t.Fatalf("rows after an empty cache: %d, want 0 (the issue is gone)", len(v.raw))
+	}
+}
+
+// A lookup that fails to get through says nothing about the id; only
+// Linear's own "not found" marks it as not an issue.
+func TestOnlyANotFoundMarksAnIdMissing(t *testing.T) {
+	v := floatIssue(t, 0)
+	s := store.New()
+	s.PutIssues([]store.Issue{{Identifier: "SRE-1"}})
+	v.store = s
+	v.Update(issueResolvedMsg{id: "SRE-77", err: errBoom})
+	if !s.Vouched("SRE-77") {
+		t.Error("a transient error marked the id missing")
+	}
+	v.Update(issueResolvedMsg{id: "SRE-77", err: errors.New("linear: Entity not found: Issue")})
+	if s.Vouched("SRE-77") {
+		t.Error("Linear's not-found did not mark the id missing")
 	}
 }

@@ -51,10 +51,22 @@ func Load[T any](name string) (T, bool) {
 	return v, true
 }
 
+// OnSave, when set, is told the name of every entry written. The daemon
+// uses it to tell its clients which view to reload; nothing else should.
+var OnSave func(name string)
+
 // Save writes v to <name>.json atomically (temp file + rename). Errors are
 // returned but are safe to ignore — a failed cache write only costs a slower
 // next start.
 func Save[T any](name string, v T) error {
+	err := save(name, v)
+	if err == nil && OnSave != nil {
+		OnSave(name)
+	}
+	return err
+}
+
+func save[T any](name string, v T) error {
 	p, err := path(name)
 	if err != nil {
 		return err

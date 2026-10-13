@@ -55,6 +55,14 @@ list_jump: 5
 # other PR in diff view; "persist" keeps it until you toggle back.
 toggles: ephemeral
 
+# Keep a background agenda (the daemon) running the fetch loops, cache and
+# notifications, so they carry on with no window open and the next window
+# paints from fresh data. The TUI starts one when none answers and leaves
+# fetching to it; `agenda status`, `agenda stop`, `agenda restart` manage it.
+# It refreshes on refresh.every, or every 5 minutes when that is unset.
+# Off by default.
+daemon: false
+
 # Capture clicks and the wheel. On by default. Off hands the mouse back to
 # the terminal, so dragging selects text and copies it the way the terminal
 # does (handy for a CI log); clicks and the wheel then do nothing in agenda.
@@ -90,9 +98,11 @@ refresh:
 
 # Notify when something new appears: a PR waiting on your review, or a Linear
 # issue newly assigned to you. The popup channel is "off" (default),
-# "terminal" (an in-app toast, top right), or "desktop" (an OS
-# notification). Sound defaults on once the popup is on. Audition both via
-# ctrl+s -> "send test notification".
+# "terminal" (an in-app toast, top right), "desktop" (an OS notification),
+# or "herdr" (Herdr's own toast over whichever pane is active, so it shows
+# with no agenda window open; outside Herdr it falls back to the in-app
+# toast). Sound defaults on once the popup is on. Audition via ctrl+s ->
+# "send test notification".
 notifications:
   popup: off
   # What clicking a desktop notification does: "url" opens the PR or issue
@@ -100,7 +110,11 @@ notifications:
   # for a proper app icon; without it notifications still post through
   # osascript, just plainer and not clickable.
   # click: url
-  # sound: true
+  # The sound: off, or a bundled name (macOS: Basso, Blow, Bottle, Frog,
+  # Funk, Glass, Hero, Morse, Ping, Pop, Purr, Sosumi, Submarine, Tink;
+  # Linux: a freedesktop event id such as message or bell), or a file path.
+  # Ping by default; the settings row auditions each as you pick it.
+  # sound: Ping
 
 # Keybind overrides: scope -> action -> key(s). A binding may be a single key
 # or a list; an empty list disables the action. Defaults shown commented.

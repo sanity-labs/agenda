@@ -97,10 +97,11 @@ own PRs only and `w` says so.
 | `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `unread`, `unread_sync` | blue dot on rows that arrived since you last looked (on); keep it in step with GitHub notifications |
-| `notifications.popup` | `terminal` toast or `desktop` notification on new review requests and assignments; `click` opens the item (macOS needs `terminal-notifier`) |
+| `notifications.popup` | `terminal` toast, `desktop` notification or `herdr` toast (over the active Herdr pane, window or not) on new review requests and assignments; `click` opens a desktop one (macOS needs `terminal-notifier`); `sound` picks a bundled sound (`Glass`, `Submarine`…) or `off` |
 | `refresh.every` | auto-refresh interval, with per-view overrides |
 | `list_jump` | rows `pgup`/`pgdn` and `shift+↑↓` move (5) |
 | `mouse` | capture clicks and the wheel (on); off hands the mouse to the terminal so dragging selects and copies text, say from a CI log |
+| `daemon` | keep a background agenda fetching and notifying with no window open; the TUI starts one and paints from its cache (see [Daemon](#daemon)) |
 | `github.merge` | `m`/`M` in the review popup merge or enable auto-merge, after confirming |
 | `github.sort`, `linear.sort`, `sessions.sort` | the sort each view opens on |
 | `theme.name` | `catppuccin-mocha`, `tokyonight`, `gruvbox`, `dracula`, `nord`, `rose-pine`, … |
@@ -197,6 +198,37 @@ A small shared store (`internal/store`) is how views enrich each other
 without importing one another: each publishes the facts it owns and reads
 the others'. A view exposes links by implementing `ui.Referencer` and
 becomes a destination with `ui.RefTarget`.
+
+## Daemon
+
+With `daemon: true`, agenda keeps a background copy of itself running: the
+same views, fetch loops, cache writes and notifications, with no screen.
+Review requests and assignments pop while no window is open, and the next
+`agenda` paints from a cache that is seconds old instead of fetching first.
+
+The TUI connects on start, starting a daemon when none answers, and then
+leaves fetching to it: a view repaints when the daemon rewrites its cache,
+`ctrl+r` asks the daemon to refetch, rows you look at are reported so their
+unread marks stay cleared, and the footer says `daemon` while it is
+connected (`daemon gone` if it drops, at which point the window fetches for
+itself and keeps trying the socket). Desktop and `herdr` notifications come
+from the daemon and need no window; terminal toasts are forwarded to the
+windows that are open, and the ones raised while none was are handed to the
+next window that connects, with each in its message log (`!`).
+
+```sh
+agenda status    # client and daemon versions, pid, uptime, views, clients
+agenda stop      # the daemon quits; open windows fall back to fetching
+agenda restart   # stop, then start a fresh one (after an update, or a config change)
+agenda daemon    # run it in the foreground, for a service manager or a look at its output
+```
+
+The socket and log live in `$XDG_STATE_HOME/agenda` (`~/.local/state/agenda`).
+The daemon reads the config when it starts. A reload from the settings
+overlay (`r`) restarts it along with the window, so a changed sound, search
+or interval reaches it; an edit to the file by hand wants `agenda restart`. With `refresh.every` unset the daemon
+refreshes every 5 minutes (a window with no daemon still fetches only on
+`ctrl+r`, as before); set it to choose.
 
 ## Releasing
 

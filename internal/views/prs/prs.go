@@ -287,6 +287,23 @@ func (p pr) checksTerm() string {
 // tokens like "v2-foo" don't match.
 var linearRefRe = regexp.MustCompile(`(?i)\b([a-z]{2,}-\d+)\b`)
 
+// vouchedRefs is linearRefs minus what the store knows is not a ticket:
+// an id a lookup refused, or one from a team Linear has never shown an
+// issue from (WAVE-2 in a Terraform PR). Without a store, everything.
+func (v *View) vouchedRefs(p pr) []string {
+	ids := p.linearRefs()
+	if v.store == nil {
+		return ids
+	}
+	out := ids[:0:0]
+	for _, id := range ids {
+		if v.store.Vouched(id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // linearRefs returns the Linear identifiers this PR references (uppercased,
 // de-duplicated, in order of appearance). It scans the title, branch, then
 // body — the places a Linear issue is conventionally named.
@@ -622,6 +639,7 @@ type View struct {
 	sort             sortMode
 	rev              bool // sort order reversed
 	store            *store.Store
+	onSeen           func(view string, ids []string)
 	// resolveAsked is the Linear ids already sent for resolution, so a
 	// ticket is asked for once per run whatever the answer.
 	resolveAsked map[string]bool
@@ -782,6 +800,8 @@ func (v *View) resolveLinear() tea.Cmd {
 		return nil
 	}
 	var ids []string
+	// Every id is asked for, vouched or not: the lookup is what settles
+	// whether an unknown-team id is a ticket or a word.
 	for _, id := range v.list.Selected().linearRefs() {
 		if _, ok := v.store.Issue(id); ok || v.resolveAsked[id] {
 			continue
@@ -989,27 +1009,58 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 	v.nav = newNavKeys(km)
 
 	// Paint last run's PRs immediately; the live fetch refreshes them.
+	v.loadCache(false)
+	return v
+}
+
+// loadCache paints the cache: at startup, and again whenever the daemon
+// rewrites it. An empty cache is painted only when asked (the daemon's
+// fetch found nothing, so rows that were there have gone); at startup an
+// empty one is left for the first fetch. Reports whether it painted.
+func (v *View) loadCache(acceptEmpty bool) bool {
 	cached, ok := cache.Load[cachedPRs](v.cacheName())
-	if reviewsOnly {
+	if !ok {
+		return false
+	}
+	if v.reviewsOnly {
 		// Own PRs have no place here whatever an earlier run wrote: the
 		// tab never fetches them, so a stale row would never be replaced.
 		cached.Mine = nil
 	}
-	if ok && len(cached.Mine)+len(cached.Review) > 0 {
-		v.raw, v.reviewRaw = cached.Mine, cached.Review
-		v.seeded, v.mineSeeded = true, true
-		if len(cached.Unread) > 0 {
-			v.unread = make(map[string]bool, len(cached.Unread))
-			for _, url := range cached.Unread {
-				v.unread[url] = true
-			}
-		}
-		v.applySort()
-		v.publish(append(cached.Mine, cached.Review...))
-		v.loading = false
+	if len(cached.Mine)+len(cached.Review) == 0 && !acceptEmpty {
+		return false
 	}
-	return v
+	v.raw, v.reviewRaw = cached.Mine, cached.Review
+	v.seeded, v.mineSeeded = true, true
+	v.unread = make(map[string]bool, len(cached.Unread))
+	for _, url := range cached.Unread {
+		v.unread[url] = true
+	}
+	v.applySort()
+	v.publish(append(cached.Mine, cached.Review...))
+	v.loading = false
+	return true
 }
+
+// forgetUnread drops marks for rows a client has looked at, so the
+// daemon's next save does not revive them.
+func (v *View) forgetUnread(urls []string) {
+	changed := false
+	for _, url := range urls {
+		if v.unread[url] {
+			delete(v.unread, url)
+			changed = true
+		}
+	}
+	if changed {
+		v.applySort()
+		v.saveCache()
+	}
+}
+
+// ReportSeen sets the hook told which rows the user looked at, by cache
+// name; the root model forwards them to the daemon.
+func (v *View) ReportSeen(f func(view string, ids []string)) { v.onSeen = f }
 
 // cachedPRs is the on-disk shape of the last fetch. Unread rides along: a
 // mark you never looked at has to survive a restart, or quitting silently
@@ -1569,6 +1620,25 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.SpinnerTickMsg:
 		v.spinFrame = msg.Frame
+		return nil
+	case ui.CacheChangedMsg:
+		// The daemon fetched: repaint from its cache, selection kept by
+		// identity, and say so if the selected row left.
+		if !msg.Matches(v.cacheName()) {
+			return nil
+		}
+		// The daemon finished a fetch whatever it found: an empty cache is
+		// an empty list, not a list still loading.
+		v.loading, v.reviewLoading = false, false
+		before := v.list.Selected()
+		if !v.loadCache(true) {
+			return nil
+		}
+		return v.departed(before, append(v.raw, v.reviewRaw...))
+	case ui.SeenMsg:
+		if msg.View == v.cacheName() {
+			v.forgetUnread(msg.IDs)
+		}
 		return nil
 	case ui.ListJumpMsg:
 		v.jump = int(msg)
@@ -2407,7 +2477,7 @@ func (v *View) submitReview(verdict string) tea.Cmd {
 func (v *View) Refs() []ui.Ref {
 	sel := v.list.Selected()
 	var refs []ui.Ref
-	for _, id := range sel.linearRefs() {
+	for _, id := range v.vouchedRefs(sel) {
 		var iss store.Issue
 		if v.store != nil {
 			iss, _ = v.store.Issue(id)
@@ -3003,6 +3073,9 @@ func (v *View) clearUnreadFor(url string) {
 	delete(v.unread, url)
 	v.applySort()
 	v.saveCache()
+	if v.onSeen != nil {
+		v.onSeen(v.cacheName(), []string{url})
+	}
 	if p, ok := v.prByURL(url); v.unreadSync && ok && p.repo() != "" && p.Number != 0 {
 		v.syncPending = append(v.syncPending, markThreadRead(p.repo(), p.Number))
 	}
@@ -3267,7 +3340,7 @@ func (v *View) PreviewView() string {
 // linearBlock names the Linear issue(s) the PR references, with the
 // issue's title where the Linear view has it, and how to get there.
 func (v *View) linearBlock(p pr) string {
-	ids := p.linearRefs()
+	ids := v.vouchedRefs(p)
 	if len(ids) == 0 {
 		return ""
 	}

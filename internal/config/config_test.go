@@ -307,3 +307,28 @@ func TestReviewQueryHidesDependencyBots(t *testing.T) {
 		t.Errorf("ReviewQuery() = %q, repeated an exclusion already in the filter", got)
 	}
 }
+
+// The sound key took true/false before it took a name; both still parse,
+// and a name or a path plays as given.
+func TestSoundAcceptsBoolAndName(t *testing.T) {
+	for _, c := range []struct {
+		in       string
+		enabled  bool
+		wantName string
+	}{
+		{"true", true, DefaultSound},
+		{"false", false, ""},
+		{"off", false, ""},
+		{"Glass", true, "Glass"},
+		{"/tmp/ding.aiff", true, "/tmp/ding.aiff"},
+	} {
+		writeConfig(t, "notifications:\n  popup: terminal\n  sound: "+c.in+"\n")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("sound: %s: %v", c.in, err)
+		}
+		if cfg.Notify.SoundEnabled() != c.enabled || cfg.Notify.SoundName() != c.wantName {
+			t.Errorf("sound: %s: enabled=%v name=%q, want %v %q", c.in, cfg.Notify.SoundEnabled(), cfg.Notify.SoundName(), c.enabled, c.wantName)
+		}
+	}
+}

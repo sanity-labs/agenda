@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/store"
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -90,4 +91,92 @@ func resolveIDs(cmd tea.Cmd) []string {
 	}
 	walk(cmd)
 	return ids
+}
+
+// A cache the daemon rewrote repaints the list when it names this view,
+// or every view (a reconnect); another view's name is ignored.
+func TestCacheChangedRepaintsFromDisk(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{}, nil, nil, nil)
+	v.SetSize(90, 60, 24)
+	p := pr{Number: 9, URL: "u9", Title: "From the daemon", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	if err := cache.Save("prs", cachedPRs{Mine: []pr{p}}); err != nil {
+		t.Fatal(err)
+	}
+	v.Update(ui.CacheChangedMsg{Name: "linear"})
+	if len(v.raw) != 0 {
+		t.Fatal("another view's cache name repainted this list")
+	}
+	v.Update(ui.CacheChangedMsg{Name: ui.CacheAll})
+	if len(v.raw) != 1 || v.list.Selected().URL != "u9" {
+		t.Fatalf("reconnect did not repaint from the cache: %d PRs, selected %q", len(v.raw), v.list.Selected().URL)
+	}
+	p.Title = "Rewritten"
+	_ = cache.Save("prs", cachedPRs{Mine: []pr{p}})
+	v.Update(ui.CacheChangedMsg{Name: "prs"})
+	if v.list.Selected().Title != "Rewritten" {
+		t.Fatal("a cache_changed for this view did not repaint")
+	}
+}
+
+// A daemon fetch that found nothing still ends the loading state and
+// clears what was there: an empty queue is an empty list, not a spinner
+// for good and not yesterday's rows. A missing cache file changes nothing.
+func TestEmptyCacheFromTheDaemonEndsLoadingAndClears(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{}, nil, nil, nil)
+	if !v.Loading() {
+		t.Fatal("a fresh view should be loading")
+	}
+	p := pr{Number: 3, URL: "u3", Title: "Merged elsewhere", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	_ = cache.Save("prs", cachedPRs{Mine: []pr{p}})
+	v.Update(ui.CacheChangedMsg{Name: "prs"})
+	if len(v.raw) != 1 {
+		t.Fatalf("rows after a non-empty cache: %d, want 1", len(v.raw))
+	}
+	_ = cache.Save("prs", cachedPRs{})
+	v.Update(ui.CacheChangedMsg{Name: "prs"})
+	if v.Loading() {
+		t.Fatal("still loading after the daemon saved an empty cache")
+	}
+	if len(v.raw) != 0 {
+		t.Fatalf("rows after an empty cache: %d, want 0 (the PR is gone)", len(v.raw))
+	}
+	// Startup with an empty cache file: nothing painted, the fetch decides.
+	fresh := New(config.GitHubConfig{}, nil, nil, nil)
+	if !fresh.Loading() || len(fresh.raw) != 0 {
+		t.Error("an empty cache at startup should leave the view loading")
+	}
+}
+
+// Words that look like tickets (WAVE-2, SHARD-02 in a Terraform PR) are
+// not shown once Linear has shown which teams exist; a real id from a
+// known team is, even before its lookup lands.
+func TestLinearBlockShowsOnlyVouchedIds(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	s := store.New()
+	s.PutIssues([]store.Issue{{Identifier: "SRE-1", Title: "known"}})
+	v := New(config.GitHubConfig{}, nil, nil, s)
+	v.SetSize(90, 60, 24)
+	p := pr{Number: 1, URL: "u", Title: "Rotate WAVE-2 and SHARD-02 (SRE-12)", State: "OPEN"}
+	p.Repository.NameWithOwner = "o/r"
+	v.Update(mineMsg{page: searchPage{prs: []pr{p}}})
+	// The title at the top of the preview repeats the words; the Linear
+	// block is what is under test.
+	block := ansi.Strip(v.linearBlock(p))
+	if !strings.Contains(block, "SRE-12") {
+		t.Errorf("a known-team id is missing:\n%s", block)
+	}
+	if strings.Contains(block, "WAVE-2") || strings.Contains(block, "SHARD-02") {
+		t.Errorf("words that only look like tickets are shown:\n%s", block)
+	}
+	if got := len(v.Refs()); got != 1 {
+		t.Errorf("picker has %d Linear refs, want 1", got)
+	}
+	s.MarkMissing("SRE-12")
+	if block := v.linearBlock(p); block != "" {
+		t.Errorf("an id a lookup refused is still shown:\n%s", block)
+	}
 }

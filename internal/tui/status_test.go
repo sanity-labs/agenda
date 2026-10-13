@@ -115,3 +115,34 @@ func TestFooterHiddenKeepsErrorsAndHelp(t *testing.T) {
 		t.Errorf("the hidden footer is %d rows, want %d", h, footerHeight)
 	}
 }
+
+// A message that arrives again and again (a forbidden search on every
+// refresh) is one log entry with a count and the latest time, not a wall
+// of repeats; the footer counts it once.
+func TestRepeatedStatusFoldsIntoOneEntry(t *testing.T) {
+	m := New(config.Default(), []View{&fatView{title: "x"}})
+	m.width, m.height, m.ready = 100, 30, true
+	m.layout()
+	warn := ui.Status(ui.SeverityWarn, "PRs", "1 of 6 hidden: `org` forbids classic PATs", "use a fine-grained token")
+	for i := 0; i < 5; i++ {
+		got, _ := m.Update(warn)
+		m = got.(Model)
+	}
+	got, _ := m.Update(ui.Status(ui.SeverityError, "Linear", "fetch failed", ""))
+	m = got.(Model)
+	got, _ = m.Update(warn)
+	m = got.(Model)
+	if len(m.status) != 2 {
+		t.Fatalf("log has %d entries, want 2 (one folded warning, one error)", len(m.status))
+	}
+	last := m.status[len(m.status)-1]
+	if last.Summary != warn.Summary || last.Count != 6 {
+		t.Fatalf("latest entry = %q ×%d, want the warning ×6 moved to the end", last.Summary, last.Count)
+	}
+	if m.unreadIssues() != 2 {
+		t.Errorf("footer counts %d issues, want 2", m.unreadIssues())
+	}
+	if !strings.Contains(ui.DetailView(m.status, 70), "×6") {
+		t.Error("the overlay does not show the repeat count")
+	}
+}
