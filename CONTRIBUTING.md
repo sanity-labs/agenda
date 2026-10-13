@@ -60,6 +60,10 @@ them rather than reasoning about the arithmetic.
   are grouped by it. See [README.md › Releasing](README.md#releasing).
 - Keep opinionated UX changes behind a config key whose default is the
   existing behaviour, with a row in the `ctrl+s` overlay.
+- macOS is the supported platform. Keep the Linux paths working when it is
+  cheap (a `runtime.GOOS` switch, a freedesktop id next to the macOS name),
+  but a Linux-only gap is not a merge blocker and the reviewer treats it as
+  a note.
 - Say what the problem was, what caused it, and what the change does.
   Skip the tour.
 - Every PR gets an **automatic review** (`claude-code-review.yml`, prompt
