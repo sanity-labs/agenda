@@ -90,6 +90,9 @@ const (
 	IconTabSessions = "\uf120"     //  terminal
 	IconTabLinear   = "\uf4a0"     //  linear
 	IconLinearIssue = "\U000f1591" // 󱖑 a Linear issue
+	IconKeyTab      = "\uf523"     //  the arrows that cycle a settings row
+	IconKeyEnter    = "\U000f0311" // 󰌑 return
+	IconKeyEsc      = "\U000f12b7" // 󱊷 escape
 	IconNavMine     = "\uf007"     //  user
 	IconNavInbox    = "\uf01c"     //  inbox
 	IconNavAll      = "\uf0ca"     //  list
