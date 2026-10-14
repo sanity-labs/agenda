@@ -111,6 +111,98 @@ type issue struct {
 	Attachments struct {
 		Nodes []attachment `json:"nodes"`
 	} `json:"attachments"`
+	// The issue's place among others: its parent, its sub-issues, and
+	// the relations Linear records both ways (blocks, duplicate, related).
+	Parent   *issueRef `json:"parent"`
+	Children struct {
+		Nodes []issueRef `json:"nodes"`
+	} `json:"children"`
+	Relations struct {
+		Nodes []relation `json:"nodes"`
+	} `json:"relations"`
+	InverseRelations struct {
+		Nodes []inverseRelation `json:"nodes"`
+	} `json:"inverseRelations"`
+}
+
+// issueRef is another issue as it appears inside one: enough to list it,
+// glyph it and jump to it.
+type issueRef struct {
+	Identifier string `json:"identifier"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	State      struct {
+		Name  string `json:"name"`
+		Type  string `json:"type"`
+		Color string `json:"color"`
+	} `json:"state"`
+}
+
+type relation struct {
+	Type         string   `json:"type"` // blocks | duplicate | related
+	RelatedIssue issueRef `json:"relatedIssue"`
+}
+
+type inverseRelation struct {
+	Type  string   `json:"type"`
+	Issue issueRef `json:"issue"`
+}
+
+// related is one issue tied to this one and how: "parent", "sub-issue",
+// "blocks", "blocked by", "duplicate of", "duplicated by", "related".
+type related struct {
+	how   string
+	issue issueRef
+}
+
+// relatedIssues lists the issue's parent, sub-issues and relations in that
+// order, each once, with how it relates.
+func (i issue) relatedIssues() []related {
+	var out []related
+	seen := map[string]bool{i.Identifier: true}
+	add := func(how string, r issueRef) {
+		if r.Identifier == "" || seen[r.Identifier] {
+			return
+		}
+		seen[r.Identifier] = true
+		out = append(out, related{how: how, issue: r})
+	}
+	if i.Parent != nil {
+		add("parent", *i.Parent)
+	}
+	for _, c := range i.Children.Nodes {
+		add("sub-issue", c)
+	}
+	for _, r := range i.Relations.Nodes {
+		add(relationWord(r.Type, false), r.RelatedIssue)
+	}
+	for _, r := range i.InverseRelations.Nodes {
+		add(relationWord(r.Type, true), r.Issue)
+	}
+	return out
+}
+
+// relationWord says a relation from this issue's side.
+func relationWord(typ string, inverse bool) string {
+	switch typ {
+	case "blocks":
+		if inverse {
+			return "blocked by"
+		}
+		return "blocks"
+	case "duplicate":
+		if inverse {
+			return "duplicated by"
+		}
+		return "duplicate of"
+	}
+	return "related"
+}
+
+// record is an issue reference as the shared store carries it.
+func (r issueRef) record() store.Issue {
+	return store.Issue{Identifier: r.Identifier, Title: r.Title, State: r.State.Name,
+		StateType: r.State.Type, StateColor: r.State.Color, URL: r.URL}
 }
 
 // attachment is a Linear attachment; for GitHub PRs the metadata carries the
@@ -568,8 +660,12 @@ type View struct {
 	// decides what marks an issue read: hovering, or asking for the detail.
 	previewShown bool
 
-	showComments   bool
-	comments       map[string]*commentsState
+	showComments bool
+	comments     map[string]*commentsState
+	// related is each issue's parent, sub-issues and relations, fetched on
+	// selection; relatedRev bumps when one lands so the preview re-renders.
+	related        map[string]*relatedState
+	relatedRev     int
 	commentsRev    int
 	commentsJumped bool
 	jumpPending    bool
@@ -735,6 +831,9 @@ func (v *View) publish(issues []issue) {
 	recs := make([]store.Issue, 0, len(issues))
 	for _, i := range issues {
 		recs = append(recs, i.record())
+		for _, r := range i.relatedIssues() {
+			recs = append(recs, r.issue.record())
+		}
 	}
 	v.store.PutIssues(recs)
 }
@@ -765,6 +864,16 @@ const issueFields = `
         comments(first: 50) { nodes { id } pageInfo { hasNextPage } }
         labels(first: 10) { nodes { name color } }
         attachments(first: 20) { nodes { url sourceType title metadata } }`
+
+// relatedFields are an issue's parent, sub-issues and relations. Not part
+// of issueFields: on a list page of 100 they put the query over Linear's
+// complexity limit (16k against 10k), so they come per issue, on
+// selection, the way comments do.
+const relatedFields = `
+        parent { identifier title url state { name type color } }
+        children(first: 20) { nodes { identifier title url state { name type color } } }
+        relations(first: 20) { nodes { type relatedIssue { identifier title url state { name type color } } } }
+        inverseRelations(first: 20) { nodes { type issue { identifier title url state { name type color } } } }`
 
 // assignedQuery fetches your assigned issues (the default scope); allQuery
 // fetches every issue the token can see, for filter.scope: all.
@@ -1151,7 +1260,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.applySort()
 		}
 		v.list.Select(matchID(msg.issue.Identifier))
-		return nil
+		return v.maybeFetchRelated()
 	case favsMsg:
 		v.navErr = msg.err
 		v.favs = msg.projects
@@ -1161,6 +1270,19 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if st, ok := v.comments[msg.id]; ok {
 			st.list, st.err, st.done = msg.comments, msg.err, true
 			v.commentsRev++
+		}
+		return nil
+	case relatedMsg:
+		if st, ok := v.related[msg.id]; ok {
+			st.rel, st.err, st.done = msg.issue.relatedIssues(), msg.err, true
+			v.relatedRev++
+			if v.store != nil {
+				recs := make([]store.Issue, 0, len(st.rel))
+				for _, r := range st.rel {
+					recs = append(recs, r.issue.record())
+				}
+				v.store.PutIssues(recs)
+			}
 		}
 		return nil
 	case errMsg:
@@ -1280,9 +1402,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				if v.previewShown {
 					v.clearFreshFor(before)
 				}
-				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview, more)
+				return tea.Batch(cmd, v.maybeFetchComments(), v.maybeFetchRelated(), ui.ConcealPreview, more)
 			}
-			return tea.Batch(cmd, v.maybeFetchComments(), more)
+			return tea.Batch(cmd, v.maybeFetchComments(), v.maybeFetchRelated(), more)
 		}
 		if v.list.Filtering() {
 			return nil
@@ -1479,7 +1601,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 		return more
 	}
 	v.resetToggles()
-	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview, more)
+	return tea.Batch(v.maybeFetchComments(), v.maybeFetchRelated(), ui.ConcealPreview, more)
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
@@ -1600,6 +1722,12 @@ func (v *View) PreviewView() string {
 	b.WriteByte('\n')
 	b.WriteString(v.renderPRs(i))
 	b.WriteString("\n\n")
+	if rel := v.relatedFor(i); len(rel) > 0 {
+		b.WriteString(ui.BlockHeader("Related issues"))
+		b.WriteByte('\n')
+		b.WriteString(v.renderRelated(rel))
+		b.WriteString("\n\n")
+	}
 	// Record where the section starts so the 'c' jump can target it.
 	v.commentsLine = strings.Count(b.String(), "\n") + 1
 	b.WriteString(ui.BlockHeader("Comments"))
@@ -1666,6 +1794,30 @@ func (v *View) renderPRs(i issue) string {
 	return b.String()
 }
 
+// renderRelated is the detail's related-issues section: status glyph, id,
+// title, then how it relates, dim; the same row the picker shows.
+func (v *View) renderRelated(rel []related) string {
+	var b strings.Builder
+	for n, r := range rel {
+		if n > 0 {
+			b.WriteByte('\n')
+		}
+		line := "  "
+		if icon := ui.IssueStatusIcon(r.issue.State.Type, r.issue.State.Name); icon != "" {
+			line += icon + " "
+		}
+		line += r.issue.Identifier
+		how := ui.Dim.Render("  " + r.how)
+		room := max(10, v.prevW-lipgloss.Width(line)-lipgloss.Width(how)-4)
+		if r.issue.Title != "" {
+			line += "  " + ui.Truncate(r.issue.Title, room)
+		}
+		b.WriteString(line + how)
+	}
+	b.WriteString("\n" + ui.Faint.Render("  l to jump to one"))
+	return b.String()
+}
+
 // issueFetchedMsg carries one issue fetched by identifier for a reference
 // that was not loaded, or the failure to.
 type issueFetchedMsg struct {
@@ -1675,7 +1827,7 @@ type issueFetchedMsg struct {
 }
 
 const issueQuery = `query($id: String!) {
-  issue(id: $id) {` + issueFields + `
+  issue(id: $id) {` + issueFields + relatedFields + `
   }
 }`
 
@@ -1829,7 +1981,7 @@ func (v *View) toggleComments() tea.Cmd {
 			v.floatReveal = true
 		}
 		v.paneFocus = v.floatReveal
-		return tea.Batch(ui.RevealPreview, v.maybeFetchComments())
+		return tea.Batch(ui.RevealPreview, v.maybeFetchComments(), v.maybeFetchRelated())
 	case !v.commentsJumped:
 		v.jumpPending, v.commentsJumped = true, true
 		return ui.RevealPreview
@@ -1936,6 +2088,7 @@ func (v *View) PreviewKey() string {
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
 	}
+	k += fmt.Sprintf("#related%d", v.relatedRev)
 	return k
 }
 
@@ -1978,6 +2131,12 @@ func (v *View) Refs() []ui.Ref {
 		}
 
 		refs = append(refs, ui.PRRef(pr, repo, num, title, a.URL))
+	}
+	for _, r := range v.relatedFor(sel) {
+		ref := ui.IssueRef(r.issue.Identifier, r.issue.Title, r.issue.URL,
+			ui.IssueStatusIcon(r.issue.State.Type, r.issue.State.Name))
+		ref.Detail = r.how + " · " + r.issue.Title
+		refs = append(refs, ref)
 	}
 	if v.store != nil {
 		for _, s := range v.store.SessionsMentioning(store.Key("linear", sel.Identifier)) {

@@ -141,3 +141,85 @@ func TestOnlyANotFoundMarksAnIdMissing(t *testing.T) {
 		t.Error("Linear's not-found did not mark the id missing")
 	}
 }
+
+// An issue's parent, sub-issues and relations list under the detail with
+// their status glyph and how they relate, and 'l' offers them after the
+// PRs, each once, so a jump to either needs no searching.
+func TestRelatedIssuesInDetailAndPicker(t *testing.T) {
+	v := floatIssue(t, 0)
+	v.Update(ui.PreviewShownMsg(true))
+	i := withPR(v.list.Selected(), "https://github.com/o/r/pull/5", "Fix the thing")
+	parent := issueRef{Identifier: "SRE-100", Title: "Epic", URL: "u100"}
+	parent.State.Type, parent.State.Name = "started", "In Progress"
+	i.Parent = &parent
+	child := issueRef{Identifier: "SRE-101", Title: "Part one", URL: "u101"}
+	child.State.Type = "completed"
+	i.Children.Nodes = []issueRef{child}
+	blocker := issueRef{Identifier: "SRE-102", Title: "Waiting on this", URL: "u102"}
+	blocker.State.Type = "unstarted"
+	i.InverseRelations.Nodes = []inverseRelation{{Type: "blocks", Issue: blocker}}
+	i.Relations.Nodes = []relation{{Type: "related", RelatedIssue: child}} // a repeat: listed once
+	v.raw = []issue{i}
+	v.applySort()
+
+	text := ansi.Strip(v.PreviewView())
+	for _, want := range []string{"Related issues", "SRE-100", "parent", "SRE-101", "sub-issue", "SRE-102", "blocked by"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("detail is missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Count(text, "SRE-101") != 1 {
+		t.Errorf("a related issue listed twice:\n%s", text)
+	}
+	refs := v.Refs()
+	var kinds []string
+	for _, r := range refs {
+		kinds = append(kinds, r.Kind+":"+r.ID)
+	}
+	want := "pr:https://github.com/o/r/pull/5,linear:SRE-100,linear:SRE-101,linear:SRE-102"
+	if got := strings.Join(kinds, ","); got != want {
+		t.Fatalf("refs = %s, want %s", got, want)
+	}
+	if !strings.Contains(refs[1].Detail, "parent") || !strings.Contains(refs[1].Label, ui.IconIssueInProgress) {
+		t.Errorf("parent ref = %+v, want the status glyph and how it relates", refs[1])
+	}
+	if v.store != nil {
+		if iss, ok := v.store.Issue("SRE-102"); !ok || iss.StateType != "unstarted" {
+			t.Error("related issues were not published to the store")
+		}
+	}
+}
+
+// Relations are fetched once per selected issue, not with the list (a
+// page of 100 with them was over Linear's complexity limit); when they
+// land the detail shows them and the store learns them.
+func TestRelatedIssuesFetchedOnSelection(t *testing.T) {
+	v := floatIssue(t, 0)
+	v.Update(ui.PreviewShownMsg(true))
+	s := store.New()
+	v.store = s
+	if cmd := v.maybeFetchRelated(); cmd == nil {
+		t.Fatal("the selected issue's relations were not fetched")
+	}
+	if cmd := v.maybeFetchRelated(); cmd != nil {
+		t.Fatal("the relations were fetched twice for one issue")
+	}
+	if strings.Contains(ansi.Strip(v.PreviewView()), "Related issues") {
+		t.Fatal("a section with nothing to show yet")
+	}
+	i := issue{Identifier: "SRE-1"}
+	rel := issueRef{Identifier: "VULN-9", Title: "A finding", URL: "u"}
+	rel.State.Type, rel.State.Name = "unstarted", "Todo"
+	i.Relations.Nodes = []relation{{Type: "related", RelatedIssue: rel}}
+	v.Update(relatedMsg{id: "SRE-1", issue: i})
+	text := ansi.Strip(v.PreviewView())
+	if !strings.Contains(text, "Related issues") || !strings.Contains(text, "VULN-9") || !strings.Contains(text, "related") {
+		t.Fatalf("relations that landed are not in the detail:\n%s", text)
+	}
+	if iss, ok := s.Issue("VULN-9"); !ok || iss.StateType != "unstarted" {
+		t.Error("a related issue that landed was not published to the store")
+	}
+	if n := len(v.Refs()); n != 1 || v.Refs()[0].ID != "VULN-9" {
+		t.Errorf("refs = %d, want the one related issue", n)
+	}
+}
