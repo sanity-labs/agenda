@@ -62,11 +62,16 @@ func TestPickerSeparatesKinds(t *testing.T) {
 			got = append(got, strings.TrimSuffix(it.Label, "  ↗")) // the stub resolves nothing
 		}
 	}
-	want := "a PR,[issues],SRE-1,SRE-2,[sessions],a session"
+	want := "[pull requests],a PR,[issues],SRE-1,SRE-2,[sessions],a session"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("picker = %s, want %s", strings.Join(got, ","), want)
 	}
 	if len(aligned) != len(items) {
 		t.Fatal("aligned refs do not line up with the items")
+	}
+	// One kind alone: no heading over a list that needs none.
+	items, _ = m.pickerItems([]ui.Ref{{Kind: "linear", ID: "SRE-1", Label: "SRE-1", URL: "u"}})
+	if len(items) != 1 || items[0].Separator {
+		t.Fatalf("a single-kind picker got a heading: %+v", items)
 	}
 }
