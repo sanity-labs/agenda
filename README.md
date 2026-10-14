@@ -223,7 +223,10 @@ agenda restart   # stop, then start a fresh one (after an update, or a config ch
 agenda daemon    # run it in the foreground, for a service manager or a look at its output
 ```
 
-The socket and log live in `$XDG_STATE_HOME/agenda` (`~/.local/state/agenda`).
+The socket and log live in `$XDG_STATE_HOME/agenda` (`~/.local/state/agenda`),
+next to `config-writes.log`, one line per settings write (when, which
+process, key and value, calling frames) for the day a setting seems to
+change by itself.
 The daemon reads the config when it starts. A search edited with `F`, or a
 setting it acts on changed in the overlay, restarts it on the new file
 (the window fetches for itself in the gap and says so with a toast); a
