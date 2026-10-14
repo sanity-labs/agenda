@@ -660,8 +660,12 @@ type View struct {
 	// decides what marks an issue read: hovering, or asking for the detail.
 	previewShown bool
 
-	showComments   bool
-	comments       map[string]*commentsState
+	showComments bool
+	comments     map[string]*commentsState
+	// related is each issue's parent, sub-issues and relations, fetched on
+	// selection; relatedRev bumps when one lands so the preview re-renders.
+	related        map[string]*relatedState
+	relatedRev     int
 	commentsRev    int
 	commentsJumped bool
 	jumpPending    bool
@@ -859,7 +863,13 @@ const issueFields = `
         assignee { displayName }
         comments(first: 50) { nodes { id } pageInfo { hasNextPage } }
         labels(first: 10) { nodes { name color } }
-        attachments(first: 20) { nodes { url sourceType title metadata } }
+        attachments(first: 20) { nodes { url sourceType title metadata } }`
+
+// relatedFields are an issue's parent, sub-issues and relations. Not part
+// of issueFields: on a list page of 100 they put the query over Linear's
+// complexity limit (16k against 10k), so they come per issue, on
+// selection, the way comments do.
+const relatedFields = `
         parent { identifier title url state { name type color } }
         children(first: 20) { nodes { identifier title url state { name type color } } }
         relations(first: 20) { nodes { type relatedIssue { identifier title url state { name type color } } } }
@@ -1250,7 +1260,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			v.applySort()
 		}
 		v.list.Select(matchID(msg.issue.Identifier))
-		return nil
+		return v.maybeFetchRelated()
 	case favsMsg:
 		v.navErr = msg.err
 		v.favs = msg.projects
@@ -1260,6 +1270,19 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if st, ok := v.comments[msg.id]; ok {
 			st.list, st.err, st.done = msg.comments, msg.err, true
 			v.commentsRev++
+		}
+		return nil
+	case relatedMsg:
+		if st, ok := v.related[msg.id]; ok {
+			st.rel, st.err, st.done = msg.issue.relatedIssues(), msg.err, true
+			v.relatedRev++
+			if v.store != nil {
+				recs := make([]store.Issue, 0, len(st.rel))
+				for _, r := range st.rel {
+					recs = append(recs, r.issue.record())
+				}
+				v.store.PutIssues(recs)
+			}
 		}
 		return nil
 	case errMsg:
@@ -1379,9 +1402,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				if v.previewShown {
 					v.clearFreshFor(before)
 				}
-				return tea.Batch(cmd, v.maybeFetchComments(), ui.ConcealPreview, more)
+				return tea.Batch(cmd, v.maybeFetchComments(), v.maybeFetchRelated(), ui.ConcealPreview, more)
 			}
-			return tea.Batch(cmd, v.maybeFetchComments(), more)
+			return tea.Batch(cmd, v.maybeFetchComments(), v.maybeFetchRelated(), more)
 		}
 		if v.list.Filtering() {
 			return nil
@@ -1578,7 +1601,7 @@ func (v *View) mouseMoved(before string) tea.Cmd {
 		return more
 	}
 	v.resetToggles()
-	return tea.Batch(v.maybeFetchComments(), ui.ConcealPreview, more)
+	return tea.Batch(v.maybeFetchComments(), v.maybeFetchRelated(), ui.ConcealPreview, more)
 }
 
 func (v *View) SetSize(listW, prevW, h int) {
@@ -1699,7 +1722,7 @@ func (v *View) PreviewView() string {
 	b.WriteByte('\n')
 	b.WriteString(v.renderPRs(i))
 	b.WriteString("\n\n")
-	if rel := i.relatedIssues(); len(rel) > 0 {
+	if rel := v.relatedFor(i); len(rel) > 0 {
 		b.WriteString(ui.BlockHeader("Related issues"))
 		b.WriteByte('\n')
 		b.WriteString(v.renderRelated(rel))
@@ -1804,7 +1827,7 @@ type issueFetchedMsg struct {
 }
 
 const issueQuery = `query($id: String!) {
-  issue(id: $id) {` + issueFields + `
+  issue(id: $id) {` + issueFields + relatedFields + `
   }
 }`
 
@@ -1958,7 +1981,7 @@ func (v *View) toggleComments() tea.Cmd {
 			v.floatReveal = true
 		}
 		v.paneFocus = v.floatReveal
-		return tea.Batch(ui.RevealPreview, v.maybeFetchComments())
+		return tea.Batch(ui.RevealPreview, v.maybeFetchComments(), v.maybeFetchRelated())
 	case !v.commentsJumped:
 		v.jumpPending, v.commentsJumped = true, true
 		return ui.RevealPreview
@@ -2065,6 +2088,7 @@ func (v *View) PreviewKey() string {
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
 	}
+	k += fmt.Sprintf("#related%d", v.relatedRev)
 	return k
 }
 
@@ -2108,7 +2132,7 @@ func (v *View) Refs() []ui.Ref {
 
 		refs = append(refs, ui.PRRef(pr, repo, num, title, a.URL))
 	}
-	for _, r := range sel.relatedIssues() {
+	for _, r := range v.relatedFor(sel) {
 		ref := ui.IssueRef(r.issue.Identifier, r.issue.Title, r.issue.URL,
 			ui.IssueStatusIcon(r.issue.State.Type, r.issue.State.Name))
 		ref.Detail = r.how + " · " + r.issue.Title

@@ -189,3 +189,37 @@ func TestRelatedIssuesInDetailAndPicker(t *testing.T) {
 		}
 	}
 }
+
+// Relations are fetched once per selected issue, not with the list (a
+// page of 100 with them was over Linear's complexity limit); when they
+// land the detail shows them and the store learns them.
+func TestRelatedIssuesFetchedOnSelection(t *testing.T) {
+	v := floatIssue(t, 0)
+	v.Update(ui.PreviewShownMsg(true))
+	s := store.New()
+	v.store = s
+	if cmd := v.maybeFetchRelated(); cmd == nil {
+		t.Fatal("the selected issue's relations were not fetched")
+	}
+	if cmd := v.maybeFetchRelated(); cmd != nil {
+		t.Fatal("the relations were fetched twice for one issue")
+	}
+	if strings.Contains(ansi.Strip(v.PreviewView()), "Related issues") {
+		t.Fatal("a section with nothing to show yet")
+	}
+	i := issue{Identifier: "SRE-1"}
+	rel := issueRef{Identifier: "VULN-9", Title: "A finding", URL: "u"}
+	rel.State.Type, rel.State.Name = "unstarted", "Todo"
+	i.Relations.Nodes = []relation{{Type: "related", RelatedIssue: rel}}
+	v.Update(relatedMsg{id: "SRE-1", issue: i})
+	text := ansi.Strip(v.PreviewView())
+	if !strings.Contains(text, "Related issues") || !strings.Contains(text, "VULN-9") || !strings.Contains(text, "related") {
+		t.Fatalf("relations that landed are not in the detail:\n%s", text)
+	}
+	if iss, ok := s.Issue("VULN-9"); !ok || iss.StateType != "unstarted" {
+		t.Error("a related issue that landed was not published to the store")
+	}
+	if n := len(v.Refs()); n != 1 || v.Refs()[0].ID != "VULN-9" {
+		t.Errorf("refs = %d, want the one related issue", n)
+	}
+}
