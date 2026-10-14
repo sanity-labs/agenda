@@ -385,6 +385,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cfg.GitHub.ReviewFilter = msg.Value
 		}
 		m.invalidateFrame()
+		if daemonFollows(msg.Path) {
+			return m, tea.Batch(written, m.restartDaemon("the new "+msg.Path))
+		}
 		return m, written
 	case ui.ToastMsg:
 		m.toast = &msg
@@ -806,8 +809,14 @@ func (m *Model) commitSetting(change *settingChange) tea.Cmd {
 	// Every write to the config file leaves a line in the message log, so
 	// a setting that seems to change by itself can be traced to the
 	// overlay, a revert, or a view, and to when.
-	return tea.Batch(m.applyConfigChange(change.s.path),
-		configWritten(change.s.path, prev, change.s.get(m.cfg), "settings overlay"))
+	cmds := []tea.Cmd{m.applyConfigChange(change.s.path),
+		configWritten(change.s.path, prev, change.s.get(m.cfg), "settings overlay")}
+	// A row the daemon acts on: restart it on the new file. Rows marked
+	// reload-required are covered by the reload itself.
+	if change.s.note != noteReload && daemonFollows(change.s.path) {
+		cmds = append(cmds, m.restartDaemon(change.s.label))
+	}
+	return tea.Batch(cmds...)
 }
 
 // configWritten is the message-log line for one config write.

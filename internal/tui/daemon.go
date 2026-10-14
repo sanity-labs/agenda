@@ -82,9 +82,15 @@ func (m *Model) hookSeen() {
 // Messages the client side moves on.
 type (
 	daemonEventMsg struct{ ev daemon.Event }
-	daemonGoneMsg  struct{}
+	// daemonGoneMsg names the connection that went, so one that a restart
+	// already replaced is not mistaken for the current one.
+	daemonGoneMsg  struct{ c *daemon.Client }
 	daemonRetryMsg struct{}
-	daemonBackMsg  struct{ c *daemon.Client }
+	// daemonBackMsg carries the new connection and, after a restart, why.
+	daemonBackMsg struct {
+		c   *daemon.Client
+		why string
+	}
 	// refreshRequestMsg reaches the daemon: a client asked for a refetch.
 	refreshRequestMsg struct{ view string }
 )
@@ -99,7 +105,7 @@ func (m Model) daemonPump() tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-c.Events()
 		if !ok {
-			return daemonGoneMsg{}
+			return daemonGoneMsg{c}
 		}
 		return daemonEventMsg{ev}
 	}
@@ -154,6 +160,9 @@ func (m Model) updateDaemon(msg tea.Msg) (Model, tea.Cmd, bool) {
 		}
 		return m, cmd, true
 	case daemonGoneMsg:
+		if msg.c != m.daemon {
+			return m, nil, true // an older connection a restart already replaced
+		}
 		// Fetch for ourselves until it is back; the ticks were off while
 		// the daemon had them. The daemon is not respawned here: a stop
 		// was somebody's decision.
@@ -181,7 +190,7 @@ func (m Model) updateDaemon(msg tea.Msg) (Model, tea.Cmd, bool) {
 				time.Sleep(5 * time.Second)
 				return daemonRetryMsg{}
 			}
-			return daemonBackMsg{c}
+			return daemonBackMsg{c: c}
 		}, true
 	case daemonBackMsg:
 		m.daemon, m.daemonLost = msg.c, false
@@ -189,7 +198,12 @@ func (m Model) updateDaemon(msg tea.Msg) (Model, tea.Cmd, bool) {
 		m.refreshGen++ // our own ticks stop; the daemon fetches again
 		next, bcmd := m.broadcast(ui.CacheChangedMsg{Name: ui.CacheAll})
 		m = next.(Model)
-		return m, tea.Batch(m.daemonPump(), bcmd), true
+		cmds := []tea.Cmd{m.daemonPump(), bcmd}
+		if msg.why != "" {
+			why := msg.why
+			cmds = append(cmds, func() tea.Msg { return ui.ToastMsg{Title: "Daemon", Body: "restarted: " + why, Success: true} })
+		}
+		return m, tea.Batch(cmds...), true
 	}
 	return m, nil, false
 }
@@ -200,12 +214,17 @@ func (m Model) updateDaemon(msg tea.Msg) (Model, tea.Cmd, bool) {
 // old config would keep notifying with the old sound and searches, which
 // is the one thing a reload must not leave behind.
 func (m Model) StopDaemonForReload() {
-	if m.daemon == nil {
-		return
+	if m.daemon != nil {
+		stopDaemon(m.daemon)
 	}
-	_ = m.daemon.Call(daemon.MethodStop, nil, nil)
+}
+
+// stopDaemon asks the daemon behind c to stop and waits for its socket to
+// go, so what spawns next does not race it.
+func stopDaemon(c *daemon.Client) {
+	_ = c.Call(daemon.MethodStop, nil, nil)
 	select {
-	case <-m.daemon.Done():
+	case <-c.Done():
 	case <-time.After(5 * time.Second):
 	}
 	sock, err := daemon.SocketPath()
@@ -214,12 +233,46 @@ func (m Model) StopDaemonForReload() {
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		c, err := daemon.Dial(sock)
+		probe, err := daemon.Dial(sock)
 		if err != nil {
 			return
 		}
-		c.Close()
+		probe.Close()
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// daemonFollows says whether a config key is one the daemon acts on: what
+// it fetches, how often, and how it notifies. The rest is a window's own.
+func daemonFollows(path string) bool {
+	for _, p := range []string{"github.", "linear.", "sessions.", "refresh.", "notifications.", "views"} {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// restartDaemon, after a config write the daemon must follow (a search
+// edited with F, say), stops it and spawns one that reads the file as it
+// is now. Without this the daemon kept fetching on the old search: rows
+// the new one excludes came back with its next save, and it notified for
+// them. The window fetches for itself in the gap, so nothing goes stale.
+func (m Model) restartDaemon(why string) tea.Cmd {
+	c, exe := m.daemon, m.daemonExe
+	if c == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		stopDaemon(c)
+		if exe == "" {
+			return ui.Status(ui.SeverityWarn, "daemon", "stopped for "+why+", not restarted: no binary path", "")
+		}
+		next, err := daemon.Spawn(exe)
+		if err != nil {
+			return ui.Status(ui.SeverityWarn, "daemon", "could not restart after "+why, err.Error())
+		}
+		return daemonBackMsg{c: next, why: why}
 	}
 }
 
