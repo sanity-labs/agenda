@@ -71,12 +71,14 @@ func TestNavSelectSwitchesSourceAndSilencesNotify(t *testing.T) {
 // same-source refresh, reporting whether the switch itself notified.
 func (v *View) notifySwitchProbe(t *testing.T) bool {
 	t.Helper()
+	// update, not Update: the wrapper adds the relations fetch for the row
+	// the load selected, and this probe reads any command as a notify.
 	switchNotified := false
-	if cmd := v.Update(loadedMsg{issues: mkIDs("A-1", "A-2"), source: v.source}); cmd != nil {
+	if cmd := v.update(loadedMsg{issues: mkIDs("A-1", "A-2"), source: v.source}); cmd != nil {
 		switchNotified = true // lastLoaded was the old source: must be nil
 	}
 	// Same source again with a new issue: now it should notify.
-	if cmd := v.Update(loadedMsg{issues: mkIDs("A-1", "A-2", "A-3"), source: v.source}); cmd == nil {
+	if cmd := v.update(loadedMsg{issues: mkIDs("A-1", "A-2", "A-3"), source: v.source}); cmd == nil {
 		t.Error("same-source refresh with a new issue should notify")
 	}
 	return switchNotified

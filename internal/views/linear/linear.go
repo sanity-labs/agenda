@@ -666,6 +666,7 @@ type View struct {
 	// selection; relatedRev bumps when one lands so the preview re-renders.
 	related        map[string]*relatedState
 	relatedRev     int
+	relatedSel     string // the issue the last relations fetch was for
 	commentsRev    int
 	commentsJumped bool
 	jumpPending    bool
@@ -1137,7 +1138,21 @@ func appendIssues(have, more []issue) []issue {
 	return have
 }
 
+// Update handles a message, then fetches the selected issue's relations
+// if the selection is on an issue it has not fetched for yet. The
+// selection moves in many ways (keys, a load, a cache repaint from the
+// daemon, a filter, a jump from a PR), and the detail and 'l' need the
+// relations whichever way it moved.
 func (v *View) Update(msg tea.Msg) tea.Cmd {
+	cmd := v.update(msg)
+	if sel := v.list.Selected().Identifier; sel != "" && sel != v.relatedSel {
+		v.relatedSel = sel
+		cmd = tea.Batch(cmd, v.maybeFetchRelated())
+	}
+	return cmd
+}
+
+func (v *View) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case loadedMsg:
 		v.loading = false
@@ -1276,6 +1291,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if st, ok := v.related[msg.id]; ok {
 			st.rel, st.err, st.done = msg.issue.relatedIssues(), msg.err, true
 			v.relatedRev++
+			if msg.err != nil {
+				return func() tea.Msg {
+					return ui.Status(ui.SeverityWarn, "Linear", "related issues of "+msg.id+" not fetched", msg.err.Error())
+				}
+			}
 			if v.store != nil {
 				recs := make([]store.Issue, 0, len(st.rel))
 				for _, r := range st.rel {

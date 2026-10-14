@@ -14,6 +14,10 @@ const CacheAll = "*"
 // Matches reports whether the message is about the named cache entry.
 func (m CacheChangedMsg) Matches(name string) bool { return m.Name == CacheAll || m.Name == name }
 
+// SelectedMsg tells a view the root model selected a row in it (a jump
+// from another view), so it can react the way it does to its own moves.
+type SelectedMsg struct{}
+
 // SeenMsg reaches the daemon's views: rows a client selected, whose
 // unread marks must go before the next cache save would revive them.
 // View is the lowercased tab title.

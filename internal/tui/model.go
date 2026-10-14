@@ -1322,7 +1322,9 @@ func (m *Model) followRef(ref ui.Ref) tea.Cmd {
 			t.SelectRef(ref.ID)
 			m.current = i
 			m.syncPreviewKey(true)
-			return nil
+			// The view's Update is where it reacts to a new selection
+			// (fetching what the detail needs), so hand it the change.
+			return v.Update(ui.SelectedMsg{})
 		}
 	}
 	// Not loaded: a view that can fetch it brings it in and selects it.

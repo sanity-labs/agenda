@@ -198,7 +198,8 @@ func TestRelatedIssuesFetchedOnSelection(t *testing.T) {
 	v.Update(ui.PreviewShownMsg(true))
 	s := store.New()
 	v.store = s
-	if cmd := v.maybeFetchRelated(); cmd == nil {
+	// The load selected SRE-1, so its fetch is already in flight.
+	if _, started := v.related["SRE-1"]; !started {
 		t.Fatal("the selected issue's relations were not fetched")
 	}
 	if cmd := v.maybeFetchRelated(); cmd != nil {
@@ -221,5 +222,39 @@ func TestRelatedIssuesFetchedOnSelection(t *testing.T) {
 	}
 	if n := len(v.Refs()); n != 1 || v.Refs()[0].ID != "VULN-9" {
 		t.Errorf("refs = %d, want the one related issue", n)
+	}
+}
+
+// The relations fetch follows the selection however it moved: the first
+// row after a load, a jump from another view, a repaint from the daemon.
+// Only a key move used to trigger it, so 'l' on an issue reached any other
+// way offered its PRs and nothing else.
+func TestRelatedFetchFollowsAnySelectionChange(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	cmd := v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1"}, {Identifier: "SRE-2"}}, source: v.defaultSource})
+	if _, started := v.related["SRE-1"]; !started || cmd == nil {
+		t.Fatal("the first row's relations were not fetched after the load")
+	}
+	if !v.SelectRef("SRE-2") {
+		t.Fatal("SelectRef failed")
+	}
+	if cmd := v.Update(ui.SelectedMsg{}); cmd == nil {
+		t.Fatal("a jump to SRE-2 did not fetch its relations")
+	}
+	if _, started := v.related["SRE-2"]; !started {
+		t.Fatal("SRE-2's relations not in flight after the jump")
+	}
+	if cmd := v.Update(ui.SelectedMsg{}); cmd != nil {
+		t.Fatal("a second message on the same selection fetched again")
+	}
+	// A failed fetch is said in the log rather than swallowed.
+	cmd = v.Update(relatedMsg{id: "SRE-2", err: errBoom})
+	if cmd == nil {
+		t.Fatal("a failed relations fetch was silent")
+	}
+	if st, ok := cmd().(ui.StatusMsg); !ok || !strings.Contains(st.Summary, "SRE-2") {
+		t.Errorf("failed fetch reported %+v", cmd())
 	}
 }
