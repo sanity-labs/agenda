@@ -30,3 +30,32 @@ func TestSetItemsFollowsTheSelectedItemByKey(t *testing.T) {
 		t.Errorf("after the selected item vanished the cursor is on %q, want the row at its old index (a)", got)
 	}
 }
+
+// A jump (Select) to a row the filter hides still lands: the row shows
+// alongside the matches while it is selected, and the filter takes it
+// back once the selection moves off it or the query changes.
+func TestSelectShowsAHiddenRowWhileSelected(t *testing.T) {
+	l := newTestList("apple", "banana", "cherry")
+	l.SetQuery("ban")
+	if l.Len() != 1 {
+		t.Fatalf("filtered to %d rows, want 1", l.Len())
+	}
+	if !l.Select(func(s strItem) bool { return s == "cherry" }) {
+		t.Fatal("a jump to a hidden row failed")
+	}
+	if l.Selected() != "cherry" || l.Len() != 2 {
+		t.Fatalf("selected %q with %d rows, want cherry among 2", l.Selected(), l.Len())
+	}
+	l.move(-1)
+	if l.Selected() != "banana" || l.Len() != 1 {
+		t.Fatalf("after moving off: selected %q with %d rows, want banana alone", l.Selected(), l.Len())
+	}
+	if !l.Any(func(s strItem) bool { return s == "cherry" }) {
+		t.Fatal("Any does not see a row the filter hides")
+	}
+	l.Select(func(s strItem) bool { return s == "cherry" })
+	l.SetQuery("app")
+	if l.Len() != 1 || l.Selected() != "apple" {
+		t.Fatalf("a new query kept the pinned row: %q among %d", l.Selected(), l.Len())
+	}
+}
