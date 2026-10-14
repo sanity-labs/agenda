@@ -169,3 +169,32 @@ func hasSuccessToast(t *testing.T, cmd tea.Cmd) bool {
 	}
 	return walk(cmd)
 }
+
+// Reset filters changes two searches the list fetches with, so it must
+// offer the reload the way editing those rows does, rather than writing
+// the file quietly and leaving the list on the old search.
+func TestResetFiltersOffersTheReload(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := config.Default()
+	cfg.GitHub.Filter = "is:pr author:@me -author:app/renovate"
+	m := New(cfg, []View{&fatView{title: "PRs"}})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	m.settings = newConfigOverlay()
+	cmd := m.runAction("action:reset_filters")
+	if _, ok := m.settings.pending["github.filter"]; !ok {
+		t.Fatal("reset left github.filter unmarked, so no reload is offered")
+	}
+	if _, ok := m.settings.pending["github.review_filter"]; ok {
+		t.Error("the review filter was already at its default and should not be pending")
+	}
+	if m.cfg.GitHub.Filter != config.Default().GitHub.Filter {
+		t.Error("the live filter was not reset")
+	}
+	if cmd == nil {
+		t.Fatal("the reset's write was not logged")
+	}
+	if !strings.Contains(m.settings.View(m.cfg), "need a reload") {
+		t.Error("the overlay does not say a reload is needed after the reset")
+	}
+}
