@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,7 +60,49 @@ func Set(path string, value any) error {
 	if fi, err := os.Stat(file); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	return os.WriteFile(file, buf.Bytes(), mode)
+	if err := os.WriteFile(file, buf.Bytes(), mode); err != nil {
+		return err
+	}
+	trace(path, value)
+	return nil
+}
+
+// trace appends one line per write to $XDG_STATE_HOME/agenda/config-writes.log:
+// when, which process, which key and value, and the frames that asked.
+// A setting that changes with nobody at the keyboard is traced here even
+// when no window is open to show the message log.
+func trace(path string, value any) {
+	dir := os.Getenv("XDG_STATE_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		dir = filepath.Join(home, ".local", "state")
+	}
+	dir = filepath.Join(dir, "agenda")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "config-writes.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	var frames []string
+	for skip := 2; skip < 7; skip++ {
+		pc, _, line, ok := runtime.Caller(skip)
+		if !ok {
+			break
+		}
+		name := runtime.FuncForPC(pc).Name()
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			name = name[i+1:]
+		}
+		frames = append(frames, fmt.Sprintf("%s:%d", name, line))
+	}
+	fmt.Fprintf(f, "%s pid=%d %s  %s=%v  via %s\n",
+		time.Now().Format(time.RFC3339), os.Getpid(), strings.Join(os.Args, " "), path, value, strings.Join(frames, " < "))
 }
 
 // setPath walks/creates mapping entries down segs and encodes value into the

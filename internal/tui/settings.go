@@ -915,7 +915,11 @@ func (o *configOverlay) View(cfg config.Config) string {
 	path, _ := config.Path()
 	b.WriteString(ui.Faint.Render(path))
 	b.WriteByte('\n')
-	hint := "↑↓ move · space toggle · ←→ cycle · enter edit · esc close"
+	// The key glyphs draw wider than the cell they are given, so they get
+	// the same gap "↑↓ move" has rather than Glyph's single space.
+	key := func(icon, fallback string) string { return strings.TrimSpace(ui.Glyph(icon, fallback)) + " " }
+	tab, enter, esc := key(ui.IconKeyTab, "←→"), key(ui.IconKeyEnter, "enter"), key(ui.IconKeyEsc, "esc")
+	hint := "↑↓ move · " + tab + " cycle · " + enter + " edit/toggle · " + esc + " close"
 	if n := len(o.pending); n > 0 {
 		// Boxed and centred, with a blank line each side: a plain line here
 		// read as part of the navigation hint under it.
@@ -927,7 +931,7 @@ func (o *configOverlay) View(cfg config.Config) string {
 		b.WriteByte('\n')
 		b.WriteString(lipgloss.PlaceHorizontal(overlayContent, lipgloss.Center, notice))
 		b.WriteString("\n\n")
-		hint = "space toggle · ←→ cycle · enter edit · r reload · esc revert"
+		hint = "↑↓ move · " + tab + " cycle · " + enter + " edit/toggle · r reload · " + esc + " revert"
 	}
 	b.WriteString(ui.Dim.Render(hint))
 

@@ -332,3 +332,21 @@ func TestSoundAcceptsBoolAndName(t *testing.T) {
 		}
 	}
 }
+
+// Every write is traced to a log in the state dir with the key, the value
+// and the caller, so a change nobody made can be followed back.
+func TestSetTracesTheWrite(t *testing.T) {
+	writeConfig(t, "unread: true\n")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := Set("unread", false); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(os.Getenv("XDG_STATE_HOME"), "agenda", "config-writes.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := string(raw)
+	if !strings.Contains(line, "unread=false") || !strings.Contains(line, "TestSetTracesTheWrite") || !strings.Contains(line, "pid=") {
+		t.Errorf("trace line = %q", line)
+	}
+}
