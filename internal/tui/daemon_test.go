@@ -319,4 +319,7 @@ func TestConfigWriteTheDaemonFollowsRestartsIt(t *testing.T) {
 	if !daemonFollows("github.filter") || !daemonFollows("refresh.every") || daemonFollows("mouse") || daemonFollows("unread") {
 		t.Error("daemonFollows picks the wrong keys")
 	}
+	if daemonFollows("github.review_view") || daemonFollows("github.merge_method") {
+		t.Error("window-only github keys restart the daemon for nothing")
+	}
 }

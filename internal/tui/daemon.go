@@ -245,6 +245,10 @@ func stopDaemon(c *daemon.Client) {
 // daemonFollows says whether a config key is one the daemon acts on: what
 // it fetches, how often, and how it notifies. The rest is a window's own.
 func daemonFollows(path string) bool {
+	switch path {
+	case "github.review_view", "github.merge_method":
+		return false // window-only: how a review opens, how a merge merges
+	}
 	for _, p := range []string{"github.", "linear.", "sessions.", "refresh.", "notifications.", "views"} {
 		if strings.HasPrefix(path, p) {
 			return true
