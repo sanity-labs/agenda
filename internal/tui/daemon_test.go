@@ -156,8 +156,8 @@ func TestClientFallsBackWhenTheDaemonGoes(t *testing.T) {
 	s, m, v, _ := daemonPair(t, nil)
 	s.Close()
 	msg := m.daemonPump()()
-	if _, ok := msg.(daemonGoneMsg); !ok {
-		t.Fatalf("pump returned %T, want daemonGoneMsg", msg)
+	if g, ok := msg.(daemonGoneMsg); !ok || g.c != m.daemon {
+		t.Fatalf("pump returned %#v, want daemonGoneMsg for the current connection", msg)
 	}
 	got, cmd := m.Update(msg)
 	m = got.(Model)
@@ -182,10 +182,16 @@ func TestClientFallsBackWhenTheDaemonGoes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _ = m.Update(daemonBackMsg{c})
+	got, _ = m.Update(daemonBackMsg{c: c})
 	m = got.(Model)
 	if m.daemon == nil || m.daemonLost {
 		t.Fatal("the model did not take the daemon back")
+	}
+	// A gone notice from the old connection must not undo the new one.
+	got, _ = m.Update(daemonGoneMsg{c: nil})
+	m = got.(Model)
+	if m.daemon == nil || m.daemonLost {
+		t.Fatal("a stale gone notice dropped the new connection")
 	}
 	if n := len(v.got); n == 0 {
 		t.Fatal("no repaint asked of the view on reconnect")
@@ -284,5 +290,36 @@ func TestGreeterRepaintsThenReplays(t *testing.T) {
 	g.greet(func(event string, _ any) { events = append(events, event) })
 	if strings.Join(events, ",") != "cache_changed" {
 		t.Fatalf("second greeting replayed again: %v", events)
+	}
+}
+
+// A config write the daemon acts on (a search edited with F) restarts it,
+// so it fetches on the new search rather than bringing excluded rows back
+// and notifying for them. A write it does not act on leaves it alone.
+func TestConfigWriteTheDaemonFollowsRestartsIt(t *testing.T) {
+	_, m, _, calls := daemonPair(t, nil)
+	got, cmd := m.Update(ui.ConfigSetMsg{Path: "github.filter", Value: "is:pr -author:x"})
+	m = got.(Model)
+	if cmd == nil {
+		t.Fatal("no command for a config write")
+	}
+	runBatch(cmd)
+	stopped := false
+	for len(calls) > 0 {
+		if req := <-calls; req.Method == daemon.MethodStop {
+			stopped = true
+		}
+	}
+	if !stopped {
+		t.Fatal("the daemon was not asked to stop after the search changed")
+	}
+	if cmd := m.restartDaemon("x"); cmd == nil {
+		t.Fatal("restartDaemon returned nothing with a daemon connected")
+	}
+	if !daemonFollows("github.filter") || !daemonFollows("refresh.every") || daemonFollows("mouse") || daemonFollows("unread") {
+		t.Error("daemonFollows picks the wrong keys")
+	}
+	if daemonFollows("github.review_view") || daemonFollows("github.merge_method") {
+		t.Error("window-only github keys restart the daemon for nothing")
 	}
 }
