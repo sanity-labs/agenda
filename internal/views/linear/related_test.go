@@ -141,3 +141,51 @@ func TestOnlyANotFoundMarksAnIdMissing(t *testing.T) {
 		t.Error("Linear's not-found did not mark the id missing")
 	}
 }
+
+// An issue's parent, sub-issues and relations list under the detail with
+// their status glyph and how they relate, and 'l' offers them after the
+// PRs, each once, so a jump to either needs no searching.
+func TestRelatedIssuesInDetailAndPicker(t *testing.T) {
+	v := floatIssue(t, 0)
+	v.Update(ui.PreviewShownMsg(true))
+	i := withPR(v.list.Selected(), "https://github.com/o/r/pull/5", "Fix the thing")
+	parent := issueRef{Identifier: "SRE-100", Title: "Epic", URL: "u100"}
+	parent.State.Type, parent.State.Name = "started", "In Progress"
+	i.Parent = &parent
+	child := issueRef{Identifier: "SRE-101", Title: "Part one", URL: "u101"}
+	child.State.Type = "completed"
+	i.Children.Nodes = []issueRef{child}
+	blocker := issueRef{Identifier: "SRE-102", Title: "Waiting on this", URL: "u102"}
+	blocker.State.Type = "unstarted"
+	i.InverseRelations.Nodes = []inverseRelation{{Type: "blocks", Issue: blocker}}
+	i.Relations.Nodes = []relation{{Type: "related", RelatedIssue: child}} // a repeat: listed once
+	v.raw = []issue{i}
+	v.applySort()
+
+	text := ansi.Strip(v.PreviewView())
+	for _, want := range []string{"Related issues", "SRE-100", "parent", "SRE-101", "sub-issue", "SRE-102", "blocked by"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("detail is missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Count(text, "SRE-101") != 1 {
+		t.Errorf("a related issue listed twice:\n%s", text)
+	}
+	refs := v.Refs()
+	var kinds []string
+	for _, r := range refs {
+		kinds = append(kinds, r.Kind+":"+r.ID)
+	}
+	want := "pr:https://github.com/o/r/pull/5,linear:SRE-100,linear:SRE-101,linear:SRE-102"
+	if got := strings.Join(kinds, ","); got != want {
+		t.Fatalf("refs = %s, want %s", got, want)
+	}
+	if !strings.Contains(refs[1].Detail, "parent") || !strings.Contains(refs[1].Label, ui.IconIssueInProgress) {
+		t.Errorf("parent ref = %+v, want the status glyph and how it relates", refs[1])
+	}
+	if v.store != nil {
+		if iss, ok := v.store.Issue("SRE-102"); !ok || iss.StateType != "unstarted" {
+			t.Error("related issues were not published to the store")
+		}
+	}
+}

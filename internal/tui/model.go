@@ -1321,16 +1321,17 @@ func (m *Model) followRef(ref ui.Ref) tea.Cmd {
 func (m Model) pickerItems(refs []ui.Ref) ([]ui.PickerItem, []ui.Ref) {
 	var items []ui.PickerItem
 	var aligned []ui.Ref
-	hasPrimary, sepDone := false, false
+	// Refs come grouped by kind; each group after the first gets a
+	// separator naming it, so an issue's PRs, its related issues and the
+	// sessions that mention it read as three lists.
+	kinds := map[string]string{"pr": "pull requests", "linear": "issues", "session": "sessions"}
+	prev := ""
 	for _, r := range refs {
-		if r.Kind == "session" && hasPrimary && !sepDone {
-			items = append(items, ui.PickerItem{Separator: true, Label: "sessions"})
+		if prev != "" && r.Kind != prev {
+			items = append(items, ui.PickerItem{Separator: true, Label: kinds[r.Kind]})
 			aligned = append(aligned, ui.Ref{})
-			sepDone = true
 		}
-		if r.Kind != "session" {
-			hasPrimary = true
-		}
+		prev = r.Kind
 		label := r.Label
 		if !m.resolves(r) {
 			label += "  ↗"

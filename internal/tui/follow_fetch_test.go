@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -40,5 +41,32 @@ func TestFollowFetchesIntoTheViewThatCan(t *testing.T) {
 	}
 	if cmd := m.followRef(ui.Ref{Kind: "pr", ID: "x", URL: "https://github.com/o/r/pull/1"}); cmd == nil {
 		t.Error("a reference with no view to take it should still open the browser")
+	}
+}
+
+// Refs of different kinds are separated in the picker, each group after
+// the first under its own label.
+func TestPickerSeparatesKinds(t *testing.T) {
+	m := New(config.Default(), []View{&fatView{title: "x"}})
+	items, aligned := m.pickerItems([]ui.Ref{
+		{Kind: "pr", ID: "p", Label: "a PR", URL: "u"},
+		{Kind: "linear", ID: "SRE-1", Label: "SRE-1", URL: "u"},
+		{Kind: "linear", ID: "SRE-2", Label: "SRE-2", URL: "u"},
+		{Kind: "session", ID: "s", Label: "a session", URL: "u"},
+	})
+	var got []string
+	for _, it := range items {
+		if it.Separator {
+			got = append(got, "["+it.Label+"]")
+		} else {
+			got = append(got, strings.TrimSuffix(it.Label, "  ↗")) // the stub resolves nothing
+		}
+	}
+	want := "a PR,[issues],SRE-1,SRE-2,[sessions],a session"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("picker = %s, want %s", strings.Join(got, ","), want)
+	}
+	if len(aligned) != len(items) {
+		t.Fatal("aligned refs do not line up with the items")
 	}
 }
