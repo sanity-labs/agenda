@@ -75,3 +75,48 @@ func TestPickerSeparatesKinds(t *testing.T) {
 		t.Fatalf("a single-kind picker got a heading: %+v", items)
 	}
 }
+
+// jumpView holds one ref and reports whether a jump gave its pane focus.
+type jumpView struct {
+	fatView
+	id      string
+	focused bool
+}
+
+func (j *jumpView) RefKind() string          { return "linear" }
+func (j *jumpView) HasRef(id string) bool    { return id == j.id }
+func (j *jumpView) SelectRef(id string) bool { return id == j.id }
+func (j *jumpView) PaneFocused() bool        { return j.focused }
+func (j *jumpView) FocusPane(on bool) bool   { j.focused = on; return true }
+func (j *jumpView) PaneScrolls() bool        { return true }
+
+// Following a ref from a list opens the target's detail the way 'v'
+// would, so the jump shows the issue rather than only moving the cursor
+// behind a list; from an open float the float stays and takes the keys.
+func TestFollowRevealsTheDetail(t *testing.T) {
+	cfg := config.Default()
+	cfg.HidePreview = true
+	target := &jumpView{fatView: fatView{title: "Linear"}, id: "SRE-1"}
+	m := New(cfg, []View{&fatView{title: "PRs"}, target})
+	m.width, m.height, m.ready = 120, 40, true
+	m.layout()
+	if m.floating() {
+		t.Fatal("a float is open before anything happened")
+	}
+	cmd := m.followRef(ui.Ref{Kind: "linear", ID: "SRE-1", URL: "u"})
+	if m.current != 1 {
+		t.Fatal("the jump did not switch to the target view")
+	}
+	if !m.floating() || !target.focused {
+		t.Fatalf("after the jump: floating=%v focused=%v, want the detail open with the keys", m.floating(), target.focused)
+	}
+	if cmd == nil {
+		t.Fatal("the reveal sent no preview messages")
+	}
+	// Already floating (a jump from inside a detail): stays open, focus moves.
+	target.focused = false
+	m.followRef(ui.Ref{Kind: "linear", ID: "SRE-1", URL: "u"})
+	if !m.floating() || !target.focused {
+		t.Fatal("a jump from an open float lost the float or the focus")
+	}
+}
