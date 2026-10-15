@@ -69,6 +69,9 @@ func selectable(it any) bool {
 // List is a vertically-scrolling, filterable, single-selection list. It is
 // generic over the concrete item type so views get type-safe Selected().
 type List[T Item] struct {
+	// pinned is the key of a row a jump selected while a filter would hide
+	// it; it shows until the selection moves off it or the query changes.
+	pinned   string
 	items    []T
 	filtered []int // indices into items that match the current filter
 	cursor   int   // index into filtered
@@ -215,7 +218,28 @@ func (l *List[T]) Filtering() bool { return l.filtering }
 func (l *List[T]) Query() string { return l.query }
 
 // SetQuery sets the filter query and re-filters. Empty query clears the match.
-func (l *List[T]) SetQuery(q string) { l.query = q; l.applyFilter() }
+func (l *List[T]) SetQuery(q string) { l.query = q; l.pinned = ""; l.applyFilter() }
+
+// unpinIfLeft drops the pinned row once the selection has moved off it,
+// so the filter takes it back; the row that is now selected stays put.
+func (l *List[T]) unpinIfLeft() {
+	if l.pinned == "" || l.cursor < 0 || l.cursor >= len(l.filtered) {
+		return
+	}
+	if itemKey(l.items[l.filtered[l.cursor]]) == l.pinned {
+		return
+	}
+	key := itemKey(l.items[l.filtered[l.cursor]])
+	l.pinned = ""
+	l.applyFilter()
+	for i, idx := range l.filtered {
+		if itemKey(l.items[idx]) == key {
+			l.cursor = i
+			break
+		}
+	}
+	l.clampCursor()
+}
 
 // SetEnabledFields scopes matching to the named fields. nil/empty enables all.
 func (l *List[T]) SetEnabledFields(names []string) {
@@ -304,8 +328,10 @@ func (l *List[T]) Items() []T { return l.items }
 
 // Any reports whether any visible item matches pred, without moving the cursor.
 func (l *List[T]) Any(pred func(T) bool) bool {
-	for _, idx := range l.filtered {
-		if pred(l.items[idx]) {
+	// Every item, not the filtered rows: a view holds a ref whether or not
+	// the filter shows it, and Select can show it on demand.
+	for _, it := range l.items {
+		if pred(it) {
 			return true
 		}
 	}
@@ -320,6 +346,22 @@ func (l *List[T]) Select(pred func(T) bool) bool {
 			l.cursor = i
 			l.clampCursor()
 			return true
+		}
+	}
+	// Not among the filtered rows: a jump asked for it, so it shows
+	// despite the filter while it is selected (see pinned).
+	for _, it := range l.items {
+		if selectable(it) && pred(it) {
+			l.pinned = itemKey(it)
+			l.applyFilter()
+			for i, idx := range l.filtered {
+				if pred(l.items[idx]) {
+					l.cursor = i
+					l.clampCursor()
+					return true
+				}
+			}
+			break
 		}
 	}
 	return false
@@ -436,6 +478,7 @@ func (l *List[T]) move(delta int) {
 		dir = -1
 	}
 	l.cursor = min(max(l.cursor+delta, 0), max(0, len(l.filtered)-1))
+	l.unpinIfLeft()
 	l.snap(dir)
 }
 
@@ -523,8 +566,9 @@ func (l *List[T]) applyFilter() {
 			l.filtered = append(l.filtered, i)
 			continue
 		}
-		// Separators drop out of a filtered list; matches render flat.
-		if selectable(l.items[i]) && l.matchesQuery(l.items[i], q) {
+		// Separators drop out of a filtered list; matches render flat. The
+		// pinned row (a jump's target) stays whatever the query says.
+		if selectable(l.items[i]) && (l.matchesQuery(l.items[i], q) || itemKey(l.items[i]) == l.pinned) {
 			l.filtered = append(l.filtered, i)
 		}
 	}
