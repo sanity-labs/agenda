@@ -1324,7 +1324,7 @@ func (m *Model) followRef(ref ui.Ref) tea.Cmd {
 			m.syncPreviewKey(true)
 			// The view's Update is where it reacts to a new selection
 			// (fetching what the detail needs), so hand it the change.
-			return v.Update(ui.SelectedMsg{})
+			return tea.Batch(v.Update(ui.SelectedMsg{}), m.revealForJump())
 		}
 	}
 	// Not loaded: a view that can fetch it brings it in and selects it.
@@ -1333,11 +1333,28 @@ func (m *Model) followRef(ref ui.Ref) tea.Cmd {
 			if f, can := v.(refFetcher); can {
 				m.current = i
 				m.syncPreviewKey(true)
-				return f.FetchRef(ref.ID, ref.URL)
+				return tea.Batch(f.FetchRef(ref.ID, ref.URL), m.revealForJump())
 			}
 		}
 	}
 	return ui.OpenURL(ref.URL) // unresolved → browser (no-op if URL is "")
+}
+
+// revealForJump shows the detail of the row a jump just selected, the way
+// 'v' would: a float over the list when the pane is configured off (one
+// already open stays), the keys on it either way. Jumping from a list used
+// to land on the row with nothing opened, which read as a jump to nowhere.
+func (m *Model) revealForJump() tea.Cmd {
+	var cmd tea.Cmd
+	if m.previewHidden {
+		cmd = m.setPreview(false, true)
+	}
+	if m.floating() {
+		if f, ok := m.views[m.current].(paneFocuser); ok {
+			f.FocusPane(true)
+		}
+	}
+	return cmd
 }
 
 // pickerItems builds the picker entries from refs and a parallel ref slice
