@@ -302,7 +302,7 @@ type GitHubConfig struct {
 	// rather than a keypress away for everyone.
 	Merge bool `yaml:"merge"`
 	// MergeMethod is how Merge merges: "squash" (default), "merge" or
-	// "rebase". A repo may forbid the one you pick, which gh reports.
+	// "rebase". A repo that forbids it gets the first method it allows.
 	MergeMethod string `yaml:"merge_method"`
 	// MergeDeleteBranch deletes the head branch after a successful merge,
 	// for repos that do not do it themselves. Off by default.

@@ -859,6 +859,9 @@ type reviewFlow struct {
 	// conflict, changes requested), so the popup says so rather than
 	// failing after the fact.
 	blocked string
+	// method is the merge method that landed, which differs from config
+	// when the repo forbade it.
+	method string
 }
 
 // reviewOption is one popup entry: a hotkey, a label, and the gh verdict
@@ -1580,7 +1583,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return statusCmd(ui.SeverityError, msg.err)
 		}
 		if r != nil {
-			r.done = msg.what
+			r.done, r.method = msg.what, msg.method
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
 		// A merged PR leaves the search on the next fetch; auto-merge
@@ -2236,6 +2239,9 @@ func (r *reviewFlow) merging() bool {
 // mergeDetail is the method and branch fate, before or after the fact.
 func (v *View) mergeDetail(past bool) string {
 	detail := v.cfg.ResolvedMergeMethod()
+	if past && v.review != nil && v.review.method != "" {
+		detail = v.review.method
+	}
 	switch {
 	case !v.cfg.MergeDeleteBranch:
 	case past:
@@ -2400,37 +2406,77 @@ type mergeDoneMsg struct {
 	url  string
 	// auto is set when this enabled auto-merge rather than merging now, so
 	// the row is not struck through for a PR that is still open.
-	auto bool
-	err  error
+	auto   bool
+	method string
+	err    error
 }
 
-// submitMerge shells out to gh pr merge. The method comes from config, and
-// gh reports a repo that forbids it rather than agenda guessing.
+// submitMerge shells out to gh pr merge with the configured method. When
+// that fails and the repo forbids the method, it retries with the first
+// one the repo allows.
 func (v *View) submitMerge(auto bool) tea.Cmd {
 	r := v.review
 	r.submitting, r.action = true, "merge"
 	if auto {
 		r.action = "auto"
 	}
-	args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo,
-		"--" + v.cfg.ResolvedMergeMethod()}
-	if auto {
-		args = append(args, "--auto")
-	}
-	if v.cfg.MergeDeleteBranch {
-		args = append(args, "--delete-branch")
+	merge := func(method string) ([]byte, error) {
+		args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo, "--" + method}
+		if auto {
+			args = append(args, "--auto")
+		}
+		if v.cfg.MergeDeleteBranch {
+			args = append(args, "--delete-branch")
+		}
+		return exec.Command("gh", args...).CombinedOutput()
 	}
 	what := fmt.Sprintf("merged %s#%d", r.repo, r.num)
 	if auto {
 		what = fmt.Sprintf("auto-merge enabled on %s#%d", r.repo, r.num)
 	}
-	url := r.url
+	url, repo, method := r.url, r.repo, v.cfg.ResolvedMergeMethod()
 	return func() tea.Msg {
-		if out, err := exec.Command("gh", args...).CombinedOutput(); err != nil {
+		out, err := merge(method)
+		if err != nil {
+			if alt := fallbackMethod(method, allowedMethods(repo)); alt != "" {
+				method = alt
+				out, err = merge(method)
+			}
+		}
+		if err != nil {
 			return mergeDoneMsg{from: v, err: ghErr(err, out), auto: auto}
 		}
-		return mergeDoneMsg{from: v, what: what, url: url, auto: auto}
+		return mergeDoneMsg{from: v, what: what, url: url, auto: auto, method: method}
 	}
+}
+
+// allowedMethods is the merge methods the repo permits, by gh flag name, or
+// nil when gh cannot say.
+func allowedMethods(repo string) map[string]bool {
+	out, err := exec.Command("gh", "repo", "view", repo,
+		"--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed").Output()
+	if err != nil {
+		return nil
+	}
+	var a struct{ SquashMergeAllowed, MergeCommitAllowed, RebaseMergeAllowed bool }
+	if json.Unmarshal(out, &a) != nil {
+		return nil
+	}
+	return map[string]bool{"squash": a.SquashMergeAllowed, "merge": a.MergeCommitAllowed, "rebase": a.RebaseMergeAllowed}
+}
+
+// fallbackMethod is the first allowed method when tried is forbidden, or ""
+// when tried is allowed (the failure was something else) or nothing is known.
+func fallbackMethod(tried string, allowed map[string]bool) string {
+	if allowed == nil || allowed[tried] {
+		return ""
+	}
+	for _, m := range []string{"squash", "merge", "rebase"} {
+		if allowed[m] {
+			return m
+		}
+	}
+	return ""
 }
 
 // ghErr prefers gh's own message over the bare exit status: "not

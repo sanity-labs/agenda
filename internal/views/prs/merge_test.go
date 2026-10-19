@@ -378,3 +378,21 @@ func TestMergePopupShowsTheFailure(t *testing.T) {
 		t.Error("esc did not close the failure")
 	}
 }
+
+func TestFallbackMethod(t *testing.T) {
+	noSquash := map[string]bool{"merge": true, "rebase": true}
+	for _, c := range []struct {
+		tried   string
+		allowed map[string]bool
+		want    string
+	}{
+		{"squash", noSquash, "merge"},
+		{"squash", map[string]bool{"rebase": true}, "rebase"},
+		{"squash", map[string]bool{"squash": true, "merge": true}, ""}, // failed for another reason
+		{"squash", nil, ""},                                            // gh could not say
+	} {
+		if got := fallbackMethod(c.tried, c.allowed); got != c.want {
+			t.Errorf("fallbackMethod(%q, %v) = %q, want %q", c.tried, c.allowed, got, c.want)
+		}
+	}
+}
