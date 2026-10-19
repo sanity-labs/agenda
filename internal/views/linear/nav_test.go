@@ -252,3 +252,18 @@ func TestClickListRoutesTreeAndRows(t *testing.T) {
 		t.Error("clicking a row left focus in the tree")
 	}
 }
+
+func TestTriageEntryIsOptIn(t *testing.T) {
+	v := New(config.LinearConfig{Token: "x"}, nil, nil, nil)
+	v.rebuildNav()
+	for _, it := range v.navItems {
+		if it.source.Kind == "triage" {
+			t.Fatal("triage entry shown with linear.triage off")
+		}
+	}
+	v = New(config.LinearConfig{Token: "x", Triage: true}, nil, nil, nil)
+	v.rebuildNav()
+	if got := v.navItems[3].source; got.Kind != "triage" {
+		t.Errorf("entry after All Issues = %+v, want triage", got)
+	}
+}

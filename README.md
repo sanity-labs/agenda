@@ -178,7 +178,8 @@ deletes transcripts after 30 days unless `~/.claude/settings.json` says
 otherwise (`{ "cleanupPeriodDays": 3650 }`); it only stops future sweeps.
 
 **Linear** shows your assigned issues by default; the tree (`ctrl+p`) adds
-Inbox, All Issues and pinned projects. Lists load a page at a time
+Inbox, All Issues and pinned projects, plus Triage (your teams' issues in
+triage) with `linear.triage`. Lists load a page at a time
 (`linear.filter.limit`, 100) and the next as you reach the end; Linear
 gives no total, so the status line reads `100 loaded · more below` until the
 last page is in, and `fetching more…` with the tab spinner while a page is on its way. Rows carry priority, state,

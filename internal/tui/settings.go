@@ -385,6 +385,9 @@ func settingsTable() []setting {
 		boolSetting("project pane", "linear.nav", noteReload,
 			func(c config.Config) bool { return c.Linear.Nav },
 			func(c *config.Config, v bool) { c.Linear.Nav = v }),
+		boolSetting("triage in project pane", "linear.triage", noteReload,
+			func(c config.Config) bool { return c.Linear.Triage },
+			func(c *config.Config, v bool) { c.Linear.Triage = v }),
 		numSetting("page size", "linear.filter.limit", "",
 			func(c config.Config) int {
 				if c.Linear.Filter.Limit <= 0 {

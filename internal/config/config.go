@@ -383,6 +383,9 @@ type LinearConfig struct {
 	// Nav shows the navigation tree (My Issues / All Issues / pinned
 	// projects) on startup. Off by default; ctrl+p toggles it either way.
 	Nav bool `yaml:"nav"`
+	// Triage adds a Triage entry to the tree: issues in triage for your
+	// teams (or filter.teams). Off by default.
+	Triage bool `yaml:"triage"`
 	// ShowComments renders issue comments in the preview on startup. Off
 	// by default; 'c' toggles it either way.
 	ShowComments bool `yaml:"show_comments"`

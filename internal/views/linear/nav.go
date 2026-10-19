@@ -24,7 +24,7 @@ import (
 // navSource describes where the list's issues come from. Comparable, so a
 // source switch is detectable (notifications stay quiet across switches).
 type navSource struct {
-	Kind      string // "assigned" | "all" | "project"
+	Kind      string // "inbox" | "assigned" | "all" | "triage" | "project"
 	ProjectID string
 	Label     string
 }
@@ -114,6 +114,9 @@ func (v *View) rebuildNav() {
 		{source: navSource{Kind: "assigned", Label: "My Issues"}},
 		{source: navSource{Kind: "all", Label: "All Issues"}},
 	}
+	if v.cfg.Triage {
+		items = append(items, navItem{source: navSource{Kind: "triage", Label: "Triage"}})
+	}
 	if len(v.favs) > 0 {
 		items = append(items, navItem{header: true, source: navSource{Label: "Favourites"}})
 		for _, p := range v.favs {
@@ -137,6 +140,8 @@ func navIcon(kind string) string {
 		return ui.Glyph(ui.IconNavAll, "")
 	case "project":
 		return ui.Glyph(ui.IconNavProject, "")
+	case "triage":
+		return ui.Glyph(ui.IconIssueTriage, "")
 	}
 	return ""
 }

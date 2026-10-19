@@ -288,6 +288,9 @@ linear:
   # projects) on startup. ctrl+p toggles it in-app either way; left/right
   # move between the tree and the list.
   nav: false
+  # Add a Triage entry to the tree: issues in triage for the teams you are
+  # in, or for filter.teams when set.
+  triage: false
   # Render issue comments in the preview on startup ('c' toggles in-app).
   show_comments: false
 
