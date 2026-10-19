@@ -1,6 +1,7 @@
 package linear
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -265,5 +266,19 @@ func TestTriageEntryIsOptIn(t *testing.T) {
 	v.rebuildNav()
 	if got := v.navItems[3].source; got.Kind != "triage" {
 		t.Errorf("entry after All Issues = %+v, want triage", got)
+	}
+}
+
+func TestTriageTeamNarrowsToOneTeam(t *testing.T) {
+	f := map[string]any{"team": map[string]any{"key": map[string]any{"in": []string{"A", "B"}}}, "project": 1}
+	triageFilter(f, " sre ")
+	team, _ := json.Marshal(f["team"])
+	if string(team) != `{"key":{"eqIgnoreCase":"sre"}}` || f["project"] != nil {
+		t.Fatalf("filter = %v", f)
+	}
+	f = map[string]any{}
+	triageFilter(f, "")
+	if team, _ := json.Marshal(f["team"]); !strings.Contains(string(team), "isMe") {
+		t.Fatalf("no team key should mean your teams, got %s", team)
 	}
 }

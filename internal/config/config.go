@@ -386,6 +386,9 @@ type LinearConfig struct {
 	// Triage adds a Triage entry to the tree: issues in triage for your
 	// teams (or filter.teams). Off by default.
 	Triage bool `yaml:"triage"`
+	// TriageTeam is a team key (e.g. "SRE") that narrows Triage to that
+	// one team, over filter.teams.
+	TriageTeam string `yaml:"triage_team"`
 	// ShowComments renders issue comments in the preview on startup. Off
 	// by default; 'c' toggles it either way.
 	ShowComments bool `yaml:"show_comments"`

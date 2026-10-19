@@ -948,6 +948,18 @@ func inboxEventLabel(t string) string {
 	return b.String()
 }
 
+// triageFilter narrows filter to triage issues of team, else of
+// filter.teams, else of every team you are in.
+func triageFilter(filter map[string]any, team string) {
+	delete(filter, "project")
+	filter["state"] = map[string]any{"type": map[string]any{"eq": "triage"}}
+	if team = strings.TrimSpace(team); team != "" {
+		filter["team"] = map[string]any{"key": map[string]any{"eqIgnoreCase": team}}
+	} else if _, ok := filter["team"]; !ok {
+		filter["team"] = map[string]any{"members": map[string]any{"some": map[string]any{"isMe": map[string]any{"eq": true}}}}
+	}
+}
+
 // buildFilter translates the config filter into Linear's IssueFilter shape.
 // The zero value reproduces the historical default: not completed, not
 // canceled.
@@ -1014,11 +1026,7 @@ func (v *View) fetchFrom(after string) tea.Cmd {
 		vars = map[string]any{"first": first, "filter": filter}
 	case "triage":
 		query = allQuery
-		delete(filter, "project")
-		filter["state"] = map[string]any{"type": map[string]any{"eq": "triage"}}
-		if _, ok := filter["team"]; !ok {
-			filter["team"] = map[string]any{"members": map[string]any{"some": map[string]any{"isMe": map[string]any{"eq": true}}}}
-		}
+		triageFilter(filter, v.cfg.TriageTeam)
 		vars = map[string]any{"first": first, "filter": filter}
 	default:
 		vars = map[string]any{"first": first, "filter": filter}

@@ -291,6 +291,8 @@ linear:
   # Add a Triage entry to the tree: issues in triage for the teams you are
   # in, or for filter.teams when set.
   triage: false
+  # Narrow Triage to one team by key (e.g. SRE). Empty: as above.
+  triage_team: ""
   # Render issue comments in the preview on startup ('c' toggles in-app).
   show_comments: false
 

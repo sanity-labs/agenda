@@ -388,6 +388,12 @@ func settingsTable() []setting {
 		boolSetting("triage in project pane", "linear.triage", noteReload,
 			func(c config.Config) bool { return c.Linear.Triage },
 			func(c *config.Config, v bool) { c.Linear.Triage = v }),
+		{
+			label: "triage team key", path: "linear.triage_team",
+			kind: kindText, note: noteReload,
+			get: func(c config.Config) string { return c.Linear.TriageTeam },
+			set: func(c *config.Config, v string) { c.Linear.TriageTeam = v },
+		},
 		numSetting("page size", "linear.filter.limit", "",
 			func(c config.Config) int {
 				if c.Linear.Filter.Limit <= 0 {
