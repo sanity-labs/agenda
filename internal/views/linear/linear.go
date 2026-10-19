@@ -1012,6 +1012,14 @@ func (v *View) fetchFrom(after string) tea.Cmd {
 	case "all":
 		query = allQuery
 		vars = map[string]any{"first": first, "filter": filter}
+	case "triage":
+		query = allQuery
+		delete(filter, "project")
+		filter["state"] = map[string]any{"type": map[string]any{"eq": "triage"}}
+		if _, ok := filter["team"]; !ok {
+			filter["team"] = map[string]any{"members": map[string]any{"some": map[string]any{"isMe": map[string]any{"eq": true}}}}
+		}
+		vars = map[string]any{"first": first, "filter": filter}
 	default:
 		vars = map[string]any{"first": first, "filter": filter}
 	}
@@ -1173,12 +1181,14 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 		}
+		truncated := v.page.hasMore
 		v.page = pageState{cursor: msg.cursor, hasMore: msg.hasMore}
 		before := v.list.Selected()
 		var cmd tea.Cmd
 		if msg.source == v.lastLoaded {
-			v.markFresh(v.raw, msg.issues)
-			cmd = v.notifyNew(v.raw, msg.issues)
+			fresh := newIssues(v.raw, msg.issues, truncated)
+			v.markFresh(fresh)
+			cmd = v.notifyNew(fresh)
 		}
 		sameSource := msg.source == v.lastLoaded
 		v.lastLoaded = msg.source
@@ -1461,14 +1471,22 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 }
 
 // newIssues returns the issues in next that aren't in prev, by identifier.
-func newIssues(prev, next []issue) []issue {
+func newIssues(prev, next []issue, truncated bool) []issue {
 	known := make(map[string]bool, len(prev))
 	for _, i := range prev {
 		known[i.Identifier] = true
 	}
+	// Past the last issue both share, a truncated page's newcomers slid in
+	// over the page edge as others left: old, not new.
+	end := len(next)
+	if truncated {
+		for end > 0 && !known[next[end-1].Identifier] {
+			end--
+		}
+	}
 	var out []issue
-	for _, i := range next {
-		if !known[i.Identifier] {
+	for _, i := range next[:end] {
+		if i.Identifier != "" && !known[i.Identifier] {
 			out = append(out, i)
 		}
 	}
@@ -1478,20 +1496,14 @@ func newIssues(prev, next []issue) []issue {
 // markFresh records issues that were not in the previous set. Independent of
 // notifications: the mark is how you catch up on what arrived while you were
 // not looking, which is exactly when a notification gets missed.
-func (v *View) markFresh(prev, next []issue) {
-	// The caller only invokes this when the source is unchanged, so prev is
-	// a real previous set rather than a first load.
-	known := make(map[string]bool, len(prev))
-	for _, i := range prev {
-		known[i.Identifier] = true
-	}
-	for _, i := range next {
-		if i.Identifier != "" && !known[i.Identifier] {
-			if v.fresh == nil {
-				v.fresh = map[string]bool{}
-			}
-			v.fresh[i.Identifier] = true
+func (v *View) markFresh(fresh []issue) {
+	// The caller only invokes this when the source is unchanged, so fresh
+	// comes from a real previous set rather than a first load.
+	for _, i := range fresh {
+		if v.fresh == nil {
+			v.fresh = map[string]bool{}
 		}
+		v.fresh[i.Identifier] = true
 	}
 }
 
@@ -1517,11 +1529,10 @@ func (v *View) clearFreshFor(id string) {
 // notifyNew posts a notification for issues that appeared since the last
 // fetch. nil unless the view was already seeded with data (so the first
 // paint stays quiet) and a notifier is configured.
-func (v *View) notifyNew(prev, next []issue) tea.Cmd {
+func (v *View) notifyNew(fresh []issue) tea.Cmd {
 	if v.notifier == nil || !v.seeded {
 		return nil
 	}
-	fresh := newIssues(prev, next)
 	if len(fresh) == 0 {
 		return nil
 	}
