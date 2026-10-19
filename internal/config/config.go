@@ -304,6 +304,10 @@ type GitHubConfig struct {
 	// MergeMethod is how Merge merges: "squash" (default), "merge" or
 	// "rebase". A repo may forbid the one you pick, which gh reports.
 	MergeMethod string `yaml:"merge_method"`
+	// MergeMethodFallback retries a merge the repo forbids with the first
+	// method it allows. Off by default: the merge lands differently than
+	// configured, and that cannot be undone.
+	MergeMethodFallback bool `yaml:"merge_method_fallback"`
 	// MergeDeleteBranch deletes the head branch after a successful merge,
 	// for repos that do not do it themselves. Off by default.
 	MergeDeleteBranch bool `yaml:"merge_delete_branch"`
@@ -379,6 +383,12 @@ type LinearConfig struct {
 	// Nav shows the navigation tree (My Issues / All Issues / pinned
 	// projects) on startup. Off by default; ctrl+p toggles it either way.
 	Nav bool `yaml:"nav"`
+	// Triage adds a Triage entry to the tree: issues in triage for your
+	// teams (or filter.teams). Off by default.
+	Triage bool `yaml:"triage"`
+	// TriageTeam is a team key (e.g. "SRE") that narrows Triage to that
+	// one team, over filter.teams.
+	TriageTeam string `yaml:"triage_team"`
 	// ShowComments renders issue comments in the preview on startup. Off
 	// by default; 'c' toggles it either way.
 	ShowComments bool `yaml:"show_comments"`

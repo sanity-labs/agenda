@@ -369,6 +369,9 @@ func settingsTable() []setting {
 			get:     func(c config.Config) string { return c.GitHub.ResolvedMergeMethod() },
 			set:     func(c *config.Config, v string) { c.GitHub.MergeMethod = v },
 		},
+		boolSetting("fall back to an allowed method", "github.merge_method_fallback", noteReload,
+			func(c config.Config) bool { return c.GitHub.MergeMethodFallback },
+			func(c *config.Config, v bool) { c.GitHub.MergeMethodFallback = v }),
 		boolSetting("delete branch after merge", "github.merge_delete_branch", noteReload,
 			func(c config.Config) bool { return c.GitHub.MergeDeleteBranch },
 			func(c *config.Config, v bool) { c.GitHub.MergeDeleteBranch = v }),
@@ -382,6 +385,15 @@ func settingsTable() []setting {
 		boolSetting("project pane", "linear.nav", noteReload,
 			func(c config.Config) bool { return c.Linear.Nav },
 			func(c *config.Config, v bool) { c.Linear.Nav = v }),
+		boolSetting("triage in project pane", "linear.triage", noteReload,
+			func(c config.Config) bool { return c.Linear.Triage },
+			func(c *config.Config, v bool) { c.Linear.Triage = v }),
+		{
+			label: "triage team key", path: "linear.triage_team",
+			kind: kindText, note: noteReload,
+			get: func(c config.Config) string { return c.Linear.TriageTeam },
+			set: func(c *config.Config, v string) { c.Linear.TriageTeam = v },
+		},
 		numSetting("page size", "linear.filter.limit", "",
 			func(c config.Config) int {
 				if c.Linear.Filter.Limit <= 0 {

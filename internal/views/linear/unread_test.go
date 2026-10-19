@@ -38,7 +38,7 @@ func TestUnreadOffKeepsAndRecordsFresh(t *testing.T) {
 	if !v.fresh["SRE-1"] {
 		t.Errorf("fresh = %v after turning unread off, want the mark kept", v.fresh)
 	}
-	v.markFresh([]issue{{Identifier: "SRE-1"}}, []issue{{Identifier: "SRE-1"}, {Identifier: "SRE-2"}})
+	v.markFresh(newIssues([]issue{{Identifier: "SRE-1"}}, []issue{{Identifier: "SRE-1"}, {Identifier: "SRE-2"}}, false))
 	if !v.fresh["SRE-2"] {
 		t.Errorf("an issue that arrived with marks off was not recorded: %v", v.fresh)
 	}

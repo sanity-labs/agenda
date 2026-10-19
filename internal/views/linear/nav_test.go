@@ -1,6 +1,7 @@
 package linear
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -250,5 +251,34 @@ func TestClickListRoutesTreeAndRows(t *testing.T) {
 	}
 	if v.navFocus {
 		t.Error("clicking a row left focus in the tree")
+	}
+}
+
+func TestTriageEntryIsOptIn(t *testing.T) {
+	v := New(config.LinearConfig{Token: "x"}, nil, nil, nil)
+	v.rebuildNav()
+	for _, it := range v.navItems {
+		if it.source.Kind == "triage" {
+			t.Fatal("triage entry shown with linear.triage off")
+		}
+	}
+	v = New(config.LinearConfig{Token: "x", Triage: true}, nil, nil, nil)
+	v.rebuildNav()
+	if got := v.navItems[3].source; got.Kind != "triage" {
+		t.Errorf("entry after All Issues = %+v, want triage", got)
+	}
+}
+
+func TestTriageTeamNarrowsToOneTeam(t *testing.T) {
+	f := map[string]any{"team": map[string]any{"key": map[string]any{"in": []string{"A", "B"}}}, "project": 1}
+	triageFilter(f, " sre ")
+	team, _ := json.Marshal(f["team"])
+	if string(team) != `{"key":{"eqIgnoreCase":"sre"}}` || f["project"] != nil {
+		t.Fatalf("filter = %v", f)
+	}
+	f = map[string]any{}
+	triageFilter(f, "")
+	if team, _ := json.Marshal(f["team"]); !strings.Contains(string(team), "isMe") {
+		t.Fatalf("no team key should mean your teams, got %s", team)
 	}
 }

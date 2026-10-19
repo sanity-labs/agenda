@@ -859,6 +859,9 @@ type reviewFlow struct {
 	// conflict, changes requested), so the popup says so rather than
 	// failing after the fact.
 	blocked string
+	// method is the merge method that landed, which differs from config
+	// when the repo forbade it.
+	method string
 }
 
 // reviewOption is one popup entry: a hotkey, a label, and the gh verdict
@@ -1442,7 +1445,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.more {
 			v.raw = append(v.raw, msg.page.prs...)
 		} else {
-			v.markUnread(v.raw, msg.page.prs, v.mineSeeded)
+			v.markUnread(arrivals(v.raw, msg.page.prs, v.minePage.hasMore), v.mineSeeded)
 			v.raw = msg.page.prs
 		}
 		v.minePage.cursor, v.minePage.hasMore = msg.page.cursor, msg.page.hasMore
@@ -1480,8 +1483,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// is all new by definition and would notify for every row.
 		var cmd tea.Cmd
 		if !msg.more {
-			v.markUnread(v.reviewRaw, next, v.seeded)
-			cmd = v.notifyNewReviews(v.reviewRaw, next)
+			fresh := arrivals(v.reviewRaw, next, v.reviewPage.hasMore)
+			v.markUnread(fresh, v.seeded)
+			cmd = v.notifyNewReviews(fresh)
 		}
 		if partial != nil {
 			cmd = tea.Batch(cmd, partial)
@@ -1580,7 +1584,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return statusCmd(ui.SeverityError, msg.err)
 		}
 		if r != nil {
-			r.done = msg.what
+			r.done, r.method = msg.what, msg.method
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
 		// A merged PR leaves the search on the next fetch; auto-merge
@@ -2236,6 +2240,9 @@ func (r *reviewFlow) merging() bool {
 // mergeDetail is the method and branch fate, before or after the fact.
 func (v *View) mergeDetail(past bool) string {
 	detail := v.cfg.ResolvedMergeMethod()
+	if past && v.review != nil && v.review.method != "" {
+		detail = v.review.method
+	}
 	switch {
 	case !v.cfg.MergeDeleteBranch:
 	case past:
@@ -2400,37 +2407,78 @@ type mergeDoneMsg struct {
 	url  string
 	// auto is set when this enabled auto-merge rather than merging now, so
 	// the row is not struck through for a PR that is still open.
-	auto bool
-	err  error
+	auto   bool
+	method string
+	err    error
 }
 
-// submitMerge shells out to gh pr merge. The method comes from config, and
-// gh reports a repo that forbids it rather than agenda guessing.
+// submitMerge shells out to gh pr merge with the configured method. With
+// merge_method_fallback on, a method the repo forbids is retried with the
+// first one it allows.
 func (v *View) submitMerge(auto bool) tea.Cmd {
 	r := v.review
 	r.submitting, r.action = true, "merge"
 	if auto {
 		r.action = "auto"
 	}
-	args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo,
-		"--" + v.cfg.ResolvedMergeMethod()}
-	if auto {
-		args = append(args, "--auto")
-	}
-	if v.cfg.MergeDeleteBranch {
-		args = append(args, "--delete-branch")
+	merge := func(method string) ([]byte, error) {
+		args := []string{"pr", "merge", strconv.Itoa(r.num), "-R", r.repo, "--" + method}
+		if auto {
+			args = append(args, "--auto")
+		}
+		if v.cfg.MergeDeleteBranch {
+			args = append(args, "--delete-branch")
+		}
+		return exec.Command("gh", args...).CombinedOutput()
 	}
 	what := fmt.Sprintf("merged %s#%d", r.repo, r.num)
 	if auto {
 		what = fmt.Sprintf("auto-merge enabled on %s#%d", r.repo, r.num)
 	}
-	url := r.url
+	url, repo, method := r.url, r.repo, v.cfg.ResolvedMergeMethod()
+	fallback := v.cfg.MergeMethodFallback
 	return func() tea.Msg {
-		if out, err := exec.Command("gh", args...).CombinedOutput(); err != nil {
+		out, err := merge(method)
+		if err != nil && fallback {
+			if alt := fallbackMethod(method, allowedMethods(repo)); alt != "" {
+				method = alt
+				out, err = merge(method)
+			}
+		}
+		if err != nil {
 			return mergeDoneMsg{from: v, err: ghErr(err, out), auto: auto}
 		}
-		return mergeDoneMsg{from: v, what: what, url: url, auto: auto}
+		return mergeDoneMsg{from: v, what: what, url: url, auto: auto, method: method}
 	}
+}
+
+// allowedMethods is the merge methods the repo permits, by gh flag name, or
+// nil when gh cannot say.
+func allowedMethods(repo string) map[string]bool {
+	out, err := exec.Command("gh", "repo", "view", repo,
+		"--json", "squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed").Output()
+	if err != nil {
+		return nil
+	}
+	var a struct{ SquashMergeAllowed, MergeCommitAllowed, RebaseMergeAllowed bool }
+	if json.Unmarshal(out, &a) != nil {
+		return nil
+	}
+	return map[string]bool{"squash": a.SquashMergeAllowed, "merge": a.MergeCommitAllowed, "rebase": a.RebaseMergeAllowed}
+}
+
+// fallbackMethod is the first allowed method when tried is forbidden, or ""
+// when tried is allowed (the failure was something else) or nothing is known.
+func fallbackMethod(tried string, allowed map[string]bool) string {
+	if allowed == nil || allowed[tried] {
+		return ""
+	}
+	for _, m := range []string{"squash", "merge", "rebase"} {
+		if allowed[m] {
+			return m
+		}
+	}
+	return ""
 }
 
 // ghErr prefers gh's own message over the bare exit status: "not
@@ -3039,24 +3087,42 @@ func (v *View) groupSection(items []pr) []pr {
 // or not notifications or the marks themselves are on: the mark is how you
 // catch up on what arrived while you were not looking, and the toggle only
 // decides whether it is drawn.
-func (v *View) markUnread(prev, next []pr, seeded bool) {
+func (v *View) markUnread(fresh []pr, seeded bool) {
 	// The first load of a section is everything, not "new": marking it
 	// would light up the whole list on startup.
 	if !seeded {
 		return
 	}
+	for _, p := range fresh {
+		if v.unread == nil {
+			v.unread = map[string]bool{}
+		}
+		v.unread[p.URL] = true
+	}
+}
+
+// arrivals is the rows of next that were not in prev. When prev was one page
+// of a longer search, rows after the last one both share slid in over the
+// page edge as others left, so they are old rather than new.
+// ponytail: a re-request on a PR old enough to land past that edge is missed.
+func arrivals(prev, next []pr, truncated bool) []pr {
 	known := make(map[string]bool, len(prev))
 	for _, p := range prev {
 		known[p.URL] = true
 	}
-	for _, p := range next {
-		if !known[p.URL] {
-			if v.unread == nil {
-				v.unread = map[string]bool{}
-			}
-			v.unread[p.URL] = true
+	end := len(next)
+	if truncated {
+		for end > 0 && !known[next[end-1].URL] {
+			end--
 		}
 	}
+	var fresh []pr
+	for _, p := range next[:end] {
+		if !known[p.URL] {
+			fresh = append(fresh, p)
+		}
+	}
+	return fresh
 }
 
 // clearUnread drops the mark for the selected row: looking at it is what
@@ -3103,19 +3169,9 @@ func (v *View) saveCache() {
 
 // notifyNewReviews posts a notification for review requests that appeared
 // since the last fetch (nil while unseeded or when notifications are off).
-func (v *View) notifyNewReviews(prev, next []pr) tea.Cmd {
+func (v *View) notifyNewReviews(fresh []pr) tea.Cmd {
 	if v.notifier == nil || !v.seeded {
 		return nil
-	}
-	known := make(map[string]bool, len(prev))
-	for _, p := range prev {
-		known[p.URL] = true
-	}
-	var fresh []pr
-	for _, p := range next {
-		if !known[p.URL] {
-			fresh = append(fresh, p)
-		}
 	}
 	if len(fresh) == 0 {
 		return nil

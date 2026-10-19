@@ -235,6 +235,9 @@ github:
   # How 'm' merges: squash (default), merge, or rebase. A repo that forbids
   # the method you pick says so when the merge runs.
   merge_method: squash
+  # Retry a merge the repo forbids with the first method it allows (squash,
+  # merge, rebase). Off by default: the merge lands differently than you set.
+  merge_method_fallback: false
   # Delete the head branch after a successful merge, for repos that do not
   # do it themselves. Off by default.
   merge_delete_branch: false
@@ -285,6 +288,11 @@ linear:
   # projects) on startup. ctrl+p toggles it in-app either way; left/right
   # move between the tree and the list.
   nav: false
+  # Add a Triage entry to the tree: issues in triage for the teams you are
+  # in, or for filter.teams when set.
+  triage: false
+  # Narrow Triage to one team by key (e.g. SRE). Empty: as above.
+  triage_team: ""
   # Render issue comments in the preview on startup ('c' toggles in-app).
   show_comments: false
 
