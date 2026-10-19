@@ -121,18 +121,18 @@ func TestReviewFetchErrorAlwaysBanded(t *testing.T) {
 
 func TestNotifyNewReviewsGating(t *testing.T) {
 	v := &View{}
-	if cmd := v.notifyNewReviews(nil, []pr{mkPR("u1", "t", 0)}); cmd != nil {
+	if cmd := v.notifyNewReviews(arrivals(nil, []pr{mkPR("u1", "t", 0)}, false)); cmd != nil {
 		t.Error("no notifier: expected nil command")
 	}
 	v.notifier = fakeNotifier{}
-	if cmd := v.notifyNewReviews(nil, []pr{mkPR("u1", "t", 0)}); cmd != nil {
+	if cmd := v.notifyNewReviews(arrivals(nil, []pr{mkPR("u1", "t", 0)}, false)); cmd != nil {
 		t.Error("unseeded: expected nil command")
 	}
 	v.seeded = true
-	if cmd := v.notifyNewReviews([]pr{mkPR("u1", "t", 0)}, []pr{mkPR("u1", "t", 0), mkPR("u2", "t2", 0)}); cmd == nil {
+	if cmd := v.notifyNewReviews(arrivals([]pr{mkPR("u1", "t", 0)}, []pr{mkPR("u1", "t", 0), mkPR("u2", "t2", 0)}, false)); cmd == nil {
 		t.Error("new review request: expected a command")
 	}
-	if cmd := v.notifyNewReviews([]pr{mkPR("u1", "t", 0)}, []pr{mkPR("u1", "t", 0)}); cmd != nil {
+	if cmd := v.notifyNewReviews(arrivals([]pr{mkPR("u1", "t", 0)}, []pr{mkPR("u1", "t", 0)}, false)); cmd != nil {
 		t.Error("unchanged set: expected nil command")
 	}
 }
@@ -164,5 +164,19 @@ func TestReviewBandShowsTheEffectiveQuery(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(band), "-author:app/renovate") {
 		t.Errorf("the band hides the bot exclusion the search sends:\n%s", ansi.Strip(band))
+	}
+}
+
+// A full page is a window on a longer search: a row that slides in at the
+// bottom because one above it left is not a new review request.
+func TestArrivalsIgnoresRowsOverThePageEdge(t *testing.T) {
+	prev := []pr{mkPR("a", "", 0), mkPR("b", "", 0), mkPR("c", "", 0)}
+	next := []pr{mkPR("new", "", 0), mkPR("a", "", 0), mkPR("c", "", 0), mkPR("old", "", 0)}
+	got := arrivals(prev, next, true)
+	if len(got) != 1 || got[0].URL != "new" {
+		t.Errorf("truncated arrivals = %v, want only new", got)
+	}
+	if got := arrivals(prev, next, false); len(got) != 2 {
+		t.Errorf("complete arrivals = %v, want new and old", got)
 	}
 }

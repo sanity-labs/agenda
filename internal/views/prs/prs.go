@@ -1445,7 +1445,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if msg.more {
 			v.raw = append(v.raw, msg.page.prs...)
 		} else {
-			v.markUnread(v.raw, msg.page.prs, v.mineSeeded)
+			v.markUnread(arrivals(v.raw, msg.page.prs, v.minePage.hasMore), v.mineSeeded)
 			v.raw = msg.page.prs
 		}
 		v.minePage.cursor, v.minePage.hasMore = msg.page.cursor, msg.page.hasMore
@@ -1483,8 +1483,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// is all new by definition and would notify for every row.
 		var cmd tea.Cmd
 		if !msg.more {
-			v.markUnread(v.reviewRaw, next, v.seeded)
-			cmd = v.notifyNewReviews(v.reviewRaw, next)
+			fresh := arrivals(v.reviewRaw, next, v.reviewPage.hasMore)
+			v.markUnread(fresh, v.seeded)
+			cmd = v.notifyNewReviews(fresh)
 		}
 		if partial != nil {
 			cmd = tea.Batch(cmd, partial)
@@ -3086,24 +3087,42 @@ func (v *View) groupSection(items []pr) []pr {
 // or not notifications or the marks themselves are on: the mark is how you
 // catch up on what arrived while you were not looking, and the toggle only
 // decides whether it is drawn.
-func (v *View) markUnread(prev, next []pr, seeded bool) {
+func (v *View) markUnread(fresh []pr, seeded bool) {
 	// The first load of a section is everything, not "new": marking it
 	// would light up the whole list on startup.
 	if !seeded {
 		return
 	}
+	for _, p := range fresh {
+		if v.unread == nil {
+			v.unread = map[string]bool{}
+		}
+		v.unread[p.URL] = true
+	}
+}
+
+// arrivals is the rows of next that were not in prev. When prev was one page
+// of a longer search, rows after the last one both share slid in over the
+// page edge as others left, so they are old rather than new.
+// ponytail: a re-request on a PR old enough to land past that edge is missed.
+func arrivals(prev, next []pr, truncated bool) []pr {
 	known := make(map[string]bool, len(prev))
 	for _, p := range prev {
 		known[p.URL] = true
 	}
-	for _, p := range next {
-		if !known[p.URL] {
-			if v.unread == nil {
-				v.unread = map[string]bool{}
-			}
-			v.unread[p.URL] = true
+	end := len(next)
+	if truncated {
+		for end > 0 && !known[next[end-1].URL] {
+			end--
 		}
 	}
+	var fresh []pr
+	for _, p := range next[:end] {
+		if !known[p.URL] {
+			fresh = append(fresh, p)
+		}
+	}
+	return fresh
 }
 
 // clearUnread drops the mark for the selected row: looking at it is what
@@ -3150,19 +3169,9 @@ func (v *View) saveCache() {
 
 // notifyNewReviews posts a notification for review requests that appeared
 // since the last fetch (nil while unseeded or when notifications are off).
-func (v *View) notifyNewReviews(prev, next []pr) tea.Cmd {
+func (v *View) notifyNewReviews(fresh []pr) tea.Cmd {
 	if v.notifier == nil || !v.seeded {
 		return nil
-	}
-	known := make(map[string]bool, len(prev))
-	for _, p := range prev {
-		known[p.URL] = true
-	}
-	var fresh []pr
-	for _, p := range next {
-		if !known[p.URL] {
-			fresh = append(fresh, p)
-		}
 	}
 	if len(fresh) == 0 {
 		return nil
