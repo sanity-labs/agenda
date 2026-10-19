@@ -2411,9 +2411,9 @@ type mergeDoneMsg struct {
 	err    error
 }
 
-// submitMerge shells out to gh pr merge with the configured method. When
-// that fails and the repo forbids the method, it retries with the first
-// one the repo allows.
+// submitMerge shells out to gh pr merge with the configured method. With
+// merge_method_fallback on, a method the repo forbids is retried with the
+// first one it allows.
 func (v *View) submitMerge(auto bool) tea.Cmd {
 	r := v.review
 	r.submitting, r.action = true, "merge"
@@ -2435,9 +2435,10 @@ func (v *View) submitMerge(auto bool) tea.Cmd {
 		what = fmt.Sprintf("auto-merge enabled on %s#%d", r.repo, r.num)
 	}
 	url, repo, method := r.url, r.repo, v.cfg.ResolvedMergeMethod()
+	fallback := v.cfg.MergeMethodFallback
 	return func() tea.Msg {
 		out, err := merge(method)
-		if err != nil {
+		if err != nil && fallback {
 			if alt := fallbackMethod(method, allowedMethods(repo)); alt != "" {
 				method = alt
 				out, err = merge(method)

@@ -233,8 +233,11 @@ github:
   # draft, a conflict, or while GitHub is still checking mergeability.
   merge: false
   # How 'm' merges: squash (default), merge, or rebase. A repo that forbids
-  # the method you pick gets the first method it allows instead.
+  # the method you pick says so when the merge runs.
   merge_method: squash
+  # Retry a merge the repo forbids with the first method it allows (squash,
+  # merge, rebase). Off by default: the merge lands differently than you set.
+  merge_method_fallback: false
   # Delete the head branch after a successful merge, for repos that do not
   # do it themselves. Off by default.
   merge_delete_branch: false
