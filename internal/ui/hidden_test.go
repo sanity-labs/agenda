@@ -40,3 +40,31 @@ func TestToggleHidden(t *testing.T) {
 		t.Fatal("i again did not unhide")
 	}
 }
+
+// A jump to a hidden row lands on it with hiding on, and it drops out again
+// once the selection moves off.
+func TestJumpToHiddenRow(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	l := NewList[keyedItem]()
+	l.SetSize(40, 10)
+	l.LoadHidden("test")
+	l.SetItems([]keyedItem{{"a", "apple"}, {"b", "banana"}})
+	l.ToggleHidden()
+	l.SetHideHidden(true)
+	if l.SelectedHidden() {
+		t.Fatal("no hidden row is selected yet")
+	}
+
+	if !l.Select(func(k keyedItem) bool { return k.id == "a" }) || l.Selected().id != "a" {
+		t.Fatal("jump did not land on the hidden row")
+	}
+	if !l.SelectedHidden() {
+		t.Fatal("SelectedHidden false on a jumped-to hidden row")
+	}
+
+	l.Select(func(k keyedItem) bool { return k.id == "b" })
+	l.unpinIfLeft()
+	if l.Len() != 1 {
+		t.Fatalf("%d rows after leaving the hidden one; want 1", l.Len())
+	}
+}

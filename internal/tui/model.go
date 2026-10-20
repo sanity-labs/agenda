@@ -1014,7 +1014,27 @@ func (m *Model) previewInvalidate() {
 // item, and the size it was laid out at.
 func (m Model) previewCacheKey() string {
 	_, prevW, contentH := m.dims()
-	return fmt.Sprintf("%d:%s:%d:%d", m.current, m.previewKey, prevW, contentH)
+	return fmt.Sprintf("%d:%s:%d:%d:%t", m.current, m.previewKey, prevW, contentH, m.selectedHidden())
+}
+
+func (m Model) selectedHidden() bool {
+	h, ok := m.views[m.current].(hideable)
+	return ok && h.Hideable().SelectedHidden()
+}
+
+// previewText prefixes the preview with a notice when a jump landed on a row
+// the list itself would not show.
+func (m Model) previewText(cur View) string {
+	if !m.selectedHidden() {
+		return cur.PreviewView()
+	}
+	_, prevW, _ := m.dims()
+	box := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(ui.Pal().Yellow)).
+		Padding(0, 1).
+		Render(ui.Yellow.Render(ui.IconWarn + "  Hidden: not in the list while hide_hidden is on"))
+	return lipgloss.PlaceHorizontal(prevW, lipgloss.Center, box) + "\n" + cur.PreviewView()
 }
 
 // renderedPreview returns the preview text and its line count, rendering only
@@ -1028,10 +1048,10 @@ func (m Model) renderedPreview(cur View) (string, int) {
 // only when something that affects the preview has changed.
 func (m Model) previewSplit(cur View) []string {
 	if m.previewCache == nil {
-		return strings.Split(cur.PreviewView(), "\n")
+		return strings.Split(m.previewText(cur), "\n")
 	}
 	if key := m.previewCacheKey(); key != m.previewCache.key {
-		text := cur.PreviewView()
+		text := m.previewText(cur)
 		m.previewCache.key = key
 		m.previewCache.text = text
 		m.previewCache.split = strings.Split(text, "\n")

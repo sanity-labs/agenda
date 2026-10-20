@@ -12,6 +12,7 @@ type Hideable interface {
 	LoadHidden(name string)
 	SetHideHidden(on bool)
 	ToggleHidden()
+	SelectedHidden() bool
 }
 
 // LoadHidden reads the view's hidden set from the cache entry hidden-<name>.
@@ -53,3 +54,11 @@ func (l *List[T]) ToggleHidden() {
 }
 
 func (l *List[T]) isHidden(it T) bool { return l.hidden[itemKey(it)] }
+
+// SelectedHidden reports a selected row that shows only because a jump pinned it.
+func (l *List[T]) SelectedHidden() bool {
+	if !l.hideHidden || l.cursor < 0 || l.cursor >= len(l.filtered) {
+		return false
+	}
+	return l.isHidden(l.items[l.filtered[l.cursor]])
+}

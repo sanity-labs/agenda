@@ -567,7 +567,7 @@ func (l *List[T]) applyFilter() {
 		q = strings.ToLower(q)
 	}
 	for i := range l.items {
-		if l.hideHidden && l.isHidden(l.items[i]) {
+		if l.hideHidden && l.isHidden(l.items[i]) && itemKey(l.items[i]) != l.pinned {
 			continue
 		}
 		if q == "" {
