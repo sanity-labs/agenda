@@ -549,6 +549,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if h, ok := m.views[m.current].(hideable); ok {
 				h.Hideable().ToggleHidden()
 				m.syncPreviewKey(false)
+				return m, m.views[m.current].Update(ui.SelectedMsg{})
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.NextView):
