@@ -68,6 +68,9 @@ type Config struct {
 	// with no feasible grouping stay flat either way.
 	Grouping bool `yaml:"grouping"`
 
+	// RememberOnQuit restores the tab and filters a `q` quit left behind.
+	RememberOnQuit bool `yaml:"remember_on_quit"`
+
 	// ListJump is how many rows pgup/pgdn and shift+arrows move in a list.
 	// 5 when unset. The preview pane pages with the same keys once it has
 	// the keys (right arrow), so these are list keys.
