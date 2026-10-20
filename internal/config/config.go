@@ -71,6 +71,10 @@ type Config struct {
 	// RememberOnQuit restores the tab and filters a `q` quit left behind.
 	RememberOnQuit bool `yaml:"remember_on_quit"`
 
+	// HideHidden drops rows hidden with `i` from the lists; off, they show
+	// dimmed, so nothing disappears by accident.
+	HideHidden bool `yaml:"hide_hidden"`
+
 	// ListJump is how many rows pgup/pgdn and shift+arrows move in a list.
 	// 5 when unset. The preview pane pages with the same keys once it has
 	// the keys (right arrow), so these are list keys.

@@ -2201,3 +2201,5 @@ func labelPills(labels []label) string {
 	}
 	return strings.Join(pills, "  ")
 }
+
+func (v *View) Hideable() ui.Hideable { return &v.list }

@@ -75,6 +75,9 @@ const IconSearch = "\uf422" //  search
 // select it.
 const IconUnread = "\u25cf" // ●
 
+// IconHidden marks a row hidden by hand, in the gap before the scrollbar.
+const IconHidden = "\u00d7" // ×
+
 // Pill caps (powerline half-circles), used to round the ends of label pills.
 // Both fall back to nothing when decorative glyphs are off, leaving the plain
 // padded background the view rendered before.

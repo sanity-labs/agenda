@@ -97,6 +97,11 @@ type List[T Item] struct {
 	// selFirst/selN are where the selected item landed in the last View:
 	// its first line and line count (selN 0 when it was off screen).
 	selFirst, selN int
+
+	// hidden holds the keys hidden by hand, saved as hiddenName.
+	hidden     map[string]bool
+	hiddenName string
+	hideHidden bool
 }
 
 type listKeys struct {
@@ -562,6 +567,9 @@ func (l *List[T]) applyFilter() {
 		q = strings.ToLower(q)
 	}
 	for i := range l.items {
+		if l.hideHidden && l.isHidden(l.items[i]) {
+			continue
+		}
 		if q == "" {
 			l.filtered = append(l.filtered, i)
 			continue
@@ -674,15 +682,20 @@ func (l *List[T]) View() string {
 	}
 
 	var lines []string
+	hiddenLines := map[int]bool{}
 	l.selFirst, l.selN = 0, 0
 	for i := l.offset; i < end; i++ {
 		// Blurred: no row reads as selected, and the rows dim, so the lit
 		// cursor in the focused pane is the only one on screen.
 		rendered := l.items[l.filtered[i]].Render(contentW, !l.blurred && i == l.cursor, l.highlighter())
-		if l.blurred {
+		hidden := l.isHidden(l.items[l.filtered[i]])
+		if l.blurred || hidden && i != l.cursor {
 			rendered = Faint.Render(ansi.Strip(rendered))
 		}
 		block := strings.Split(rendered, "\n")
+		if hidden {
+			hiddenLines[len(lines)] = true
+		}
 		if i == l.cursor {
 			l.selFirst, l.selN = len(lines), len(block)
 		}
@@ -700,7 +713,11 @@ func (l *List[T]) View() string {
 	bar := Scrollbar(l.height, len(l.filtered), win, l.offset)
 	for i := range lines {
 		pad := max(0, contentW-lipgloss.Width(lines[i]))
-		lines[i] += strings.Repeat(" ", pad) + " " + bar[i]
+		gap := " "
+		if hiddenLines[i] {
+			gap = Faint.Render(IconHidden)
+		}
+		lines[i] += strings.Repeat(" ", pad) + gap + bar[i]
 	}
 	return strings.Join(lines, "\n")
 }

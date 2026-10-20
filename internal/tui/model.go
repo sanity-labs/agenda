@@ -157,6 +157,12 @@ func (m Model) anyLoading() bool {
 // New builds the root model from config. Views are constructed by the caller
 // (main) and passed in, so the tui package doesn't import every view package.
 func New(cfg config.Config, views []View) Model {
+	for _, v := range views {
+		if h, ok := v.(hideable); ok {
+			h.Hideable().LoadHidden(strings.ToLower(v.Title()))
+			h.Hideable().SetHideHidden(cfg.HideHidden)
+		}
+	}
 	return Model{
 		cfg:           cfg,
 		keys:          newKeys(cfg.Keys),
@@ -539,6 +545,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, tea.Quit
+		case key.Matches(msg, m.keys.Hide):
+			if h, ok := m.views[m.current].(hideable); ok {
+				h.Hideable().ToggleHidden()
+				m.syncPreviewKey(false)
+			}
+			return m, nil
 		case key.Matches(msg, m.keys.NextView):
 			m.current = (m.current + 1) % len(m.views)
 			m.syncPreviewKey(true)
@@ -1167,6 +1179,13 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "unread":
 		on := m.cfg.UnreadEnabled()
 		return func() tea.Msg { return ui.UnreadMsg(on) }
+	case path == "hide_hidden":
+		for _, v := range m.views {
+			if h, ok := v.(hideable); ok {
+				h.Hideable().SetHideHidden(m.cfg.HideHidden)
+			}
+		}
+		return nil
 	case path == "unread_sync":
 		on := m.cfg.UnreadSync
 		return func() tea.Msg { return ui.UnreadSyncMsg(on) }
@@ -1190,6 +1209,9 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	}
 	return nil
 }
+
+// hideable is implemented by views whose rows can be hidden by hand.
+type hideable interface{ Hideable() ui.Hideable }
 
 // filterable is implemented by views that support the scoped filter popup.
 type filterable interface {
@@ -1871,7 +1893,7 @@ func (m Model) helpView() string {
 	b.WriteByte('\n')
 	section("Global")
 	for _, bnd := range []key.Binding{
-		m.keys.Follow, m.keys.Filter, m.keys.Zoom, m.keys.TogglePreview,
+		m.keys.Follow, m.keys.Filter, m.keys.Hide, m.keys.Zoom, m.keys.TogglePreview,
 		m.keys.NextView, m.keys.PrevView, m.keys.PreviewUp, m.keys.Refresh,
 		m.keys.Config, m.keys.Quit,
 	} {

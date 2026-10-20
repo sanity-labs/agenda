@@ -3980,3 +3980,5 @@ func cmdErr(err error) error {
 	}
 	return err
 }
+
+func (v *View) Hideable() ui.Hideable { return &v.list }
