@@ -112,7 +112,10 @@ func main() {
 	// clear it so a later manual launch does not reopen the settings.
 	reloaded := os.Getenv(reloadEnv)
 	os.Unsetenv(reloadEnv)
-	m := tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithSnapshot(len(os.Args) > 1).WithReloaded(reloaded)
+	m := tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithReloaded(reloaded)
+	if reloaded == "" {
+		m = m.WithSnapshot(len(os.Args) > 1)
+	}
 	if cfg.Daemon {
 		// Find the daemon or start one; it fetches from here on. Failing
 		// that, this process fetches for itself and says why.
