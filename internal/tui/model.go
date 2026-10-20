@@ -157,6 +157,12 @@ func (m Model) anyLoading() bool {
 // New builds the root model from config. Views are constructed by the caller
 // (main) and passed in, so the tui package doesn't import every view package.
 func New(cfg config.Config, views []View) Model {
+	for _, v := range views {
+		if h, ok := v.(hideable); ok {
+			h.Hideable().LoadHidden(strings.ToLower(v.Title()))
+			h.Hideable().SetHideHidden(cfg.HideHidden)
+		}
+	}
 	return Model{
 		cfg:           cfg,
 		keys:          newKeys(cfg.Keys),
@@ -539,6 +545,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, tea.Quit
+		case key.Matches(msg, m.keys.Hide):
+			if h, ok := m.views[m.current].(hideable); ok {
+				h.Hideable().ToggleHidden()
+				m.syncPreviewKey(false)
+				return m, m.views[m.current].Update(ui.SelectedMsg{})
+			}
+			return m, nil
 		case key.Matches(msg, m.keys.NextView):
 			m.current = (m.current + 1) % len(m.views)
 			m.syncPreviewKey(true)
@@ -1001,7 +1014,27 @@ func (m *Model) previewInvalidate() {
 // item, and the size it was laid out at.
 func (m Model) previewCacheKey() string {
 	_, prevW, contentH := m.dims()
-	return fmt.Sprintf("%d:%s:%d:%d", m.current, m.previewKey, prevW, contentH)
+	return fmt.Sprintf("%d:%s:%d:%d:%t", m.current, m.previewKey, prevW, contentH, m.selectedHidden())
+}
+
+func (m Model) selectedHidden() bool {
+	h, ok := m.views[m.current].(hideable)
+	return ok && h.Hideable().SelectedHidden()
+}
+
+// previewText prefixes the preview with a notice when a jump landed on a row
+// the list itself would not show.
+func (m Model) previewText(cur View) string {
+	if !m.selectedHidden() {
+		return cur.PreviewView()
+	}
+	_, prevW, _ := m.dims()
+	box := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(ui.Pal().Yellow)).
+		Padding(0, 1).
+		Render(ui.Yellow.Render(ui.IconWarn + "  Hidden: not in the list while hide_hidden is on"))
+	return lipgloss.PlaceHorizontal(prevW, lipgloss.Center, box) + "\n" + cur.PreviewView()
 }
 
 // renderedPreview returns the preview text and its line count, rendering only
@@ -1015,10 +1048,10 @@ func (m Model) renderedPreview(cur View) (string, int) {
 // only when something that affects the preview has changed.
 func (m Model) previewSplit(cur View) []string {
 	if m.previewCache == nil {
-		return strings.Split(cur.PreviewView(), "\n")
+		return strings.Split(m.previewText(cur), "\n")
 	}
 	if key := m.previewCacheKey(); key != m.previewCache.key {
-		text := cur.PreviewView()
+		text := m.previewText(cur)
 		m.previewCache.key = key
 		m.previewCache.text = text
 		m.previewCache.split = strings.Split(text, "\n")
@@ -1167,6 +1200,13 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	case path == "unread":
 		on := m.cfg.UnreadEnabled()
 		return func() tea.Msg { return ui.UnreadMsg(on) }
+	case path == "hide_hidden":
+		for _, v := range m.views {
+			if h, ok := v.(hideable); ok {
+				h.Hideable().SetHideHidden(m.cfg.HideHidden)
+			}
+		}
+		return nil
 	case path == "unread_sync":
 		on := m.cfg.UnreadSync
 		return func() tea.Msg { return ui.UnreadSyncMsg(on) }
@@ -1190,6 +1230,9 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 	}
 	return nil
 }
+
+// hideable is implemented by views whose rows can be hidden by hand.
+type hideable interface{ Hideable() ui.Hideable }
 
 // filterable is implemented by views that support the scoped filter popup.
 type filterable interface {
@@ -1871,7 +1914,7 @@ func (m Model) helpView() string {
 	b.WriteByte('\n')
 	section("Global")
 	for _, bnd := range []key.Binding{
-		m.keys.Follow, m.keys.Filter, m.keys.Zoom, m.keys.TogglePreview,
+		m.keys.Follow, m.keys.Filter, m.keys.Hide, m.keys.Zoom, m.keys.TogglePreview,
 		m.keys.NextView, m.keys.PrevView, m.keys.PreviewUp, m.keys.Refresh,
 		m.keys.Config, m.keys.Quit,
 	} {

@@ -773,3 +773,5 @@ func matchPath(path string) func(session) bool {
 
 func (v *View) HasRef(id string) bool    { return v.list.Any(matchPath(id)) }
 func (v *View) SelectRef(id string) bool { return v.list.Select(matchPath(id)) }
+
+func (v *View) Hideable() ui.Hideable { return &v.list }

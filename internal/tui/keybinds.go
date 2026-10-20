@@ -27,6 +27,7 @@ func keyRegistry() []keyEntry {
 	return []keyEntry{
 		{"global", "next_view", "next view", []string{"tab", "L"}},
 		{"global", "prev_view", "prev view", []string{"shift+tab", "H"}},
+		{"global", "hide", "hide/unhide row", []string{"i"}},
 		{"global", "refresh", "refresh", []string{"ctrl+r"}},
 		{"global", "quit", "quit", []string{"q", "ctrl+c"}},
 		{"global", "help", "help", []string{"?"}},
