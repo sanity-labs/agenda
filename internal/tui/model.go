@@ -534,6 +534,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd, closed := m.closeTop(); closed {
 					return m, cmd
 				}
+				if m.cfg.RememberOnQuit {
+					m.saveSnapshot()
+				}
 			}
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.NextView):

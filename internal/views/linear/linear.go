@@ -1729,7 +1729,11 @@ func (v *View) PreviewView() string {
 
 	var b strings.Builder
 	// The same order as the list row: metadata over the title.
-	b.WriteString(ui.Dim.Render(fmt.Sprintf("%s · %s ago", i.Identifier, ui.Age(i.UpdatedAt))))
+	who := "Unassigned"
+	if n := i.Assignee.DisplayName; n != "" {
+		who = "@" + n
+	}
+	b.WriteString(ui.Dim.Render(fmt.Sprintf("%s · %s · %s ago", i.Identifier, who, ui.Age(i.UpdatedAt))))
 	b.WriteByte('\n')
 	b.WriteString(ui.Bold.Width(v.prevW).Render(i.Title))
 	b.WriteString("\n\n")
