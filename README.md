@@ -127,6 +127,7 @@ them elsewhere).
 |---|---|---|
 | Global | `tab` / `shift+tab`, `1`…`9` | switch view |
 | Global | `/`, `f` | filter the loaded rows (fuzzy on word starts, plus GitHub-style terms like `-label:x is:draft`); field-scoped filter popup. `esc` clears it |
+| Global | `cmd+k`, `ctrl+k` | quick search. PRs: a number finds that issue or PR in every loaded repo; words offer a repo to narrow to, then search inside it. Linear: searches the whole workspace. `enter` opens the result like a cross-reference, past any filter |
 | Global | `→` / `←` | give the keys to the pane / back to the list; in a float, `←` steps a level out |
 | Global | `esc` | step back: focus, then the pane, then a float, then zoom. Never quits |
 | Global | `v`, `z` | show/hide (or float) the preview; zoom it |

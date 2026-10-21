@@ -16,6 +16,7 @@ type globalKeys struct {
 	Help          key.Binding
 	Follow        key.Binding
 	Filter        key.Binding
+	Search        key.Binding
 	Config        key.Binding
 	Hide          key.Binding
 	Zoom          key.Binding
@@ -53,6 +54,7 @@ func newKeys(km config.Keymap) globalKeys {
 		Help:          bind("help", "", "help", "?"),
 		Follow:        bind("follow", "", "related", "l"),
 		Filter:        bind("filter", "", "filter", "f"),
+		Search:        bind("search", "", "search", "super+k", "ctrl+k"),
 		Config:        bind("config", "", "config", "ctrl+s"),
 		Hide:          bind("hide", "", "hide/unhide", "i"),
 		Zoom:          bind("zoom", "", "zoom", "z"),

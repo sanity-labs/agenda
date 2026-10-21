@@ -628,6 +628,7 @@ type View struct {
 	list       ui.List[pr]
 	raw        []pr // own PRs
 	reviewRaw  []pr // PRs waiting on the user's review
+	opened     []pr // a PR neither search lists, brought in by a jump
 	showReview bool // render the review section (toggled with 'w')
 	// reviewsOnly makes this the Reviews tab: the review-requested search is
 	// the whole list, and the own-PR search never runs. reviewsElsewhere is
@@ -1161,7 +1162,9 @@ const graphqlQuery = `query($q: String!, $n: Int!, $after: String) {
     pageInfo { hasNextPage endCursor }
     nodes { ...prFields }
   }
-}
+}` + prFragment
+
+const prFragment = `
 fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName baseRefName
   additions deletions mergeable reviewDecision body
@@ -1417,6 +1420,11 @@ func (v *View) fetchMore() tea.Cmd {
 
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
+	case prFetchedMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
+		return v.takeFetched(msg)
 	case mineMsg:
 		if v.foreign(msg.from) {
 			return nil
@@ -2548,17 +2556,7 @@ func (v *View) publish(prs []pr) {
 	}
 	recs := make([]store.PR, 0, len(prs))
 	for _, p := range prs {
-		recs = append(recs, store.PR{
-			URL:          p.URL,
-			Repo:         p.repo(),
-			Number:       p.Number,
-			Title:        p.Title,
-			State:        prState(p),
-			CI:           ciState(p),
-			Review:       reviewState(p),
-			HasConflicts: p.Mergeable == "CONFLICTING",
-			UpdatedAt:    p.UpdatedAt,
-		})
+		recs = append(recs, record(p))
 	}
 	v.store.PutPRs(recs)
 }
@@ -2946,6 +2944,9 @@ func (v *View) applySort() {
 		items = append(items, pr{Separator: v.bandWithQuery(
 			v.reviewLabel(rev), v.cfg.ReviewQuery())})
 		items = append(items, v.groupSection(rev)...)
+	}
+	if len(v.opened) > 0 {
+		items = append(items, pr{Separator: bandSection("OPENED")}, v.opened[0])
 	}
 	v.list.SetItems(items)
 }
