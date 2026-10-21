@@ -152,6 +152,9 @@ func TestEveryConfigKeyHasASettingRow(t *testing.T) {
 		"glyphs": true, "command": true, "scope": true,
 		"teams": true, "projects": true, "states": true,
 		"include_completed": true, "include_canceled": true,
+		// User commands: a list, like a keymap.
+		"commands": true, "key": true, "view": true, "description": true,
+		"prompt": true, "title": true, "options": true, "run": true, "mode": true,
 	}
 	src, err := os.ReadFile("../config/config.go")
 	if err != nil {

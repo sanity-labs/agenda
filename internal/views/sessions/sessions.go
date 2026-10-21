@@ -775,3 +775,13 @@ func (v *View) HasRef(id string) bool    { return v.list.Any(matchPath(id)) }
 func (v *View) SelectRef(id string) bool { return v.list.Select(matchPath(id)) }
 
 func (v *View) Hideable() ui.Hideable { return &v.list }
+
+func (v *View) CommandFields() (string, map[string]string) {
+	s := v.list.Selected()
+	if s.Path == "" {
+		return "sessions", nil
+	}
+	return "sessions", map[string]string{
+		"path": s.Path, "cwd": s.Cwd, "tool": string(s.Tool), "session_id": s.SessionID, "title": s.Title,
+	}
+}
