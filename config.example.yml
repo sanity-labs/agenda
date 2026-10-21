@@ -315,3 +315,13 @@ sessions:
   # Omit for the view's default, recent.
   sort: ""
   reverse: false
+
+# Keys that run a shell command against the selected row, with its fields
+# in the environment (AGENDA_REPO, AGENDA_BRANCH, ...; see the README).
+# commands:
+#   - key: O
+#     view: prs            # prs, linear or sessions
+#     description: open locally
+#     prompt: { title: Open which branch?, options: [pr, main] }  # -> AGENDA_CHOICE
+#     run: ~/bin/open-pr "$AGENDA_REPO" "$AGENDA_NUMBER" "$AGENDA_CHOICE"
+#     mode: background     # or foreground, to hand it the terminal
