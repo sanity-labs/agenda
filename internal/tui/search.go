@@ -19,7 +19,7 @@ func (m *Model) openSearch() bool {
 	if _, ok := m.views[m.current].(ui.Searcher); !ok {
 		return false
 	}
-	b := ui.NewSearchBox("Search " + m.views[m.current].Title())
+	b := ui.NewSearchBox(m.views[m.current].Title())
 	m.search, m.searchView = &b, m.current
 	return true
 }
@@ -57,7 +57,7 @@ func (m *Model) runSearch(gen int) tea.Cmd {
 		return nil
 	}
 	m.search.Loading = true
-	return m.views[m.searchView].(ui.Searcher).Search(m.search.Query, m.search.Scope)
+	return m.views[m.searchView].(ui.Searcher).Search(m.search.Query, m.search.Scope, m.cfg.SearchLimit())
 }
 
 func (m *Model) takeSearchResults(msg ui.SearchResultsMsg) {

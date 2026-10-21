@@ -16,7 +16,7 @@ type searchView struct {
 }
 
 func (s *searchView) RefKind() string { return "pr" }
-func (s *searchView) Search(query, scope string) tea.Cmd {
+func (s *searchView) Search(query, scope string, _ int) tea.Cmd {
 	s.scopes = append(s.scopes, scope)
 	return func() tea.Msg {
 		return ui.SearchResultsMsg{Query: query, Scope: scope, Results: []ui.Ref{
@@ -44,14 +44,14 @@ func TestQuickSearchNarrowsThenJumps(t *testing.T) {
 		t.Fatal("ctrl+k did not open the search box")
 	}
 	m, _ = hit(m, tea.KeyPressMsg{Code: 'o', Text: "o"})
-	m.takeSearchResults(sv.Search("o", "")().(ui.SearchResultsMsg))
+	m.takeSearchResults(sv.Search("o", "", 5)().(ui.SearchResultsMsg))
 
 	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.search == nil || m.search.Scope != "o/r" || m.search.Query != "" {
 		t.Fatalf("picking a repo should narrow, got %+v", m.search)
 	}
 	m.search.Query = "1"
-	m.takeSearchResults(sv.Search("1", "o/r")().(ui.SearchResultsMsg))
+	m.takeSearchResults(sv.Search("1", "o/r", 5)().(ui.SearchResultsMsg))
 	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m.current = 0
 	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})

@@ -80,6 +80,9 @@ type Config struct {
 	// the keys (right arrow), so these are list keys.
 	ListJump int `yaml:"list_jump"`
 
+	// SearchResults caps how many results cmd+k shows. 5 when unset.
+	SearchResults int `yaml:"search_results"`
+
 	// HidePreview starts with the preview (detail) pane hidden, leaving the
 	// list full-width — friendlier to narrow terminals. Off by default; the
 	// toggle_preview key (default "v") flips it at runtime either way.
@@ -560,6 +563,14 @@ func Load() (Config, error) {
 		cfg.Linear.Filter.Limit = 250
 	}
 	return cfg, nil
+}
+
+// SearchLimit is how many results cmd+k shows, defaulting to 5.
+func (c Config) SearchLimit() int {
+	if c.SearchResults <= 0 {
+		return 5
+	}
+	return c.SearchResults
 }
 
 // ListJumpSize is the list jump step, defaulting to 5.

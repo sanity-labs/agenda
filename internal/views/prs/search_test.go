@@ -2,6 +2,7 @@ package prs
 
 import (
 	"testing"
+	"time"
 
 	"github.com/sanity-labs/agenda/internal/config"
 )
@@ -38,5 +39,26 @@ func TestFetchedPRLandsSelected(t *testing.T) {
 	}
 	if !v.HasRef("u9") {
 		t.Error("the fetched PR is not in the list")
+	}
+}
+
+// A number also finds loaded PRs it prefixes; the exact hit leads whatever
+// the sort, and the list stops at the limit.
+func TestNumberPrefixAndOrder(t *testing.T) {
+	old := pr{Number: 85, URL: "u85", UpdatedAt: time.Unix(1, 0)}
+	a := pr{Number: 8500, URL: "u8500", UpdatedAt: time.Unix(2, 0)}
+	b := pr{Number: 8513, URL: "u8513", UpdatedAt: time.Unix(3, 0)}
+	other := pr{Number: 123, URL: "u123"}
+	nodes, err := numberMatches("85", nil, "", []pr{a, other, b})
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("prefix matches = %+v, %v; want 8500 and 8513", nodes, err)
+	}
+	nodes = append(nodes, searchNode{Typename: "PullRequest", pr: old})
+	var got []int
+	for _, n := range sortNodes(nodes, 85, sortRecent, false, 2) {
+		got = append(got, n.Number)
+	}
+	if len(got) != 2 || got[0] != 85 || got[1] != 8513 {
+		t.Errorf("order = %v, want [85 8513]", got)
 	}
 }

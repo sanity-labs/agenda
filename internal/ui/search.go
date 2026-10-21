@@ -12,9 +12,10 @@ import (
 const ScopeKind = "scope"
 
 // Searcher is a view that answers the quick-search box. Search returns a
-// command that resolves to a SearchResultsMsg for exactly this query.
+// command that resolves to a SearchResultsMsg for exactly this query, at
+// most limit results, in the view's current sort order.
 type Searcher interface {
-	Search(query, scope string) tea.Cmd
+	Search(query, scope string, limit int) tea.Cmd
 }
 
 // SearchResultsMsg answers one Search call. The box drops it when the query
@@ -128,7 +129,7 @@ func (s *SearchBox) View() string {
 	b.WriteString("\n\n")
 	switch {
 	case s.Query == "":
-		b.WriteString(Faint.Render("type to search"))
+		b.WriteString(Faint.Render("Type a command or search"))
 		b.WriteByte('\n')
 	case s.err != nil:
 		b.WriteString(Red.Render(Truncate(s.err.Error(), searchWidth)))

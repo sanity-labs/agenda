@@ -13,19 +13,19 @@ import (
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
-const searchQuery = `query($term: String!) {
-  searchIssues(term: $term, first: 10) {
-    nodes { identifier title url state { name type } }
+const searchQuery = `query($term: String!, $first: Int!) {
+  searchIssues(term: $term, first: $first) {
+    nodes {` + issueFields + `}
   }
 }`
 
 // Search implements ui.Searcher over every issue the token can see, not
 // just the current source.
-func (v *View) Search(query, scope string) tea.Cmd {
-	token := v.token
+func (v *View) Search(query, scope string, limit int) tea.Cmd {
+	token, mode, rev := v.token, v.sort, v.rev
 	return func() tea.Msg {
 		res := ui.SearchResultsMsg{Query: query, Scope: scope}
-		body, _ := json.Marshal(map[string]any{"query": searchQuery, "variables": map[string]any{"term": query}})
+		body, _ := json.Marshal(map[string]any{"query": searchQuery, "variables": map[string]any{"term": query, "first": limit}})
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -59,7 +59,7 @@ func (v *View) Search(query, scope string) tea.Cmd {
 			res.Err = fmt.Errorf("linear: %s", out.Errors[0].Message)
 			return res
 		}
-		for _, i := range out.Data.SearchIssues.Nodes {
+		for _, i := range sortIssues(out.Data.SearchIssues.Nodes, mode, rev) {
 			res.Results = append(res.Results, ui.IssueRef(i.Identifier, i.Title, i.URL, ui.IssueStatusIcon(i.State.Type, i.State.Name)))
 		}
 		return res
