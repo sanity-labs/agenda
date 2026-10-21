@@ -181,6 +181,9 @@ func settingsTable() []setting {
 		boolSetting("nerd font glyphs", "theme.glyphs", "",
 			func(c config.Config) bool { return c.GlyphsEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.Theme.Glyphs, v) }),
+		boolSetting("rule between comments", "theme.comment_rule", "",
+			func(c config.Config) bool { return c.Theme.CommentRule },
+			func(c *config.Config, v bool) { c.Theme.CommentRule = v }),
 		header("Keybinds"),
 		{
 			label: "edit keybinds", path: "action:edit_keybinds", kind: kindAction,

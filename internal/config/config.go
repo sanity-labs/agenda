@@ -126,6 +126,9 @@ type ThemeConfig struct {
 	// icons). Default true; the core status glyphs already assume a Nerd
 	// Font, but this lets a plain-font setup drop the extras.
 	Glyphs *bool `yaml:"glyphs"`
+	// CommentRule draws a centered rule between comments in the PR and
+	// Linear comment panes. Default false.
+	CommentRule bool `yaml:"comment_rule"`
 }
 
 // UpdateCheckEnabled reports whether the startup release check runs.

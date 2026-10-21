@@ -53,6 +53,7 @@ func main() {
 	}
 	ui.SetPalette(palette)
 	ui.SetGlyphs(cfg.GlyphsEnabled())
+	ui.SetCommentRule(cfg.Theme.CommentRule)
 
 	// Shared metadata store: views publish facts they own (PR status, session
 	// mentions) and read each other's to render cross-references.

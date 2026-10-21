@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func intp(i int) *int { return &i }
@@ -103,5 +105,26 @@ func TestCommentsPaneFoldsResolvedThreads(t *testing.T) {
 	anns := threadAnnotations(data.ReviewThreads.Nodes, 80, nil)
 	if strings.Contains(anns[0].Text, "nit") || !strings.Contains(anns[0].Text, "resolved") {
 		t.Errorf("diff annotation not folded: %q", anns[0].Text)
+	}
+}
+
+func TestRenderCommentsPaneRuleBetweenComments(t *testing.T) {
+	var data prComments
+	for i, who := range []string{"bob", "carol", "dave"} {
+		c := prComment{Body: "hi", CreatedAt: time.Now().Add(time.Duration(i) * time.Minute)}
+		c.Author.Login = who
+		data.Comments.Nodes = append(data.Comments.Nodes, c)
+	}
+	rules := func() int {
+		out, _ := renderCommentsPane(data, 40, nil)
+		return strings.Count(out, strings.Repeat("─", 30))
+	}
+	if n := rules(); n != 0 {
+		t.Errorf("rule off: %d rules, want 0", n)
+	}
+	ui.SetCommentRule(true)
+	defer ui.SetCommentRule(false)
+	if n := rules(); n != 2 {
+		t.Errorf("rule on: %d rules, want 2 (between, not after, comments)", n)
 	}
 }
