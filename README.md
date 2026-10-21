@@ -158,6 +158,33 @@ A pane that has the keys dims the list, so one cursor is lit. A float
 level two, `←` steps down and `esc` closes the whole thing. The rules are
 written down in [DESIGN.md](DESIGN.md).
 
+### Custom commands
+
+`commands:` binds a key in one view to a shell command run against the
+selected row. The row reaches the command as environment variables, never
+spliced into the command text, so quote them as you would any variable:
+
+```yaml
+commands:
+  - key: O
+    view: prs
+    description: open locally
+    prompt: { title: Open which branch?, options: [pr, main] }
+    run: ~/bin/open-pr "$AGENDA_REPO" "$AGENDA_NUMBER" "$AGENDA_CHOICE"
+```
+
+| view | variables |
+|---|---|
+| `prs` | `AGENDA_REPO` (owner/name), `NUMBER`, `BRANCH`, `BASE`, `URL`, `TITLE`, `AUTHOR` |
+| `linear` | `AGENDA_ID`, `URL`, `BRANCH`, `TITLE` |
+| `sessions` | `AGENDA_PATH`, `CWD`, `TOOL`, `SESSION_ID`, `TITLE` |
+
+`prompt` asks first and passes the answer as `AGENDA_CHOICE`. A command
+runs in the background and toasts its last line of output; `mode:
+foreground` hands it the terminal instead, for an editor or a pager. A key
+that is reserved or already bound in that view is refused, and the message
+log (`!`) says why.
+
 ## Views
 
 **PRs** fetches through `gh api graphql`, one page at a time

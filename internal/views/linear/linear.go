@@ -2205,3 +2205,13 @@ func labelPills(labels []label) string {
 }
 
 func (v *View) Hideable() ui.Hideable { return &v.list }
+
+func (v *View) CommandFields() (string, map[string]string) {
+	i := v.list.Selected()
+	if i.Identifier == "" {
+		return "linear", nil
+	}
+	return "linear", map[string]string{
+		"id": i.Identifier, "url": i.URL, "branch": i.BranchName, "title": i.Title,
+	}
+}

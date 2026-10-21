@@ -3989,3 +3989,14 @@ func cmdErr(err error) error {
 }
 
 func (v *View) Hideable() ui.Hideable { return &v.list }
+
+func (v *View) CommandFields() (string, map[string]string) {
+	p := v.list.Selected()
+	if p.URL == "" {
+		return "prs", nil
+	}
+	return "prs", map[string]string{
+		"repo": p.repo(), "number": strconv.Itoa(p.Number), "branch": p.HeadRefName,
+		"base": p.BaseRefName, "url": p.URL, "title": p.Title, "author": p.Author.Login,
+	}
+}

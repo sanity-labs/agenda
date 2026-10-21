@@ -92,6 +92,12 @@ type Model struct {
 	picker     *ui.Picker
 	pickerRefs []ui.Ref
 
+	// user commands that passed validation, the warnings for those that
+	// did not, and the one waiting on its prompt (nil unless open).
+	commands    []config.Command
+	commandWarn []string
+	pending     *pendingCommand
+
 	// field-scoped filter modal (nil unless open).
 	filter *ui.FilterModal
 
@@ -168,7 +174,10 @@ func New(cfg config.Config, views []View) Model {
 			h.Hideable().SetHideHidden(cfg.HideHidden)
 		}
 	}
+	commands, warn := validCommands(cfg)
 	return Model{
+		commands:      commands,
+		commandWarn:   warn,
 		cfg:           cfg,
 		keys:          newKeys(cfg.Keys),
 		jump:          newJumpKeys(cfg.Keys),
@@ -250,6 +259,14 @@ func (m Model) Init() tea.Cmd {
 			return ui.Status(ui.SeverityWarn, "config",
 				fmt.Sprintf("%d unknown config key(s): %s", len(m.cfg.Unknown), keys),
 				"These keys parsed but match no option, so they do nothing. Check them against config.example.yml.")
+		})
+	}
+
+	if len(m.commandWarn) > 0 {
+		warn := strings.Join(m.commandWarn, "; ")
+		cmds = append(cmds, func() tea.Msg {
+			return ui.Status(ui.SeverityWarn, "config", "commands ignored: "+warn,
+				"These commands will not run. See commands in config.example.yml.")
 		})
 	}
 
@@ -509,6 +526,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.pending != nil {
+			return m, m.updatePending(msg)
+		}
 		// While the filter modal is open it captures all keys.
 		if m.filter != nil {
 			done, cancelled := m.filter.Update(msg)
@@ -687,6 +707,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.syncPreviewKey(true)
 				return m, nil
 			}
+		}
+		if cmd, ok := m.startCommand(msg.String()); ok {
+			return m, cmd
 		}
 		// Anything else goes to the focused view.
 		return m.updateCurrent(msg)
@@ -1625,6 +1648,9 @@ func (m Model) View() tea.View {
 	// Composite the picker modal centered over the content, if open.
 	if m.picker != nil {
 		content = m.overlayCentered(content, m.picker.View())
+	}
+	if m.pending != nil {
+		content = m.overlayCentered(content, m.pending.picker.View())
 	}
 
 	if m.search != nil {
