@@ -95,6 +95,11 @@ type Model struct {
 	// field-scoped filter modal (nil unless open).
 	filter *ui.FilterModal
 
+	// quick-search box (nil unless open), over the view it searches.
+	search     *ui.SearchBox
+	searchView int
+	searchGen  int
+
 	// config overlay (nil unless open).
 	settings *configOverlay
 
@@ -401,6 +406,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		gen := m.toastGen
 		return m, tea.Tick(6*time.Second, func(time.Time) tea.Msg { return toastGoneMsg{gen} })
 
+	case searchTickMsg:
+		return m, m.runSearch(msg.gen)
+
+	case ui.SearchResultsMsg:
+		m.takeSearchResults(msg)
+		return m, nil
+
 	case toastGoneMsg:
 		if msg.gen == m.toastGen {
 			m.toast = nil
@@ -475,6 +487,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.commitSetting(change)
 			}
 			return m, nil
+		}
+		if m.search != nil {
+			return m, m.updateSearch(msg)
 		}
 		// While the cross-reference picker is open it captures all keys.
 		if m.picker != nil {
@@ -652,6 +667,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// No references: fall through to the view.
+		case key.Matches(msg, m.keys.Search):
+			if m.openSearch() {
+				return m, nil
+			}
 		case key.Matches(msg, m.keys.Filter):
 			if f, ok := m.views[m.current].(filterable); ok && !m.views[m.current].InputActive() {
 				query, enabled, cs := f.FilterState()
@@ -1606,6 +1625,10 @@ func (m Model) View() tea.View {
 	// Composite the picker modal centered over the content, if open.
 	if m.picker != nil {
 		content = m.overlayCentered(content, m.picker.View())
+	}
+
+	if m.search != nil {
+		content = m.overlayCentered(content, m.search.View())
 	}
 
 	// Composite the filter modal centered over the content, if open.

@@ -17,6 +17,7 @@ const (
 	IconApproved  = "\uedc6" // 
 	IconChanges   = "\uf41b" // 
 	IconReviewReq = "\uf4a0" // 
+	IconGHIssue   = "\ueb0c" //  issues (codicon)
 	IconComment   = "\uea6b" // 
 	IconDot       = "\u00b7" // ·
 )

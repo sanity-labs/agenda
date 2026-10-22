@@ -33,6 +33,7 @@ func keyRegistry() []keyEntry {
 		{"global", "help", "help", []string{"?"}},
 		{"global", "follow", "follow reference", []string{"l"}},
 		{"global", "filter", "field filter", []string{"f"}},
+		{"global", "search", "quick search", []string{"super+k", "ctrl+k"}},
 		{"global", "zoom", "zoom preview", []string{"z"}},
 		{"global", "toggle_preview", "show/hide preview", []string{"v"}},
 		{"global", "messages", "message log", []string{"!"}},
