@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -108,11 +109,14 @@ func (s *SearchBox) Update(msg tea.Msg) SearchAction {
 		}
 		return SearchChanged
 	}
-	if km.Text != "" {
-		if r := []rune(km.Text)[0]; r >= 0x20 && r != 0x7f {
-			s.Query += km.Text
-			return SearchChanged
+	if t := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
 		}
+		return r
+	}, km.Text); t != "" {
+		s.Query += t
+		return SearchChanged
 	}
 	return SearchNone
 }

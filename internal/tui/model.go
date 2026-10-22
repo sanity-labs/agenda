@@ -668,7 +668,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// No references: fall through to the view.
 		case key.Matches(msg, m.keys.Search):
-			if !m.views[m.current].InputActive() && m.openSearch() {
+			if m.openSearch() {
 				return m, nil
 			}
 		case key.Matches(msg, m.keys.Filter):
