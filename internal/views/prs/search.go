@@ -299,20 +299,39 @@ func repoRefs(query string, known []string, limit int) ([]ui.Ref, error) {
 	return refs[:min(limit, len(refs))], nil
 }
 
-// ghGraphQL runs a query and decodes whatever data came back. A repo with
-// no such number is a NOT_FOUND error next to the others' data, and gh
-// exits non-zero for it, so only an unreadable body is a failure.
+// ghGraphQL runs a query and decodes whatever data came back.
 func ghGraphQL(args []string, out any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	stdout, err := exec.CommandContext(ctx, "gh", args...).Output()
-	if jerr := json.Unmarshal(stdout, out); jerr != nil {
+	return decodeGraphQL(stdout, err, out)
+}
+
+// decodeGraphQL fails only when no data came back. A repo with no such
+// number is a NOT_FOUND error beside the others' data, and gh exits
+// non-zero for it, which must not sink the rest.
+func decodeGraphQL(stdout []byte, err error, out any) error {
+	var body struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if jerr := json.Unmarshal(stdout, &body); jerr != nil {
 		if err != nil {
 			return cmdErr(err)
 		}
 		return fmt.Errorf("parsing gh output: %w", jerr)
 	}
-	return nil
+	if len(body.Data) == 0 || string(body.Data) == "null" {
+		switch {
+		case len(body.Errors) > 0:
+			return fmt.Errorf("github: %s", body.Errors[0].Message)
+		case err != nil: // a REST-style 401 or 403 body
+			return cmdErr(err)
+		}
+	}
+	return json.Unmarshal(stdout, out)
 }
 
 // prFetchedMsg carries a PR brought in for a jump, or the failure to.

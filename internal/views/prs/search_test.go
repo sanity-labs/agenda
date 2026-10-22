@@ -1,6 +1,7 @@
 package prs
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -65,5 +66,23 @@ func TestNumberPrefixAndOrder(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != 85 || got[1] != 8513 {
 		t.Errorf("order = %v, want [85 8513]", got)
+	}
+}
+
+// Errors beside data are a repo without that number; errors with no data
+// are a real failure and must not read as "no matches".
+func TestDecodeGraphQLErrors(t *testing.T) {
+	var out struct {
+		Data map[string]any `json:"data"`
+	}
+	partial := []byte(`{"data":{"r0":{"x":1},"r1":null},"errors":[{"message":"Could not resolve"}]}`)
+	if err := decodeGraphQL(partial, errors.New("exit 1"), &out); err != nil || out.Data["r0"] == nil {
+		t.Errorf("partial data: err=%v data=%v, want the data and no error", err, out.Data)
+	}
+	if err := decodeGraphQL([]byte(`{"errors":[{"message":"Bad credentials"}]}`), errors.New("exit 1"), &out); err == nil {
+		t.Error("errors with no data decoded as success")
+	}
+	if err := decodeGraphQL([]byte(`{"message":"Bad credentials","status":"401"}`), errors.New("exit 1"), &out); err == nil {
+		t.Error("a 401 body decoded as success")
 	}
 }
