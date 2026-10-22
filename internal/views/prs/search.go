@@ -67,8 +67,8 @@ func (v *View) Search(query, scope string, limit int) tea.Cmd {
 
 // numberMatches is the exact #num in each repo, then open items whose
 // number has it as a prefix: the scoped repo's from GitHub, the rest from
-// what the tab already holds. Only the newest limit prefix matches are
-// fetched, so a one-digit prefix stays one small request.
+// what the tab already holds. Only limit prefix matches are fetched, newest
+// PRs before issues, so a one-digit prefix stays one small request.
 func numberMatches(prefix string, repos []string, scope string, loaded []pr, limit int) ([]searchNode, error) {
 	num, _ := strconv.Atoi(prefix)
 	lookups := make([]numberRef, 0, len(repos))
