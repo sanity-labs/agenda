@@ -196,7 +196,10 @@ than jumping to the top and leaving you somewhere else entirely.
 `enter` there jumps in-app when a view can take it: loaded already, or
 fetched in by a view that can (`FetchRef`), so a Linear issue referenced
 from a PR lands in the Linear tab even when its source does not list it.
-The browser is the fallback, marked `↗` in the picker. An issue's detail
+The browser is the fallback, marked `↗` in the picker. The PRs view
+fetches too, so a PR linked from Linear lands in an OPENED section that
+the next jump replaces or clears. cmd+k / ctrl+k quick search is the
+other way in: its results jump through the same follow-or-fetch path. An issue's detail
 lists its pull requests open, one per line with their status glyphs, and
 a PR's detail names its Linear issues as `status glyph · id · title`, the
 row the picker shows too; `l` from either raises the picker. A jump

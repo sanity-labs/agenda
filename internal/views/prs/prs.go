@@ -2608,8 +2608,14 @@ func matchURL(url string) func(pr) bool {
 	return func(p pr) bool { return p.URL == url }
 }
 
-func (v *View) HasRef(id string) bool    { return v.list.Any(matchURL(id)) }
-func (v *View) SelectRef(id string) bool { return v.list.Select(matchURL(id)) }
+func (v *View) HasRef(id string) bool { return v.list.Any(matchURL(id)) }
+func (v *View) SelectRef(id string) bool {
+	if len(v.opened) > 0 && v.opened[0].URL != id {
+		v.opened = nil
+		v.applySort()
+	}
+	return v.list.Select(matchURL(id))
+}
 
 func (v *View) openSelected() tea.Cmd {
 	p := v.list.Selected()

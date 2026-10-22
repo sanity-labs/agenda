@@ -126,9 +126,9 @@ func (n searchNode) ref() ui.Ref {
 	if n.Typename == "PullRequest" {
 		return ui.PRRef(record(n.pr), n.repo(), n.Number, n.Title, n.URL)
 	}
-	glyph := ui.Green.Render(ui.IconIssue)
+	glyph := ui.Green.Render(ui.IconGHIssue)
 	if n.State == "CLOSED" {
-		glyph = ui.Magenta.Render(ui.IconIssue)
+		glyph = ui.Magenta.Render(ui.IconGHIssue)
 	}
 	return ui.Ref{Kind: "issue", ID: n.URL, URL: n.URL,
 		Label:  glyph + "  " + ui.Truncate(n.Title, 60),

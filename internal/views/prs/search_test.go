@@ -40,6 +40,11 @@ func TestFetchedPRLandsSelected(t *testing.T) {
 	if !v.HasRef("u9") {
 		t.Error("the fetched PR is not in the list")
 	}
+	// The next jump, to a PR already listed, clears the section.
+	v.SelectRef("u1")
+	if v.HasRef("u9") {
+		t.Error("a jump elsewhere left the OPENED row behind")
+	}
 }
 
 // A number also finds loaded PRs it prefixes; the exact hit leads whatever
