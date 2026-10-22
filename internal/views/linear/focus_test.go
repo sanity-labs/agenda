@@ -320,3 +320,34 @@ func TestIssueHeaderMatchesTheRow(t *testing.T) {
 		t.Errorf("the status line should carry the project and not the branch: %q", lines[3])
 	}
 }
+
+// A tree ctrl+p brought up is a toggle: under ephemeral toggles, handing the
+// keys back hides it; under persist, and for a linear.nav tree, it stays.
+func TestLeavingCtrlPTreeHidesIt(t *testing.T) {
+	ctrlP := tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}
+	for _, leave := range []tea.KeyPressMsg{{Code: tea.KeyRight}, {Code: tea.KeyEscape}, {Code: tea.KeyEnter}} {
+		v := focusView(t)
+		v.Update(ctrlP)
+		v.Update(leave)
+		if v.navShown || v.navFocus {
+			t.Errorf("%s out of a ctrl+p tree: shown=%v focus=%v, want it hidden", leave, v.navShown, v.navFocus)
+		}
+	}
+
+	v := focusView(t)
+	v.Update(ui.TogglesPersistMsg(true))
+	v.Update(ctrlP)
+	v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if !v.navShown || v.navFocus {
+		t.Errorf("persist: shown=%v focus=%v, want the tree up and unfocused", v.navShown, v.navFocus)
+	}
+
+	v = focusView(t)
+	v.navShown = true // as linear.nav: true leaves it
+	v.resizeList()
+	v.Update(ctrlP)
+	v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if !v.navShown {
+		t.Error("leaving a linear.nav tree hid it")
+	}
+}

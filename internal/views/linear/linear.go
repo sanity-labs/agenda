@@ -615,6 +615,7 @@ type View struct {
 	// defaultSource is the config-derived one whose results are cached.
 	navShown bool
 	navFocus bool
+	navTemp  bool // shown by ctrl+p under ephemeral toggles: leaving it hides it
 	// paneFocus puts the keys in the preview pane: the nav tree takes the
 	// left arrow, so the pane takes the right. Both dim the list, since
 	// two lit cursors say nothing about which one moves.
@@ -1372,11 +1373,11 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			// it hides the tree.
 			switch {
 			case !v.navShown:
-				v.navShown, v.navFocus = true, true
+				v.navShown, v.navFocus, v.navTemp = true, true, !v.togglesPersist
 			case !v.navFocus:
 				v.navFocus = true
 			default:
-				v.navShown, v.navFocus = false, false
+				v.navShown, v.navFocus, v.navTemp = false, false, false
 			}
 			// The tree is a different place to be: whatever pane was open
 			// closes rather than three things competing for the arrows.
@@ -1621,7 +1622,7 @@ func (v *View) ClickList(x, y int) (bool, tea.Cmd) {
 	if !v.list.ClickAt(y - 1) { // line 0 is the header
 		return false, nil
 	}
-	v.navFocus = false
+	v.leaveNav()
 	return true, v.mouseMoved(before)
 }
 
