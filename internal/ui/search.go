@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ScopeKind marks a search result that narrows the search instead of
@@ -160,7 +161,7 @@ func (s *SearchBox) View() string {
 	s.rows = s.rows[:0]
 	for i, label := range s.labels {
 		s.rows = append(s.rows, searchTop+strings.Count(b.String(), "\n"))
-		line := Truncate(label, searchWidth-2)
+		line := ansi.Truncate(label, searchWidth-2, "…")
 		if i == s.cursor {
 			b.WriteString(Accent.Render("▌ ") + bold.Render(line))
 		} else {

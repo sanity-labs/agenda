@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -39,5 +40,20 @@ func TestSearchBoxStaleResultsAndScope(t *testing.T) {
 	}
 	if searchKey(&s, "backspace") != SearchNone {
 		t.Error("backspace with nothing left should do nothing")
+	}
+}
+
+// A label's width is what shows, not its bytes: a merged, approved, green
+// PR's styled glyphs must not crowd its title out.
+func TestSearchBoxKeepsTitleBesideStyledIcons(t *testing.T) {
+	b := NewSearchBox("PRs")
+	b.Query = "3"
+	// Truecolor escapes as a terminal gets them; tests render without colour.
+	fg := func(g string) string { return "\x1b[38;2;137;87;229m" + g + "\x1b[m" }
+	icons := fg(IconMerged) + fg(IconCIOK) + fg(IconApproved)
+	label := icons + "  Watch for preemption before the pod cache syncs"
+	b.SetResults(SearchResultsMsg{Query: "3", Results: []Ref{{Kind: "pr", Label: label}}}, []string{label})
+	if !strings.Contains(b.View(), "Watch for preemption") {
+		t.Errorf("title cut from the result row:\n%s", b.View())
 	}
 }
