@@ -192,8 +192,13 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	case m.settings != nil:
 		return m.clickSettings(x, y)
 	case m.search != nil:
-		if !m.inCenteredBox(m.search.View(), x, y) {
+		box := m.search.View()
+		if !m.inCenteredBox(box, x, y) {
 			m.search = nil
+			return m, nil
+		}
+		if _, by := m.centerOf(box); m.search.SelectAt(y - by) {
+			return m, m.updateSearch(tea.KeyPressMsg{Code: tea.KeyEnter})
 		}
 		return m, nil
 	case m.picker != nil:

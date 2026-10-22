@@ -25,6 +25,9 @@ func (v *View) Search(query, scope string, limit int) tea.Cmd {
 	token, mode, rev := v.token, v.sort, v.rev
 	return func() tea.Msg {
 		res := ui.SearchResultsMsg{Query: query, Scope: scope}
+		if token == "" {
+			return res
+		}
 		body, _ := json.Marshal(map[string]any{"query": searchQuery, "variables": map[string]any{"term": query, "first": limit}})
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

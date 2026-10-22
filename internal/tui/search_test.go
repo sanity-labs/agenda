@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -57,5 +58,36 @@ func TestQuickSearchNarrowsThenJumps(t *testing.T) {
 	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.search != nil || m.current != 1 {
 		t.Errorf("picking a PR should close the box and jump: search=%v current=%d", m.search != nil, m.current)
+	}
+}
+
+// Clicking a result picks it the way enter would, even with the cursor on
+// another row.
+func TestQuickSearchClickPicksResult(t *testing.T) {
+	sv := &searchView{jumpView: jumpView{fatView: fatView{title: "PRs"}, id: "u1"}}
+	m := New(config.Default(), []View{&fatView{title: "Sessions"}, sv})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	m.current = 1
+	m, _ = hit(m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m, _ = hit(m, tea.KeyPressMsg{Code: 'o', Text: "o"})
+	m.takeSearchResults(sv.Search("o", "", 5)().(ui.SearchResultsMsg))
+
+	box := m.search.View()
+	bx, by := m.centerOf(box)
+	row := -1
+	for i, l := range strings.Split(box, "\n") {
+		if strings.Contains(l, "a PR") {
+			row = i
+		}
+	}
+	if row < 0 {
+		t.Fatal("the PR result is not in the box")
+	}
+	m.current = 0
+	got, _ := m.click(bx+6, by+row)
+	m = got.(Model)
+	if m.search != nil || m.current != 1 {
+		t.Errorf("clicking the PR should close the box and jump: search=%v current=%d", m.search != nil, m.current)
 	}
 }

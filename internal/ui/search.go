@@ -45,6 +45,7 @@ type SearchBox struct {
 	results []Ref
 	labels  []string
 	cursor  int
+	rows    []int // box line each result starts on, as View last drew it
 	Loading bool
 	err     error
 }
@@ -117,6 +118,21 @@ func (s *SearchBox) Update(msg tea.Msg) SearchAction {
 
 const searchWidth = 72
 
+// searchTop is the border plus top padding View puts above the title.
+const searchTop = 2
+
+// SelectAt moves the cursor to the result drawn on box line y, its detail
+// line included, and reports whether there was one.
+func (s *SearchBox) SelectAt(y int) bool {
+	for i := len(s.rows) - 1; i >= 0; i-- {
+		if y >= s.rows[i] && y < s.rows[i]+2 && (y == s.rows[i] || s.results[i].Detail != "") {
+			s.cursor = i
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SearchBox) View() string {
 	bold := lipgloss.NewStyle().Bold(true)
 	var b strings.Builder
@@ -141,7 +157,9 @@ func (s *SearchBox) View() string {
 		b.WriteString(Faint.Render("no matches"))
 		b.WriteByte('\n')
 	}
+	s.rows = s.rows[:0]
 	for i, label := range s.labels {
+		s.rows = append(s.rows, searchTop+strings.Count(b.String(), "\n"))
 		line := Truncate(label, searchWidth-2)
 		if i == s.cursor {
 			b.WriteString(Accent.Render("▌ ") + bold.Render(line))
