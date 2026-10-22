@@ -178,21 +178,9 @@ func SetGlyphs(on bool) {
 	}
 }
 
-var commentRuleOn bool
-
-func SetCommentRule(on bool) {
-	if commentRuleOn != on {
-		commentRuleOn = on
-		paletteGen++
-	}
-}
-
 // CommentRule is the divider drawn between two comments: a dim rule three
-// quarters of width, centered. Empty when the rule is off.
+// quarters of width, centered.
 func CommentRule(width int) string {
-	if !commentRuleOn {
-		return ""
-	}
 	n := width * 3 / 4
 	return strings.Repeat(" ", (width-n)/2) + Dim.Render(strings.Repeat("─", n))
 }

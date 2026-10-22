@@ -99,8 +99,6 @@ theme:
   # glyphs always assume a Nerd Font (as upstream does); this drops the
   # extras for plain-font setups.
   glyphs: true
-  # A centered rule between comments in the PR and Linear comment panes.
-  comment_rule: false
 
 # Background auto-refresh. `every` is the global default; the per-view keys
 # override it ("0" disables refresh for just that view). Off when absent.

@@ -277,8 +277,8 @@ func renderCommentsPane(data prComments, width int, unfolded map[string]bool) (s
 		out = append(out, ui.Faint.Render("(no conversation)"), "")
 	}
 	for i, e := range entries {
-		if rule := ui.CommentRule(width); i > 0 && rule != "" {
-			out = append(out, rule, "")
+		if i > 0 {
+			out = append(out, ui.CommentRule(width), "")
 		}
 		e.render()
 	}

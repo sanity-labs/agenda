@@ -1202,7 +1202,6 @@ func (m *Model) applyConfigChange(path string) tea.Cmd {
 		}
 		ui.SetPalette(p)
 		ui.SetGlyphs(m.cfg.GlyphsEnabled())
-		ui.SetCommentRule(m.cfg.Theme.CommentRule)
 		m.theme = defaultTheme()
 	case path == "notifications.sound":
 		// Audition the choice, whatever the popup setting.

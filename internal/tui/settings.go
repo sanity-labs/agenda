@@ -181,9 +181,6 @@ func settingsTable() []setting {
 		boolSetting("nerd font glyphs", "theme.glyphs", "",
 			func(c config.Config) bool { return c.GlyphsEnabled() },
 			func(c *config.Config, v bool) { setOptBool(&c.Theme.Glyphs, v) }),
-		boolSetting("rule between comments", "theme.comment_rule", "",
-			func(c config.Config) bool { return c.Theme.CommentRule },
-			func(c *config.Config, v bool) { c.Theme.CommentRule = v }),
 		header("Keybinds"),
 		{
 			label: "edit keybinds", path: "action:edit_keybinds", kind: kindAction,
@@ -203,9 +200,18 @@ func settingsTable() []setting {
 		boolSetting("remember tab and filters on q", "remember_on_quit", "",
 			func(c config.Config) bool { return c.RememberOnQuit },
 			func(c *config.Config, v bool) { c.RememberOnQuit = v }),
-		boolSetting("hide hidden rows", "hide_hidden", "",
-			func(c config.Config) bool { return c.HideHidden },
-			func(c *config.Config, v bool) { c.HideHidden = v }),
+		{
+			// Shown inverted so the row reads positively; the file keeps hide_hidden.
+			label: "show hidden rows", path: "hide_hidden", kind: kindBool,
+			get: func(c config.Config) string {
+				if c.HideHidden {
+					return "off"
+				}
+				return "on"
+			},
+			set:  func(c *config.Config, v string) { c.HideHidden = v != "on" },
+			file: func(c config.Config) any { return c.HideHidden },
+		},
 		numSetting("list jump (pgup/pgdn, ⇧↑↓)", "list_jump", "",
 			func(c config.Config) int { return c.ListJumpSize() },
 			func(c *config.Config, v int) { c.ListJump = v }),

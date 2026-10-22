@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func intp(i int) *int { return &i }
@@ -119,12 +117,7 @@ func TestRenderCommentsPaneRuleBetweenComments(t *testing.T) {
 		out, _ := renderCommentsPane(data, 40, nil)
 		return strings.Count(out, strings.Repeat("─", 30))
 	}
-	if n := rules(); n != 0 {
-		t.Errorf("rule off: %d rules, want 0", n)
-	}
-	ui.SetCommentRule(true)
-	defer ui.SetCommentRule(false)
 	if n := rules(); n != 2 {
-		t.Errorf("rule on: %d rules, want 2 (between, not after, comments)", n)
+		t.Errorf("%d rules, want 2 (between, not after, comments)", n)
 	}
 }
