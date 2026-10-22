@@ -49,7 +49,7 @@ func TestNumberPrefixAndOrder(t *testing.T) {
 	a := pr{Number: 8500, URL: "u8500", UpdatedAt: time.Unix(2, 0)}
 	b := pr{Number: 8513, URL: "u8513", UpdatedAt: time.Unix(3, 0)}
 	other := pr{Number: 123, URL: "u123"}
-	nodes, err := numberMatches("85", nil, "", []pr{a, other, b})
+	nodes, err := numberMatches("85", nil, "", []pr{a, other, b}, 5)
 	if err != nil || len(nodes) != 2 {
 		t.Fatalf("prefix matches = %+v, %v; want 8500 and 8513", nodes, err)
 	}
