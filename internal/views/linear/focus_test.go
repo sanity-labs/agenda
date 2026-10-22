@@ -350,4 +350,12 @@ func TestLeavingCtrlPTreeHidesIt(t *testing.T) {
 	if !v.navShown {
 		t.Error("leaving a linear.nav tree hid it")
 	}
+
+	v = focusView(t)
+	v.navPinned = true // linear.nav: true, hidden by hand then reopened
+	v.Update(ctrlP)
+	v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if !v.navShown {
+		t.Error("leaving a reopened linear.nav tree hid it")
+	}
 }
