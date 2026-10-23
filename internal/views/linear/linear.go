@@ -1600,7 +1600,7 @@ func (v *View) applySort() {
 	}
 	if o := v.opened; o != nil && !slices.ContainsFunc(v.raw, func(i issue) bool { return i.Identifier == o.Identifier }) {
 		opened := *o
-		opened.ShowLabels = labels
+		opened.ShowLabels, opened.FreshGutter = labels, v.unreadOn
 		items = append(items, issue{Separator: "OPENED"}, opened)
 	}
 	v.list.SetItems(items)
