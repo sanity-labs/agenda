@@ -286,3 +286,23 @@ func TestConfigWritesAreLogged(t *testing.T) {
 		t.Fatal("the config write was not logged")
 	}
 }
+
+func TestShowHiddenRowWritesHideHidden(t *testing.T) {
+	cfg := config.Default()
+	o := newConfigOverlay()
+	if !seekPath(o, cfg, "hide_hidden") {
+		t.Fatal("hide_hidden is not reachable from any tab")
+	}
+	s := o.rows[o.cursor]
+	if s.label != "show hidden rows" || s.get(cfg) != "on" {
+		t.Fatalf("row = %q reading %q, want show hidden rows reading on by default", s.label, s.get(cfg))
+	}
+	change, _ := o.Update(special(tea.KeyEnter), cfg)
+	if change == nil {
+		t.Fatal("enter on the row should commit a toggle")
+	}
+	change.s.set(&cfg, change.val)
+	if change.fileValue(cfg) != true {
+		t.Fatalf("turning show hidden rows off should write hide_hidden: true, got %+v", change)
+	}
+}

@@ -613,8 +613,10 @@ type View struct {
 
 	// Navigation tree state (ctrl+p). source drives what fetch() queries;
 	// defaultSource is the config-derived one whose results are cached.
-	navShown bool
-	navFocus bool
+	navShown  bool
+	navFocus  bool
+	navTemp   bool // shown by ctrl+p under ephemeral toggles: leaving it hides it
+	navPinned bool // linear.nav: true, so a reopened tree is never temp
 	// paneFocus puts the keys in the preview pane: the nav tree takes the
 	// left arrow, so the pane takes the right. Both dim the list, since
 	// two lit cursors say nothing about which one moves.
@@ -725,7 +727,7 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 	v.source = sourceForScope(cfg.Filter.Scope)
 	v.defaultSource = v.source
 	v.lastLoaded = v.source
-	v.navShown = cfg.Nav
+	v.navShown, v.navPinned = cfg.Nav, cfg.Nav
 	v.showComments, v.cfgShowComments = cfg.ShowComments, cfg.ShowComments
 	v.rebuildNav()
 	v.list.SetRowHeight(2) // two-line rows: state/identifier + title
@@ -1372,11 +1374,11 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			// it hides the tree.
 			switch {
 			case !v.navShown:
-				v.navShown, v.navFocus = true, true
+				v.navShown, v.navFocus, v.navTemp = true, true, !v.togglesPersist && !v.navPinned
 			case !v.navFocus:
 				v.navFocus = true
 			default:
-				v.navShown, v.navFocus = false, false
+				v.navShown, v.navFocus, v.navTemp = false, false, false
 			}
 			// The tree is a different place to be: whatever pane was open
 			// closes rather than three things competing for the arrows.
@@ -1621,7 +1623,7 @@ func (v *View) ClickList(x, y int) (bool, tea.Cmd) {
 	if !v.list.ClickAt(y - 1) { // line 0 is the header
 		return false, nil
 	}
-	v.navFocus = false
+	v.leaveNav()
 	return true, v.mouseMoved(before)
 }
 

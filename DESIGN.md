@@ -113,7 +113,9 @@ the keys, tree · list · pane, and `←` walks them right to left: a focused
 pane hands the keys to the list, and only the list hands them to the tree.
 `ctrl+p` is "take me to the tree": it shows the tree and puts the keys in
 it, or just focuses it when it is already up (a permanently-on tree
-included); pressed with the tree focused, it hides it. Taking the keys
+included); pressed with the tree focused, it hides it. Under ephemeral
+`toggles` a tree ctrl+p brought up also hides when the keys leave it
+(`→`, `esc`, `enter`, a click in the list); a `linear.nav` tree stays. Taking the keys
 there closes whatever pane or float is open, so the tree never becomes a
 fourth thing to arrow between. Stepping an open comments
 pane back to the description beside a list is `esc`. The two previews are headed alike (Description, Comments),

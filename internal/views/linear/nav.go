@@ -184,11 +184,21 @@ func (v *View) updateNav(msg tea.KeyMsg) tea.Cmd {
 			v.navMove(d)
 		}
 	case "right", "esc":
-		v.navFocus = false
+		v.leaveNav()
 	case "enter":
 		return v.applyNav()
 	}
 	return nil
+}
+
+// leaveNav hands the keys back to the list, hiding a tree ctrl+p brought
+// up when toggles are ephemeral.
+func (v *View) leaveNav() {
+	v.navFocus = false
+	if v.navTemp {
+		v.navShown, v.navTemp = false, false
+		v.resizeList()
+	}
 }
 
 // applyNav switches the list to the tree's selected source and hands focus
@@ -196,7 +206,7 @@ func (v *View) updateNav(msg tea.KeyMsg) tea.Cmd {
 // already showing.
 func (v *View) applyNav() tea.Cmd {
 	it := v.navItems[v.navSel]
-	v.navFocus = false
+	v.leaveNav()
 	if it.header || it.source == v.source {
 		return nil
 	}

@@ -130,6 +130,7 @@ func (v *View) renderComments(id string, width int) string {
 	for i, c := range st.list {
 		if i > 0 {
 			b.WriteByte('\n')
+			b.WriteString(ui.CommentRule(width) + "\n\n")
 		}
 		b.WriteString(ui.Cyan.Render("@" + c.User.DisplayName))
 		b.WriteString(ui.Dim.Render(" · " + ui.Age(c.CreatedAt)))

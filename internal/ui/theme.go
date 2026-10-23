@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -175,6 +176,13 @@ func SetGlyphs(on bool) {
 		glyphsOn = on
 		paletteGen++
 	}
+}
+
+// CommentRule is the divider drawn between two comments: a dim rule three
+// quarters of width, centered.
+func CommentRule(width int) string {
+	n := width * 3 / 4
+	return strings.Repeat(" ", (width-n)/2) + Dim.Render(strings.Repeat("─", n))
 }
 
 // Glyph returns icon (plus a trailing space) when decorative glyphs are on,

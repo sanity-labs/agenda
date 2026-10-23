@@ -63,7 +63,8 @@ search_results: 5
 
 # How long a per-item view toggle lasts. "ephemeral" (default) resets it when
 # you move to another item, so a diff opened on one PR does not put every
-# other PR in diff view; "persist" keeps it until you toggle back.
+# other PR in diff view, and a Linear tree opened with ctrl+p hides when you
+# leave it; "persist" keeps both until you toggle back.
 toggles: ephemeral
 
 # Keep a background agenda (the daemon) running the fetch loops, cache and

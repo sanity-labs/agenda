@@ -105,3 +105,19 @@ func TestCommentsPaneFoldsResolvedThreads(t *testing.T) {
 		t.Errorf("diff annotation not folded: %q", anns[0].Text)
 	}
 }
+
+func TestRenderCommentsPaneRuleBetweenComments(t *testing.T) {
+	var data prComments
+	for i, who := range []string{"bob", "carol", "dave"} {
+		c := prComment{Body: "hi", CreatedAt: time.Now().Add(time.Duration(i) * time.Minute)}
+		c.Author.Login = who
+		data.Comments.Nodes = append(data.Comments.Nodes, c)
+	}
+	rules := func() int {
+		out, _ := renderCommentsPane(data, 40, nil)
+		return strings.Count(out, strings.Repeat("─", 30))
+	}
+	if n := rules(); n != 2 {
+		t.Errorf("%d rules, want 2 (between, not after, comments)", n)
+	}
+}

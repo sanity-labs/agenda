@@ -107,7 +107,7 @@ own PRs only and `w` says so.
 | `github.merge` | `m`/`M` in the review popup merge or enable auto-merge, after confirming |
 | `github.sort`, `linear.sort`, `sessions.sort` | the sort each view opens on |
 | `theme.name` | `catppuccin-mocha`, `tokyonight`, `gruvbox`, `dracula`, `nord`, `rose-pine`, … |
-| `toggles: persist` | keep `d`/`c`/`t` and an expanded description across rows instead of per row |
+| `toggles: persist` | keep `d`/`c`/`t` and an expanded description across rows instead of per row, and keep a `ctrl+p` tree up after leaving it |
 | `footer: false` | hide the hotkey bar |
 
 </details>
