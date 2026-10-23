@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -304,5 +305,25 @@ func TestShowHiddenRowWritesHideHidden(t *testing.T) {
 	change.s.set(&cfg, change.val)
 	if change.fileValue(cfg) != true {
 		t.Fatalf("turning show hidden rows off should write hide_hidden: true, got %+v", change)
+	}
+}
+
+// Only duration rows are parsed as durations: a team key or a page size
+// must commit as typed.
+func TestOverlayTextEditTakesNonDurations(t *testing.T) {
+	cfg := config.Default()
+	for path, typed := range map[string]string{"linear.triage_team": "SRE", "linear.filter.limit": "50", "github.filter": "is:open"} {
+		o := newConfigOverlay()
+		o.cursor = slices.IndexFunc(o.rows, func(s setting) bool { return s.path == path })
+		if o.cursor < 0 {
+			t.Fatalf("no row %s", path)
+		}
+		o.Update(special(tea.KeyEnter), cfg)
+		for _, r := range typed {
+			o.Update(press(r), cfg)
+		}
+		if change, _ := o.Update(special(tea.KeyEnter), cfg); change == nil || change.val != typed {
+			t.Errorf("%s = %q: change %+v, err %q", path, typed, change, o.errMsg)
+		}
 	}
 }

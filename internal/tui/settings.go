@@ -45,6 +45,7 @@ type setting struct {
 	options func() []string
 	get     func(c config.Config) string
 	set     func(c *config.Config, v string)
+	check   func(v string) error // rejects a typed value before set; nil takes any text
 	// file, when set, is what config.Set writes instead of the row's own
 	// value: for a row that edits one entry of a list, the whole list.
 	file func(c config.Config) any
@@ -97,6 +98,12 @@ func numSetting(label, path, note string, get func(config.Config) int, set func(
 	return setting{
 		label: label, path: path, kind: kindNum, note: note,
 		get: func(c config.Config) string { return strconv.Itoa(get(c)) },
+		check: func(v string) error {
+			if _, err := strconv.Atoi(strings.TrimSpace(v)); err != nil {
+				return fmt.Errorf("not a whole number")
+			}
+			return nil
+		},
 		set: func(c *config.Config, v string) {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
 			if err != nil {
@@ -115,7 +122,8 @@ func setOptBool(p **bool, v bool) { *p = &v }
 func durSetting(label, path string, get func(config.Config) string, set func(*config.Config, config.Duration)) setting {
 	return setting{
 		label: label, path: path, kind: kindText,
-		get: get,
+		get:   get,
+		check: func(v string) error { _, err := parseDur(v); return err },
 		set: func(c *config.Config, v string) {
 			d, err := parseDur(v)
 			if err != nil {
@@ -767,9 +775,11 @@ func (o *configOverlay) Update(msg tea.KeyMsg, cfg config.Config) (*settingChang
 			}
 			o.setTab(d)
 		case "enter":
-			if _, err := parseDur(o.buf); err != nil {
-				o.errMsg = err.Error()
-				return nil, false
+			if s.check != nil {
+				if err := s.check(o.buf); err != nil {
+					o.errMsg = err.Error()
+					return nil, false
+				}
 			}
 			o.editing, o.errMsg = false, ""
 			val := strings.TrimSpace(o.buf)
