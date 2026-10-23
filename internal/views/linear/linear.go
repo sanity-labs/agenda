@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -615,8 +616,9 @@ type View struct {
 	// defaultSource is the config-derived one whose results are cached.
 	navShown  bool
 	navFocus  bool
-	navTemp   bool // shown by ctrl+p under ephemeral toggles: leaving it hides it
-	navPinned bool // linear.nav: true, so a reopened tree is never temp
+	navTemp   bool   // shown by ctrl+p under ephemeral toggles: leaving it hides it
+	navPinned bool   // linear.nav: true, so a reopened tree is never temp
+	opened    *issue // an issue outside the source, brought in by a jump
 	// paneFocus puts the keys in the preview pane: the nav tree takes the
 	// left arrow, so the pane takes the right. Both dim the list, since
 	// two lit cursors say nothing about which one moves.
@@ -1291,7 +1293,7 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			return ui.OpenURL(msg.url)
 		}
 		if !v.list.Any(matchID(msg.issue.Identifier)) {
-			v.raw = append(v.raw, msg.issue)
+			v.opened = &msg.issue
 			v.applySort()
 		}
 		v.list.Select(matchID(msg.issue.Identifier))
@@ -1596,6 +1598,11 @@ func (v *View) applySort() {
 			}
 		}
 	}
+	if o := v.opened; o != nil && !slices.ContainsFunc(v.raw, func(i issue) bool { return i.Identifier == o.Identifier }) {
+		opened := *o
+		opened.ShowLabels = labels
+		items = append(items, issue{Separator: "OPENED"}, opened)
+	}
 	v.list.SetItems(items)
 }
 
@@ -1878,8 +1885,8 @@ const issueQuery = `query($id: String!) {
 
 // FetchRef brings an issue that is not in the list in by identifier, so a
 // reference followed from another view lands here rather than in a browser.
-// Appended rather than filtered in: it may not match the current source,
-// and the next refresh of that source will drop it again.
+// It sits in an OPENED band below the source, through refreshes, until
+// a jump lands elsewhere.
 func (v *View) FetchRef(id, url string) tea.Cmd {
 	return v.fetchIssue(id, func(i issue, err error) tea.Msg {
 		return issueFetchedMsg{id: id, url: url, issue: i, err: err}
@@ -2145,8 +2152,14 @@ func matchID(id string) func(issue) bool {
 	return func(i issue) bool { return strings.EqualFold(i.Identifier, id) }
 }
 
-func (v *View) HasRef(id string) bool    { return v.list.Any(matchID(id)) }
-func (v *View) SelectRef(id string) bool { return v.list.Select(matchID(id)) }
+func (v *View) HasRef(id string) bool { return v.list.Any(matchID(id)) }
+func (v *View) SelectRef(id string) bool {
+	if v.opened != nil && v.opened.Identifier != id {
+		v.opened = nil
+		v.applySort()
+	}
+	return v.list.Select(matchID(id))
+}
 
 // Refs implements ui.Referencer: the GitHub PRs attached to the selected issue
 // (with CI/review status icons sourced from the shared store), plus the agent

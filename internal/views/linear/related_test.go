@@ -57,7 +57,7 @@ func TestFetchedIssueIsAddedAndSelected(t *testing.T) {
 	}
 	v.Update(issueFetchedMsg{id: "SRE-9", url: "u", issue: issue{Identifier: "SRE-9", Title: "fetched"}})
 	n := 0
-	for _, i := range v.raw {
+	for _, i := range v.list.Items() {
 		if i.Identifier == "SRE-9" {
 			n++
 		}
@@ -256,5 +256,20 @@ func TestRelatedFetchFollowsAnySelectionChange(t *testing.T) {
 	}
 	if st, ok := cmd().(ui.StatusMsg); !ok || !strings.Contains(st.Summary, "SRE-2") {
 		t.Errorf("failed fetch reported %+v", cmd())
+	}
+}
+
+// A refresh of the source does not know the jumped-to issue; it must not
+// drop it from under the cursor (and land on a neighbour).
+func TestRefreshKeepsFetchedIssueSelected(t *testing.T) {
+	v := floatIssue(t, 0)
+	v.Update(issueFetchedMsg{id: "SRE-9", url: "u", issue: issue{Identifier: "SRE-9", Title: "fetched"}})
+	v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1", Title: "a"}, {Identifier: "SRE-2", Title: "b"}}, source: v.lastLoaded})
+	if got := v.list.Selected().Identifier; got != "SRE-9" {
+		t.Fatalf("after a refresh the selection is %q, want SRE-9", got)
+	}
+	v.SelectRef("SRE-1")
+	if v.HasRef("SRE-9") {
+		t.Error("jumping elsewhere kept the fetched issue")
 	}
 }
