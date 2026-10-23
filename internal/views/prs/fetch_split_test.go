@@ -103,3 +103,25 @@ func TestThreadDoneRefetchesTargetPR(t *testing.T) {
 		t.Error("uA's cache should be in flight again, keyed to uA not the selection")
 	}
 }
+
+// A fetch that started before an approval, or a search index that has not
+// caught up, must not undo it on screen; once the hold lapses data wins.
+func TestStaleFetchDoesNotUndoApproval(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := &View{showReview: true}
+	stale := func() reviewListMsg {
+		return reviewListMsg{page: searchPage{prs: []pr{mkPR("u", "theirs", time.Hour)}}}
+	}
+	state := func() string { return v.reviewRaw[0].ViewerLatestReview.State }
+	v.Update(stale())
+	v.Update(reviewDoneMsg{url: "u", what: "approved", state: "APPROVED"})
+	v.Update(stale())
+	if state() != "APPROVED" {
+		t.Fatalf("a stale fetch undid the approval: state %q", state())
+	}
+	v.held["u"] = heldReview{state: "APPROVED", until: time.Now().Add(-time.Second)}
+	v.Update(stale())
+	if state() != "" {
+		t.Errorf("an expired hold still overrides the data: state %q", state())
+	}
+}

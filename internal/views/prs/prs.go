@@ -629,6 +629,7 @@ type View struct {
 	raw        []pr // own PRs
 	reviewRaw  []pr // PRs waiting on the user's review
 	opened     []pr // a PR neither search lists, brought in by a jump
+	held       map[string]heldReview
 	showReview bool // render the review section (toggled with 'w')
 	// reviewsOnly makes this the Reviews tab: the review-requested search is
 	// the whole list, and the own-PR search never runs. reviewsElsewhere is
@@ -1609,13 +1610,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
-		// Optimistically record the review so the row dims the moment the
-		// popup closes; the refetch below confirms it.
-		for i := range v.reviewRaw {
-			if v.reviewRaw[i].URL == msg.url {
-				v.reviewRaw[i].ViewerLatestReview.State = msg.state
-			}
+		if v.held == nil {
+			v.held = map[string]heldReview{}
 		}
+		v.held[msg.url] = heldReview{msg.state, time.Now().Add(reviewHold)}
 		v.applySort()
 		// Review submitted: you are done with this one, so the diff or
 		// comments pane you opened to review it folds away with the reveal.
@@ -2084,6 +2082,15 @@ func (v *View) TakePreviewJump() (int, bool) {
 	v.pendingJump = nil
 	return line, true
 }
+
+// heldReview keeps your own verdict on a row for a while: a fetch already in
+// flight, or GitHub's lagging search index, still reports the old state.
+type heldReview struct {
+	state string
+	until time.Time
+}
+
+const reviewHold = 2 * time.Minute
 
 type reviewDoneMsg struct {
 	from *View
@@ -2893,6 +2900,17 @@ func (v *View) maybeFetchDiff() tea.Cmd {
 // exception is a failed review fetch, which has nowhere else to report
 // itself and so keeps its band regardless.
 func (v *View) applySort() {
+	for url, h := range v.held {
+		if time.Now().After(h.until) {
+			delete(v.held, url)
+			continue
+		}
+		for i := range v.reviewRaw {
+			if v.reviewRaw[i].URL == url {
+				v.reviewRaw[i].ViewerLatestReview.State = h.state
+			}
+		}
+	}
 	mine := sortPRs(v.raw, v.sort, v.rev)
 	if v.reviewsOnly {
 		mine = nil // the review search is the whole list, whatever raw holds
