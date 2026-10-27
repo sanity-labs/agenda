@@ -23,6 +23,7 @@ type Server struct {
 	handle  Handler
 	mu      sync.Mutex
 	clients map[net.Conn]*bufio.Writer
+	closed  bool
 	// OnConnect, when set, runs for each new client with a sender that
 	// reaches only that client: what it missed while away goes here.
 	OnConnect func(send func(event string, data any))
@@ -66,10 +67,14 @@ func (s *Server) Serve(ctx context.Context) {
 		if err != nil {
 			return
 		}
-		// Registered here, not in the goroutine: a Close between the accept
-		// and the goroutine's first line would otherwise miss this
-		// connection and leave its client reading forever.
+		// Registered here, not in the goroutine, and refused once closed: a
+		// Close since the accept would otherwise leave this client reading forever.
 		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
 		s.clients[conn] = bufio.NewWriter(conn)
 		s.mu.Unlock()
 		go s.serveConn(ctx, conn)
@@ -80,6 +85,7 @@ func (s *Server) Serve(ctx context.Context) {
 func (s *Server) Close() {
 	_ = s.ln.Close()
 	s.mu.Lock()
+	s.closed = true
 	for c := range s.clients {
 		_ = c.Close()
 	}
