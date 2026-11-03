@@ -20,6 +20,7 @@ import (
 // chronologically under the description.
 
 type issueComment struct {
+	ID        string    `json:"id"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
 	User      struct {
@@ -43,7 +44,7 @@ type commentsMsg struct {
 const commentsQuery = `query($id: String!) {
   issue(id: $id) {
     comments(first: 50) {
-      nodes { body createdAt user { displayName } }
+      nodes { id body createdAt user { displayName } }
     }
   }
 }`
@@ -113,6 +114,7 @@ func (v *View) maybeFetchComments() tea.Cmd {
 // the selected issue, each comment as author · age over its markdown body.
 // The section header is the preview's, shared with the description.
 func (v *View) renderComments(id string, width int) string {
+	v.commentRow = -1
 	var b strings.Builder
 	st, ok := v.comments[id]
 	switch {
@@ -131,6 +133,9 @@ func (v *View) renderComments(id string, width int) string {
 		if i > 0 {
 			b.WriteByte('\n')
 			b.WriteString(ui.CommentRule(width) + "\n\n")
+		}
+		if v.jumpComment != "" && c.ID == v.jumpComment {
+			v.commentRow = strings.Count(b.String(), "\n")
 		}
 		b.WriteString(ui.Cyan.Render("@" + c.User.DisplayName))
 		b.WriteString(ui.Dim.Render(" · " + ui.Age(c.CreatedAt)))

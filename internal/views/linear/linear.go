@@ -30,7 +30,7 @@ import (
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
-const endpoint = "https://api.linear.app/graphql"
+var endpoint = "https://api.linear.app/graphql"
 
 // hexColor returns a lipgloss style whose foreground is the given Linear hex
 // color (which may or may not include a leading '#'), falling back to ui.Dim.
@@ -67,6 +67,10 @@ type issue struct {
 	InboxEvent  string `json:"-"`
 	InboxActor  string `json:"-"`
 	InboxUnread bool   `json:"-"`
+	// NotifID is the notification behind an inbox row, NotifCommentID the
+	// comment it is about (empty for other kinds).
+	NotifID        string `json:"-"`
+	NotifCommentID string `json:"-"`
 	// Fresh marks an issue that arrived since the last fetch, cleared when
 	// you select it. Distinct from InboxUnread, which is Linear's own
 	// notification state on an inbox row. FreshGutter reserves the column
@@ -264,6 +268,7 @@ func (v *View) resetToggles() {
 	}
 	v.showComments = v.cfgShowComments
 	v.commentsJumped = false
+	v.jumpComment = ""
 }
 
 // Selectable implements ui.NonSelectable: group headers never hold the cursor.
@@ -625,6 +630,7 @@ type View struct {
 	paneFocus     bool
 	navItems      []navItem
 	navSel        int
+	restoring     bool // a saved project source waits on the favourites to prove it exists
 	favs          []navProject
 	favsLoaded    bool
 	navErr        error
@@ -675,6 +681,12 @@ type View struct {
 	commentsJumped bool
 	jumpPending    bool
 	commentsLine   int
+	// jumpComment is the comment a notification is about: the comments pane
+	// scrolls to it once it has loaded. commentRow is its line in the
+	// rendered comments (-1 when absent), commentAt its line in the preview.
+	jumpComment string
+	commentRow  int
+	commentAt   int
 
 	// notifier posts "new issue" notifications (nil = off). seeded gates
 	// them: only fetches after the first data (cache or live) can notify,
@@ -702,6 +714,7 @@ type viewKeys struct {
 	Nav    key.Binding
 	Mine   key.Binding
 	Comm   key.Binding
+	Read   key.Binding
 }
 
 func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store.Store) *View {
@@ -724,6 +737,7 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 			Nav:    bind("nav", "nav pane", "ctrl+p"),
 			Mine:   bind("mine", "only mine", "m"),
 			Comm:   bind("comments", "comments", "c"),
+			Read:   bind("read", "mark read", "space"),
 		},
 	}
 	v.source = sourceForScope(cfg.Filter.Scope)
@@ -810,6 +824,33 @@ func (v *View) freshIDs() []string {
 	return out
 }
 
+const sourceCacheName = "linear-source"
+
+// RestoreSource puts the list back on the source the last run ended on.
+// Not done in New: the daemon builds the same view and must keep fetching
+// the default source its cache holds.
+func (v *View) RestoreSource() {
+	src, ok := cache.Load[navSource](sourceCacheName)
+	if v.token == "" || !ok {
+		return
+	}
+	if i := v.navIndex(src); i >= 0 {
+		v.navSel, v.source = i, v.navItems[i].source
+	} else if src.Kind == "project" {
+		v.source, v.restoring = src, true // favourites are not loaded yet
+	}
+	if v.source == v.defaultSource {
+		return
+	}
+	// What New painted is the default source's.
+	v.raw, v.lastLoaded, v.seeded, v.loading = nil, navSource{}, false, true
+	v.applySort()
+}
+
+// FetchesLocally: a source other than the default has no daemon cache, so a
+// client fetches it itself.
+func (v *View) FetchesLocally() bool { return v.source != v.defaultSource }
+
 // saveFresh persists the unread set so marks survive a restart.
 func (v *View) saveFresh() { _ = cache.Save(freshCacheName, v.freshIDs()) }
 
@@ -848,6 +889,10 @@ func (v *View) Init() tea.Cmd {
 		return nil
 	}
 	v.loading = true
+	if v.restoring && !v.favsLoaded {
+		v.favsLoaded = true
+		return v.fetchFavs() // the source is fetched once it is known to exist
+	}
 	cmds := []tea.Cmd{v.fetch()}
 	if v.navShown && !v.favsLoaded {
 		v.favsLoaded = true
@@ -907,7 +952,7 @@ const inboxQuery = `query {
   notifications(first: 50) {
     nodes {
       ... on IssueNotification {
-        type readAt createdAt
+        id type readAt createdAt commentId
         actor { displayName }
         issue {` + issueFields + `
         }
@@ -1074,6 +1119,8 @@ func (v *View) fetchFrom(after string) tea.Cmd {
 				} `json:"issues"`
 				Notifications struct {
 					Nodes []struct {
+						ID        string     `json:"id"`
+						CommentID string     `json:"commentId"`
 						Type      string     `json:"type"`
 						ReadAt    *time.Time `json:"readAt"`
 						CreatedAt time.Time  `json:"createdAt"`
@@ -1114,6 +1161,7 @@ func (v *View) fetchFrom(after string) tea.Cmd {
 				it.InboxEvent = inboxEventLabel(n.Type)
 				it.InboxActor = n.Actor.DisplayName
 				it.InboxUnread = n.ReadAt == nil
+				it.NotifID, it.NotifCommentID = n.ID, n.CommentID
 				it.UpdatedAt = n.CreatedAt
 				nodes = append(nodes, it)
 			}
@@ -1223,7 +1271,7 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		var none navSource
-		if v.lastLoaded != none && v.lastLoaded != v.defaultSource {
+		if v.source != v.defaultSource || (v.lastLoaded != none && v.lastLoaded != v.defaultSource) {
 			return nil
 		}
 		v.loading = false // the daemon finished a fetch, whatever it found
@@ -1302,11 +1350,22 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		v.navErr = msg.err
 		v.favs = msg.projects
 		v.rebuildNav()
+		if v.restoring {
+			v.restoring = false
+			if i := v.navIndex(v.source); i >= 0 {
+				v.navSel, v.source = i, v.navItems[i].source
+			} else if msg.err == nil {
+				v.source = v.defaultSource
+				v.navSel = v.navIndex(v.source)
+			}
+			return v.fetch()
+		}
 		return nil
 	case commentsMsg:
 		if st, ok := v.comments[msg.id]; ok {
 			st.list, st.err, st.done = msg.comments, msg.err, true
 			v.commentsRev++
+			v.jumpPending = v.jumpPending || (v.jumpComment != "" && msg.id == v.list.Selected().Identifier)
 		}
 		return nil
 	case relatedMsg:
@@ -1351,17 +1410,20 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
-		v.floatFocus()
+		var cmd tea.Cmd
 		if v.previewShown {
 			v.clearFresh()
+			sel := v.list.Selected()
+			v.jumpComment = sel.NotifCommentID
+			cmd = v.markRead(sel.Identifier)
 		}
+		cmd = tea.Batch(cmd, v.floatFocus())
 		// The label column lives in the space a hidden preview frees up.
 		v.applySort()
-		return nil
+		return cmd
 	case ui.PreviewFloatingMsg:
 		v.floatReveal = bool(msg)
-		v.floatFocus()
-		return nil
+		return v.floatFocus()
 	case ui.GroupingMsg:
 		v.grouping = bool(msg)
 		v.applySort()
@@ -1441,10 +1503,12 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 				// issue being left, not the one arrived at, and only when
 				// its detail was on screen.
 				v.resetToggles()
+				var read tea.Cmd
 				if v.previewShown {
 					v.clearFreshFor(before)
+					read = v.markRead(before)
 				}
-				return tea.Batch(cmd, v.maybeFetchComments(), v.maybeFetchRelated(), ui.ConcealPreview, more)
+				return tea.Batch(cmd, read, v.maybeFetchComments(), v.maybeFetchRelated(), ui.ConcealPreview, more)
 			}
 			return tea.Batch(cmd, v.maybeFetchComments(), v.maybeFetchRelated(), more)
 		}
@@ -1454,6 +1518,8 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		switch {
 		case key.Matches(msg, v.keys.Comm):
 			return v.toggleComments()
+		case key.Matches(msg, v.keys.Read):
+			return v.markRead(v.list.Selected().Identifier)
 		case key.Matches(msg, v.keys.Open):
 			return ui.OpenURL(v.list.Selected().URL)
 		case key.Matches(msg, v.keys.Copy):
@@ -1535,6 +1601,66 @@ func (v *View) clearFreshFor(id string) {
 	v.saveFresh()
 	if v.onSeen != nil {
 		v.onSeen(cacheName, []string{id})
+	}
+}
+
+const readMutation = `mutation($id: String!, $input: NotificationUpdateInput!) {
+  notificationUpdate(id: $id, input: $input) { success }
+}`
+
+// markRead reads an unread inbox row, locally at once and in Linear in the
+// background. Anything else (read rows, rows of other sources) is left alone.
+func (v *View) markRead(id string) tea.Cmd {
+	for k := range v.raw {
+		r := &v.raw[k]
+		if r.Identifier != id || !r.InboxUnread {
+			continue
+		}
+		r.InboxUnread = false
+		v.applySort()
+		return v.readNotification(r.NotifID)
+	}
+	return nil
+}
+
+func (v *View) readNotification(id string) tea.Cmd {
+	token := v.token
+	fail := func(err error) tea.Msg {
+		return ui.Status(ui.SeverityWarn, "Linear", "could not mark the notification read", err.Error())
+	}
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]any{
+			"query": readMutation,
+			"variables": map[string]any{
+				"id":    id,
+				"input": map[string]any{"readAt": time.Now().UTC().Format(time.RFC3339)},
+			},
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return fail(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return fail(err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Errors []struct {
+				Message string `json:"message"`
+			} `json:"errors"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			return fail(err)
+		}
+		if len(out.Errors) > 0 {
+			return fail(fmt.Errorf("linear: %s", out.Errors[0].Message))
+		}
+		return nil
 	}
 }
 
@@ -1785,7 +1911,12 @@ func (v *View) PreviewView() string {
 	b.WriteString(ui.BlockHeader("Comments"))
 	b.WriteByte('\n')
 	if v.showComments {
+		base := strings.Count(b.String(), "\n")
 		b.WriteString(v.renderComments(i.Identifier, v.prevW))
+		v.commentAt = 0
+		if v.commentRow >= 0 {
+			v.commentAt = base + v.commentRow + 1
+		}
 	} else {
 		b.WriteString(v.commentsHint(i))
 	}
@@ -1972,6 +2103,11 @@ func (v *View) TakePreviewJump() (int, bool) {
 	}
 	v.jumpPending = false
 	_ = v.PreviewView()
+	if v.commentAt > 0 {
+		line := v.commentAt
+		v.jumpComment, v.commentAt = "", 0
+		return line, true
+	}
 	return v.commentsLine, true
 }
 
@@ -1993,7 +2129,7 @@ func (v *View) Bindings() []key.Binding {
 	if v.token == "" {
 		return nil
 	}
-	return []key.Binding{v.keys.Open, v.keys.Comm, v.keys.Copy, v.keys.Branch, v.keys.Sort, v.keys.Rev}
+	return []key.Binding{v.keys.Open, v.keys.Comm, v.keys.Copy, v.keys.Branch, v.keys.Sort, v.keys.Rev, v.keys.Read}
 }
 
 // Status is empty: the list header already shows the counts and sort, so the
@@ -2050,18 +2186,25 @@ func (v *View) toggleComments() tea.Cmd {
 // floatFocus settles focus from the preview's combined state: a float takes
 // the keys, a side pane or nothing on screen leaves them with the list. Both
 // preview messages call it because tea.Batch delivers them in either order.
-func (v *View) floatFocus() {
+func (v *View) floatFocus() tea.Cmd {
 	if v.floatReveal && v.previewShown {
 		v.paneFocus = true
-		if !v.showComments {
-			v.floatBase = true // settled on the description: opened with 'v'
+		if v.showComments {
+			return nil
 		}
-		return
+		v.floatBase = true // settled on the description: opened with 'v'
+		if v.jumpComment == "" {
+			return nil
+		}
+		// A comment notification goes straight on to the comments, level two.
+		v.showComments, v.commentsJumped, v.jumpPending = true, true, true
+		return v.maybeFetchComments()
 	}
 	v.paneFocus = false
 	if !v.floatReveal {
 		v.floatBase = false
 	}
+	return nil
 }
 
 // leaveFloat steps one level out of a float: comments over a 'v'
@@ -2077,7 +2220,7 @@ func (v *View) leaveFloat() tea.Cmd {
 
 // closeFloat shuts a floated detail from inside, whatever level it is on.
 func (v *View) closeFloat() tea.Cmd {
-	v.showComments, v.commentsJumped = v.cfgShowComments, false
+	v.showComments, v.commentsJumped, v.jumpComment = v.cfgShowComments, false, ""
 	v.paneFocus, v.floatReveal, v.floatBase = false, false, false
 	return ui.ConcealPreview
 }

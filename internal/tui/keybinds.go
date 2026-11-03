@@ -82,6 +82,7 @@ func keyRegistry() []keyEntry {
 		{"linear", "nav", "nav pane", []string{"ctrl+p"}},
 		{"linear", "mine", "only mine (project source)", []string{"m"}},
 		{"linear", "comments", "comments in preview", []string{"c"}},
+		{"linear", "read", "mark inbox row read", []string{"space"}},
 		{"linear", "open", "open in browser", []string{"enter"}},
 		{"linear", "copy_url", "copy url", []string{"y"}},
 		{"linear", "copy_branch", "copy branch", []string{"b"}},
