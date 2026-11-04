@@ -144,6 +144,7 @@ them elsewhere).
 | Sessions | `enter`, `y`, `s`/`S` | resume in its directory, copy the transcript path, sort |
 | Linear | `enter`, `y`, `b`, `s`/`S` | open, copy URL, copy branch, sort |
 | Linear | `ctrl+p`, `c`, `m` | project tree (show and focus; again hides), comments, only-mine in a project |
+| Linear inbox | `space`, `v` | mark the row read without opening it; `v` opens the detail and marks it read in Linear too |
 
 </details>
 
@@ -188,6 +189,11 @@ gives no total, so the status line reads `100 loaded · more below` until the
 last page is in, and `fetching more…` with the tab spinner while a page is on its way. Rows carry priority, state,
 `id · project · assignee`, comment count and labels. Sorts: date, status
 (in progress, todo, triage, backlog), project, priority.
+
+The Inbox shows one row per issue, dim once read. A comment notification
+opens (`v`) on the comments, scrolled to that comment; `←` steps back to the
+description and `esc` closes the float. Agenda reopens on the source you left
+it on.
 
 ## Cross-references
 

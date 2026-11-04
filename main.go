@@ -90,6 +90,12 @@ func main() {
 		return
 	}
 
+	for _, v := range views {
+		if lv, ok := v.(*linear.View); ok {
+			lv.RestoreSource()
+		}
+	}
+
 	// `agenda linear` (or prs/sessions) opens on that view.
 	initial := 0
 	if len(os.Args) > 1 {

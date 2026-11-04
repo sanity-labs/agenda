@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/sanity-labs/agenda/internal/cache"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
@@ -146,6 +147,16 @@ func navIcon(kind string) string {
 	return ""
 }
 
+// navIndex finds the tree entry for a saved source, -1 when it is gone.
+func (v *View) navIndex(src navSource) int {
+	for i, it := range v.navItems {
+		if !it.header && it.source.Kind == src.Kind && it.source.ProjectID == src.ProjectID {
+			return i
+		}
+	}
+	return -1
+}
+
 // navMove steps the tree cursor, skipping headers.
 func (v *View) navMove(d int) {
 	if len(v.navItems) == 0 {
@@ -211,6 +222,7 @@ func (v *View) applyNav() tea.Cmd {
 		return nil
 	}
 	v.source = it.source
+	_ = cache.Save(sourceCacheName, v.source)
 	v.loading = true
 	return v.fetch()
 }
