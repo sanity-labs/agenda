@@ -614,6 +614,7 @@ type View struct {
 	raw       []issue
 	sort      sortMode
 	rev       bool // sort order reversed
+	inactive  bool // not the tab on screen; zero value means active
 	grouping  bool // swimlanes derived from the active sort
 	store     *store.Store
 
@@ -1408,10 +1409,14 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		v.unreadOn = bool(msg)
 		v.applySort()
 		return nil
+	case ui.ActiveMsg:
+		v.inactive = !bool(msg)
+		return nil
 	case ui.PreviewShownMsg:
 		v.previewShown = bool(msg)
 		var cmd tea.Cmd
-		if v.previewShown {
+		// Off-screen views get this too; reading a row needs the tab showing.
+		if v.previewShown && !v.inactive {
 			v.clearFresh()
 			sel := v.list.Selected()
 			v.jumpComment = sel.NotifCommentID

@@ -812,7 +812,10 @@ func (m *Model) applyPreviewRequests() {
 func (m Model) broadcast(msg tea.Msg) (tea.Model, tea.Cmd) {
 	was := m.anyLoading()
 	cmds := make([]tea.Cmd, 0, len(m.views))
-	for _, v := range m.views {
+	for i, v := range m.views {
+		if _, ok := msg.(ui.PreviewShownMsg); ok {
+			v.Update(ui.ActiveMsg(i == m.current))
+		}
 		if cmd := v.Update(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}

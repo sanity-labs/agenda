@@ -116,6 +116,10 @@ type UnreadMsg bool
 // visible, moving onto a row shows it; with it hidden, you have to ask.
 type PreviewShownMsg bool
 
+// ActiveMsg precedes each PreviewShownMsg and says whether the receiving
+// view is the tab on screen, since that message reaches every view.
+type ActiveMsg bool
+
 // UnreadSyncMsg tells the PR view whether reading a row should also mark
 // the matching GitHub notification read. Off unless asked for: a cursor
 // move should not quietly clear your real inbox.

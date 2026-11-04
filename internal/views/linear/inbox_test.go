@@ -104,6 +104,19 @@ func TestOpeningDetailMarksInboxRowRead(t *testing.T) {
 	readOnce(t, sent(), "n1")
 }
 
+func TestOffScreenPreviewShownDoesNotMarkRead(t *testing.T) {
+	sent := fakeLinear(t)
+	v := inboxView(t, unread("SRE-1", "n1", ""))
+	run(v.Update(ui.ActiveMsg(false)))
+	run(v.Update(ui.PreviewShownMsg(true)))
+	if !v.list.Selected().InboxUnread {
+		t.Error("row marked read while the Linear tab was off screen")
+	}
+	if n := len(sent()); n != 0 {
+		t.Errorf("%d mutations from an off-screen view", n)
+	}
+}
+
 func TestOpeningDetailOfReadRowSendsNothing(t *testing.T) {
 	sent := fakeLinear(t)
 	v := inboxView(t, issue{Identifier: "SRE-2", Title: "read", InboxEvent: "commented", NotifID: "n2"})
