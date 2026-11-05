@@ -2,6 +2,7 @@ package linear
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -280,5 +281,63 @@ func TestTriageTeamNarrowsToOneTeam(t *testing.T) {
 	triageFilter(f, "")
 	if team, _ := json.Marshal(f["team"]); !strings.Contains(string(team), "isMe") {
 		t.Fatalf("no team key should mean your teams, got %s", team)
+	}
+}
+
+func TestFavouritesKeepInitiatives(t *testing.T) {
+	var out struct {
+		Nodes []favNode `json:"nodes"`
+	}
+	raw := `{"nodes":[{"type":"project","project":{"id":"p1","name":"P"}},
+		{"type":"initiative","initiative":{"id":"i1","name":"I"}},
+		{"type":"customView"}]}`
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatal(err)
+	}
+	got := parseFavs(out.Nodes)
+	want := []navProject{{ID: "p1", Name: "P", Kind: "project"}, {ID: "i1", Name: "I", Kind: "initiative"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseFavs = %+v, want %+v", got, want)
+	}
+	v := New(config.LinearConfig{Token: "x"}, nil, nil, nil)
+	v.favs = got
+	v.rebuildNav()
+	if v.navIndex(navSource{Kind: "initiative", ProjectID: "i1"}) < 0 {
+		t.Error("initiative favourite missing from the tree")
+	}
+}
+
+func TestScopeFilterForInitiative(t *testing.T) {
+	f := map[string]any{}
+	scopeFilter(navSource{Kind: "initiative", ProjectID: "i1"}, f)
+	b, _ := json.Marshal(f)
+	if want := `{"project":{"initiatives":{"some":{"id":{"eq":"i1"}}}}}`; string(b) != want {
+		t.Errorf("filter = %s, want %s", b, want)
+	}
+	f = map[string]any{}
+	scopeFilter(navSource{Kind: "project", ProjectID: "p1"}, f)
+	b, _ = json.Marshal(f)
+	if want := `{"project":{"id":{"eq":"p1"}}}`; string(b) != want {
+		t.Errorf("filter = %s, want %s", b, want)
+	}
+}
+
+func TestInitiativeSourceSurvivesRestart(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cfg := config.LinearConfig{Token: "t"}
+	first := New(cfg, nil, nil, nil)
+	first.favs = []navProject{{ID: "i1", Name: "I", Kind: "initiative"}}
+	first.rebuildNav()
+	first.navSel = first.navIndex(navSource{Kind: "initiative", ProjectID: "i1"})
+	first.applyNav()
+
+	second := New(cfg, nil, nil, nil)
+	second.RestoreSource()
+	if !second.restoring || second.source.Kind != "initiative" {
+		t.Fatalf("source = %+v restoring %v, want a pending initiative", second.source, second.restoring)
+	}
+	second.Update(favsMsg{projects: []navProject{{ID: "i1", Name: "I", Kind: "initiative"}}})
+	if second.source.Kind != "initiative" || second.source.ProjectID != "i1" {
+		t.Errorf("source after favourites load = %+v", second.source)
 	}
 }
