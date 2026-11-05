@@ -149,7 +149,7 @@ func (s *SearchBox) View() string {
 	b.WriteString(s.Query + Accent.Render("▏"))
 	b.WriteString("\n\n")
 	switch {
-	case s.Query == "":
+	case s.Query == "" && len(s.results) == 0:
 		b.WriteString(Faint.Render("Type a command or search"))
 		b.WriteByte('\n')
 	case s.err != nil:
@@ -177,7 +177,7 @@ func (s *SearchBox) View() string {
 		}
 	}
 	b.WriteByte('\n')
-	hint := "↑/↓ select · enter open · esc close"
+	hint := "↑/↓ select · enter select · esc close"
 	if s.Scope != "" {
 		hint += " · ⌫ drops the repo"
 	}

@@ -127,7 +127,7 @@ them elsewhere).
 |---|---|---|
 | Global | `tab` / `shift+tab`, `1`…`9` | switch view |
 | Global | `/`, `f` | filter the loaded rows (fuzzy on word starts, plus GitHub-style terms like `-label:x is:draft`); field-scoped filter popup. `esc` clears it |
-| Global | `cmd+k`, `ctrl+k` | quick search. PRs: a number finds that issue or PR in every loaded repo, plus open ones it prefixes; words offer a repo to narrow to (yours, or any in the same orgs), then search inside it. Linear: searches the whole workspace. Shows `search_results` hits (default 5) in the view's sort order; `enter` opens one like a cross-reference, past any filter |
+| Global | `cmd+k`, `ctrl+k` | quick search. PRs: a number finds that issue or PR in every loaded repo, plus open ones it prefixes; words offer a repo to narrow to (yours, or any in the same orgs), then search inside it. Linear: searches the whole workspace. Shows `search_results` hits (default 5) in the view's sort order; `enter` opens one like a cross-reference, past any filter. It is also a command palette: the matching commands for the selected item come first (typing `mer` finds Merge). PRs: approve, comment, request changes, merge and auto-merge (as in `r`, same confirmations), rebase, mark draft or ready, close with comment. Linear: `Status: <state>` for each workflow state of the issue's team |
 | Global | `→` / `←` | give the keys to the pane / back to the list; in a float, `←` steps a level out |
 | Global | `esc` | step back: focus, then the pane, then a float, then zoom. Never quits |
 | Global | `v`, `z` | show/hide (or float) the preview; zoom it |

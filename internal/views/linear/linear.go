@@ -609,6 +609,7 @@ type View struct {
 	// resolving is the ids fetched for another view's references, so each
 	// is asked of Linear once.
 	resolving map[string]bool
+	states    map[string]issueStates // by issue identifier, for status commands
 	onSeen    func(view string, ids []string)
 	list      ui.List[issue]
 	raw       []issue
@@ -1222,6 +1223,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (v *View) update(msg tea.Msg) tea.Cmd {
+	if cmd, ok := v.updateStates(msg); ok {
+		return cmd
+	}
 	switch msg := msg.(type) {
 	case loadedMsg:
 		v.loading = false
