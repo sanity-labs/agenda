@@ -837,7 +837,7 @@ func (v *View) RestoreSource() {
 	}
 	if i := v.navIndex(src); i >= 0 {
 		v.navSel, v.source = i, v.navItems[i].source
-	} else if src.Kind == "project" {
+	} else if src.scoped() {
 		v.source, v.restoring = src, true // favourites are not loaded yet
 	}
 	if v.source == v.defaultSource {
@@ -1056,7 +1056,7 @@ func (v *View) fetchFrom(after string) tea.Cmd {
 	}
 	filter := buildFilter(v.cfg.Filter)
 	src := v.source
-	if src.Kind == "project" && v.projectMine {
+	if src.scoped() && v.projectMine {
 		src.Label = src.Label + " (mine)" // distinct tag: no notify on toggle
 	}
 	query := assignedQuery
@@ -1064,9 +1064,9 @@ func (v *View) fetchFrom(after string) tea.Cmd {
 	switch src.Kind {
 	case "inbox":
 		query = inboxQuery // no variables: the inbox is its own filter
-	case "project":
+	case "project", "initiative":
 		query = allQuery
-		filter["project"] = map[string]any{"id": map[string]any{"eq": src.ProjectID}}
+		scopeFilter(src, filter)
 		if v.projectMine {
 			filter["assignee"] = map[string]any{"isMe": map[string]any{"eq": true}}
 		}
@@ -1532,9 +1532,9 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Branch):
 			return ui.CopyCmd(v.list.Selected().BranchName, "branch")
 		case key.Matches(msg, v.keys.Mine):
-			// Contextual: only a project source distinguishes "mine" from
+			// Contextual: only a project or initiative source distinguishes "mine" from
 			// "everyone's"; the fixed sources already imply it.
-			if v.source.Kind != "project" {
+			if !v.source.scoped() {
 				return nil
 			}
 			v.projectMine = !v.projectMine
@@ -1838,7 +1838,7 @@ func (v *View) statusText() string {
 		return "Error (ctrl+r to retry)"
 	default:
 		src := v.source.Label
-		if v.source.Kind == "project" && v.projectMine {
+		if v.source.scoped() && v.projectMine {
 			src += " (mine)"
 		}
 		count := fmt.Sprintf("%d issues", len(v.raw))

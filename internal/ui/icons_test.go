@@ -25,7 +25,7 @@ var allIcons = map[string]string{
 	"IconTabPRs": IconTabPRs, "IconTabSessions": IconTabSessions,
 	"IconTabLinear": IconTabLinear, "IconNavMine": IconNavMine,
 	"IconNavInbox": IconNavInbox, "IconNavAll": IconNavAll,
-	"IconNavProject": IconNavProject, "IconStar": IconStar,
+	"IconNavProject": IconNavProject, "IconNavInitiative": IconNavInitiative, "IconStar": IconStar,
 	"IconBell":        IconBell,
 	"IconAgentClaude": IconAgentClaude, "IconAgentCodex": IconAgentCodex,
 	"IconAgentAgy": IconAgentAgy,

@@ -288,7 +288,7 @@ linear:
   filter:
     # Which nav source to start on: "assigned" (My Issues, default) or
     # "all" (All Issues). In-app the source is picked in the nav tree
-    # (ctrl+p); inside a project source, 'm' toggles only-mine.
+    # (ctrl+p); inside a project or initiative source, 'm' toggles only-mine.
     scope: assigned
     include_completed: false
     include_canceled: false

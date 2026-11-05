@@ -143,7 +143,7 @@ them elsewhere).
 | Jobs pane | `enter`, `→`/`←`, `]`/`[`, `o`, `p`, `y`, `x` | open a job or a step's log, in/out of a job, next/previous failure, browser, `less`, copy URL, rerun |
 | Sessions | `enter`, `y`, `s`/`S` | resume in its directory, copy the transcript path, sort |
 | Linear | `enter`, `y`, `b`, `s`/`S` | open, copy URL, copy branch, sort |
-| Linear | `ctrl+p`, `c`, `m` | project tree (show and focus; again hides), comments, only-mine in a project |
+| Linear | `ctrl+p`, `c`, `m` | project tree (show and focus; again hides), comments, only-mine in a project or initiative |
 | Linear inbox | `space`, `v` | mark the row read without opening it; `v` opens the detail and marks it read in Linear too |
 
 </details>
@@ -182,7 +182,7 @@ deletes transcripts after 30 days unless `~/.claude/settings.json` says
 otherwise (`{ "cleanupPeriodDays": 3650 }`); it only stops future sweeps.
 
 **Linear** shows your assigned issues by default; the tree (`ctrl+p`) adds
-Inbox, All Issues and pinned projects, plus Triage (your teams' issues in
+Inbox, All Issues and pinned projects and initiatives, plus Triage (your teams' issues in
 triage) with `linear.triage`, or one team's with `linear.triage_team`. Lists load a page at a time
 (`linear.filter.limit`, 100) and the next as you reach the end; Linear
 gives no total, so the status line reads `100 loaded · more below` until the

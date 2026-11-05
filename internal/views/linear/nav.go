@@ -25,9 +25,24 @@ import (
 // navSource describes where the list's issues come from. Comparable, so a
 // source switch is detectable (notifications stay quiet across switches).
 type navSource struct {
-	Kind      string // "inbox" | "assigned" | "all" | "triage" | "project"
-	ProjectID string
+	Kind      string // "inbox" | "assigned" | "all" | "triage" | "project" | "initiative"
+	ProjectID string // the initiative's id when Kind is "initiative"
 	Label     string
+}
+
+// scoped reports whether the source narrows to a project or an initiative's
+// projects, the two that offer the "mine" toggle.
+func (s navSource) scoped() bool { return s.Kind == "project" || s.Kind == "initiative" }
+
+// scopeFilter narrows an issue filter to the source's project or initiative.
+func scopeFilter(src navSource, filter map[string]any) {
+	id := map[string]any{"id": map[string]any{"eq": src.ProjectID}}
+	switch src.Kind {
+	case "project":
+		filter["project"] = id
+	case "initiative":
+		filter["project"] = map[string]any{"initiatives": map[string]any{"some": id}}
+	}
 }
 
 func sourceForScope(scope string) navSource {
@@ -43,10 +58,35 @@ type navItem struct {
 	source navSource
 }
 
-// navProject is a pinned project from the favourites query.
+// navProject is a pinned project or initiative from the favourites query.
 type navProject struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Kind string `json:"-"`
+}
+
+type favNode struct {
+	Type       string      `json:"type"`
+	Project    *navProject `json:"project"`
+	Initiative *navProject `json:"initiative"`
+}
+
+// parseFavs keeps the favourites that are projects or initiatives.
+func parseFavs(nodes []favNode) []navProject {
+	var out []navProject
+	for _, n := range nodes {
+		switch {
+		case n.Type == "project" && n.Project != nil:
+			p := *n.Project
+			p.Kind = "project"
+			out = append(out, p)
+		case n.Type == "initiative" && n.Initiative != nil:
+			p := *n.Initiative
+			p.Kind = "initiative"
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 type favsMsg struct {
@@ -56,7 +96,7 @@ type favsMsg struct {
 
 const favoritesQuery = `query {
   favorites(first: 50) {
-    nodes { type project { id name } }
+    nodes { type project { id name } initiative { id name } }
   }
 }`
 
@@ -82,10 +122,7 @@ func (v *View) fetchFavs() tea.Cmd {
 		var out struct {
 			Data struct {
 				Favorites struct {
-					Nodes []struct {
-						Type    string      `json:"type"`
-						Project *navProject `json:"project"`
-					} `json:"nodes"`
+					Nodes []favNode `json:"nodes"`
 				} `json:"favorites"`
 			} `json:"data"`
 			Errors []struct {
@@ -98,13 +135,7 @@ func (v *View) fetchFavs() tea.Cmd {
 		if len(out.Errors) > 0 {
 			return favsMsg{err: fmt.Errorf("linear: %s", out.Errors[0].Message)}
 		}
-		var projects []navProject
-		for _, n := range out.Data.Favorites.Nodes {
-			if n.Type == "project" && n.Project != nil {
-				projects = append(projects, *n.Project)
-			}
-		}
-		return favsMsg{projects: projects}
+		return favsMsg{projects: parseFavs(out.Data.Favorites.Nodes)}
 	}
 }
 
@@ -121,7 +152,7 @@ func (v *View) rebuildNav() {
 	if len(v.favs) > 0 {
 		items = append(items, navItem{header: true, source: navSource{Label: "Favourites"}})
 		for _, p := range v.favs {
-			items = append(items, navItem{source: navSource{Kind: "project", ProjectID: p.ID, Label: p.Name}})
+			items = append(items, navItem{source: navSource{Kind: p.Kind, ProjectID: p.ID, Label: p.Name}})
 		}
 	}
 	v.navItems = items
@@ -141,6 +172,8 @@ func navIcon(kind string) string {
 		return ui.Glyph(ui.IconNavAll, "")
 	case "project":
 		return ui.Glyph(ui.IconNavProject, "")
+	case "initiative":
+		return ui.Glyph(ui.IconNavInitiative, "")
 	case "triage":
 		return ui.Glyph(ui.IconIssueTriage, "")
 	}
