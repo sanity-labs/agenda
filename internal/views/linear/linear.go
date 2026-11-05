@@ -1532,7 +1532,7 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Branch):
 			return ui.CopyCmd(v.list.Selected().BranchName, "branch")
 		case key.Matches(msg, v.keys.Mine):
-			// Contextual: only a project source distinguishes "mine" from
+			// Contextual: only a project or initiative source distinguishes "mine" from
 			// "everyone's"; the fixed sources already imply it.
 			if !v.source.scoped() {
 				return nil
