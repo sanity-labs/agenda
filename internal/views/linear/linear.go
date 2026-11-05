@@ -2288,7 +2288,8 @@ func (v *View) SetFilter(query string, enabled []string, caseSensitive bool) {
 // PreviewKey folds in the comments toggle and fetch revision so the preview
 // scroll resets on toggle and re-renders when comments land.
 func (v *View) PreviewKey() string {
-	k := v.list.Selected().Identifier
+	sel := v.list.Selected()
+	k := sel.Identifier + "#" + sel.State.Name
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
 	}

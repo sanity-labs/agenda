@@ -2165,6 +2165,10 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 	}
 	switch msg.String() {
 	case "esc":
+		if r.verdict == "close" {
+			v.review = nil // close is started from cmd+k, not the picker
+			return nil
+		}
 		r.verdict, r.body = "", "" // back to the verdict picker
 	case "enter":
 		if strings.TrimSpace(r.body) == "" {

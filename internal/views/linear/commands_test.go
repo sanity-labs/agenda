@@ -57,3 +57,14 @@ func TestStatusCommandsFromTeamStates(t *testing.T) {
 		t.Errorf("row state = %q, want Done", got)
 	}
 }
+
+func TestStatusChangeRefreshesDetail(t *testing.T) {
+	v := New(config.LinearConfig{Token: "x"}, nil, nil, nil)
+	v.raw = mkIDs("A-1")
+	v.applySort()
+	before := v.PreviewKey()
+	v.Update(stateSetMsg{ident: "A-1", to: workflowState{Name: "Done", Type: "completed"}})
+	if v.PreviewKey() == before {
+		t.Fatalf("PreviewKey unchanged after a status change: detail keeps the old status")
+	}
+}
