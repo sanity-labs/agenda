@@ -2351,6 +2351,8 @@ func (v *View) Overlay() string {
 		heading = "Merge"
 	} else if r.verdict == "close" {
 		heading = "Close"
+	} else if r.action == "gh" {
+		heading = "Update"
 	}
 	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s %s#%d", heading, r.repo, r.num)))
 	b.WriteString("\n\n")
