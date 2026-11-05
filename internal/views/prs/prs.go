@@ -2429,7 +2429,11 @@ func (v *View) Overlay() string {
 		b.WriteString(ui.Yellow.Render(label + ": "))
 		b.WriteString(r.body + "█")
 		b.WriteString("\n\n")
-		b.WriteString(ui.Dim.Render("enter submit · esc back"))
+		hint := "enter submit · esc back"
+		if r.verdict == "close" {
+			hint = "enter submit · esc cancel"
+		}
+		b.WriteString(ui.Dim.Render(hint))
 	}
 
 	return lipgloss.NewStyle().
