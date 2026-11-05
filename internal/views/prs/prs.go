@@ -866,6 +866,10 @@ type reviewFlow struct {
 	method string
 }
 
+// standalone is a verdict opened from cmd+k: esc closes the popup, as there
+// is no picker to go back to.
+func (r *reviewFlow) standalone() bool { return r.verdict == "close" || r.verdict == "add-reviewer" }
+
 // reviewOption is one popup entry: a hotkey, a label, and the gh verdict
 // ("" for entries that are not a review submission).
 type reviewOption struct {
@@ -2165,8 +2169,8 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 	}
 	switch msg.String() {
 	case "esc":
-		if r.verdict == "close" {
-			v.review = nil // close is started from cmd+k, not the picker
+		if r.standalone() {
+			v.review = nil // started from cmd+k, not the picker
 			return nil
 		}
 		r.verdict, r.body = "", "" // back to the verdict picker
@@ -2174,9 +2178,14 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 		if strings.TrimSpace(r.body) == "" {
 			return nil // GitHub requires a body for these verdicts
 		}
-		if r.verdict == "close" {
+		switch r.verdict {
+		case "close":
 			r.confirm = "close"
 			return nil
+		case "add-reviewer":
+			who := strings.TrimPrefix(strings.TrimSpace(r.body), "@")
+			return v.submitGh("requested "+who+" on "+r.repo+"#"+strconv.Itoa(r.num),
+				"pr", "edit", strconv.Itoa(r.num), "-R", r.repo, "--add-reviewer", who)
 		}
 		return v.submitReview(r.verdict)
 	case "backspace":
@@ -2351,6 +2360,8 @@ func (v *View) Overlay() string {
 		heading = "Merge"
 	} else if r.verdict == "close" {
 		heading = "Close"
+	} else if r.verdict == "add-reviewer" {
+		heading = "Add reviewer"
 	} else if r.action == "gh" {
 		heading = "Update"
 	}
@@ -2425,14 +2436,17 @@ func (v *View) Overlay() string {
 		b.WriteString(ui.Dim.Render("↑↓ move · enter select · esc close"))
 	default:
 		label := r.verdict
-		if label == "request-changes" {
+		switch label {
+		case "request-changes":
 			label = "request changes"
+		case "add-reviewer":
+			label = "reviewer"
 		}
 		b.WriteString(ui.Yellow.Render(label + ": "))
 		b.WriteString(r.body + "█")
 		b.WriteString("\n\n")
 		hint := "enter submit · esc back"
-		if r.verdict == "close" {
+		if r.standalone() {
 			hint = "enter submit · esc cancel"
 		}
 		b.WriteString(ui.Dim.Render(hint))

@@ -1,6 +1,7 @@
 package prs
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -73,5 +74,46 @@ func TestRebaseCommandRunsGh(t *testing.T) {
 	v := mergeView(t, mergeable(7))
 	if cmd := command(t, v, "rebase")(); cmd == nil || !v.review.submitting {
 		t.Error("rebase should start at once")
+	}
+}
+
+func TestRemoveReviewerCommandPerRequest(t *testing.T) {
+	p := mergeable(7)
+	if err := json.Unmarshal([]byte(`{"nodes":[
+		{"requestedReviewer":{"login":"ana"}},
+		{"requestedReviewer":{"combinedSlug":"acme/sre"}}]}`), &p.ReviewRequests); err != nil {
+		t.Fatal(err)
+	}
+	v := mergeView(t, p)
+	got := titles(v)
+	for _, want := range []string{"Remove reviewer: ana", "Remove reviewer: acme/sre"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %s", want, got)
+		}
+	}
+	if cmd := command(t, v, "remove-reviewer-ana")(); cmd == nil || !v.review.submitting {
+		t.Error("remove should run at once")
+	}
+	if strings.Contains(titles(mergeView(t, mergeable(8))), "Remove reviewer") {
+		t.Error("no requests, no remove commands")
+	}
+}
+
+func TestAddReviewerPromptsThenRuns(t *testing.T) {
+	v := mergeView(t, mergeable(7))
+	command(t, v, "add-reviewer")()
+	v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if v.review.submitting {
+		t.Fatal("ran on an empty login")
+	}
+	v.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || !v.review.submitting || v.review.confirm != "" {
+		t.Fatalf("enter should run without a confirm, got %+v", v.review)
+	}
+	v = mergeView(t, mergeable(7))
+	command(t, v, "add-reviewer")()
+	v.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if v.review != nil {
+		t.Error("esc should cancel the popup")
 	}
 }

@@ -57,6 +57,15 @@ func (v *View) Commands() []ui.Command {
 		v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number, verdict: "close"}
 		return nil
 	}})
+	cmds = append(cmds, ui.Command{ID: "add-reviewer", Title: "Add reviewer", Run: func() tea.Cmd {
+		v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number, verdict: "add-reviewer"}
+		return nil
+	}})
+	for _, mention := range p.reviewers() {
+		who := mention[1:] // a team stays owner/team, which gh accepts as is
+		cmds = append(cmds, ui.Command{ID: "remove-reviewer-" + who, Title: "Remove reviewer: " + who,
+			Run: gh("removed "+who+" from "+name, "pr", "edit", num, "-R", repo, "--remove-reviewer", who)})
+	}
 	for i := range cmds {
 		cmds[i].Detail = name
 	}
