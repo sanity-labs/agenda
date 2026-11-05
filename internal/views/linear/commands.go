@@ -22,16 +22,21 @@ type workflowState struct {
 	Position float64 `json:"position"`
 }
 
-// issueStates is what a status change needs: the issue's UUID and the
-// workflow states of its team.
+// issueStates is what the palette commands need: the issue's UUID, the
+// workflow states of its team, and whether the viewer is subscribed.
 type issueStates struct {
-	id     string
-	states []workflowState
+	id         string
+	states     []workflowState
+	subscribed bool
 }
 
 const statesQuery = `query($id: String!) {
-  issue(id: $id) { id team { states(first: 50) { nodes { id name type color position } } } }
+  viewer { id }
+  issue(id: $id) { id subscribers(first: 250) { nodes { id } } team { states(first: 50) { nodes { id name type color position } } } }
 }`
+
+const subscribeMutation = `mutation($id: String!) { issueSubscribe(id: $id) { success } }`
+const unsubscribeMutation = `mutation($id: String!) { issueUnsubscribe(id: $id) { success } }`
 
 const stateMutation = `mutation($id: String!, $input: IssueUpdateInput!) {
   issueUpdate(id: $id, input: $input) { success }
@@ -40,6 +45,12 @@ const stateMutation = `mutation($id: String!, $input: IssueUpdateInput!) {
 type statesMsg struct {
 	ident string
 	st    issueStates
+	err   error
+}
+
+type subscribedMsg struct {
+	ident string
+	on    bool
 	err   error
 }
 
@@ -86,15 +97,20 @@ func (v *View) PrepareCommands() tea.Cmd {
 	}
 	return func() tea.Msg {
 		var out struct {
-			Issue struct {
-				ID   string
-				Team struct {
+			Viewer struct{ ID string }
+			Issue  struct {
+				ID          string
+				Subscribers struct{ Nodes []struct{ ID string } }
+				Team        struct {
 					States struct{ Nodes []workflowState }
 				}
 			}
 		}
 		err := v.post(statesQuery, map[string]any{"id": ident}, &out)
 		st := issueStates{id: out.Issue.ID, states: out.Issue.Team.States.Nodes}
+		for _, u := range out.Issue.Subscribers.Nodes {
+			st.subscribed = st.subscribed || u.ID == out.Viewer.ID
+		}
 		slices.SortFunc(st.states, func(a, b workflowState) int {
 			switch {
 			case a.Position < b.Position:
@@ -109,7 +125,8 @@ func (v *View) PrepareCommands() tea.Cmd {
 }
 
 // Commands implements ui.Commander: one "Status: X" per workflow state of
-// the selected issue's team, bar the one it is in.
+// the selected issue's team, bar the one it is in, then subscribe or
+// unsubscribe.
 func (v *View) Commands() []ui.Command {
 	sel := v.list.Selected()
 	var cmds []ui.Command
@@ -122,7 +139,32 @@ func (v *View) Commands() []ui.Command {
 			Run: func() tea.Cmd { return v.setState(sel.Identifier, v.states[sel.Identifier].id, s) },
 		})
 	}
+	if st, ok := v.states[sel.Identifier]; ok {
+		title := "Subscribe to issue"
+		if st.subscribed {
+			title = "Unsubscribe from issue"
+		}
+		cmds = append(cmds, ui.Command{
+			ID: "subscribe", Title: title, Detail: sel.Identifier + " " + sel.Title,
+			Run: func() tea.Cmd { return v.setSubscribed(sel.Identifier, st.id, !st.subscribed) },
+		})
+	}
 	return cmds
+}
+
+func (v *View) setSubscribed(ident, id string, on bool) tea.Cmd {
+	return func() tea.Msg {
+		q, field := unsubscribeMutation, "issueUnsubscribe"
+		if on {
+			q, field = subscribeMutation, "issueSubscribe"
+		}
+		var out map[string]struct{ Success bool }
+		err := v.post(q, map[string]any{"id": id}, &out)
+		if err == nil && !out[field].Success {
+			err = fmt.Errorf("linear: %s was not successful", field)
+		}
+		return subscribedMsg{ident: ident, on: on, err: err}
+	}
 }
 
 func (v *View) setState(ident, id string, to workflowState) tea.Cmd {
@@ -149,6 +191,23 @@ func (v *View) updateStates(msg tea.Msg) (tea.Cmd, bool) {
 		}
 		v.states[msg.ident] = msg.st
 		return func() tea.Msg { return ui.CommandsChangedMsg{} }, true
+	case subscribedMsg:
+		if msg.err != nil {
+			return func() tea.Msg {
+				return ui.Status(ui.SeverityError, "Linear", "could not change subscription to "+msg.ident, msg.err.Error())
+			}, true
+		}
+		st := v.states[msg.ident]
+		st.subscribed = msg.on
+		v.states[msg.ident] = st
+		body := "unsubscribed from " + msg.ident
+		if msg.on {
+			body = "subscribed to " + msg.ident
+		}
+		return tea.Batch(
+			func() tea.Msg { return ui.CommandsChangedMsg{} },
+			func() tea.Msg { return ui.ToastMsg{Title: "Linear", Body: body} },
+		), true
 	case stateSetMsg:
 		if msg.err != nil {
 			return func() tea.Msg {
