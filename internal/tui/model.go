@@ -413,6 +413,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.takeSearchResults(msg)
 		return m, nil
 
+	case ui.CommandsChangedMsg:
+		if m.search == nil {
+			return m, nil
+		}
+		m.showCommands()
+		if m.search.Query != "" {
+			return m, m.searchSoon()
+		}
+		return m, nil
+
 	case toastGoneMsg:
 		if msg.gen == m.toastGen {
 			m.toast = nil
@@ -669,7 +679,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// No references: fall through to the view.
 		case key.Matches(msg, m.keys.Search):
 			if m.openSearch() {
-				return m, nil
+				return m, m.prepareCommands()
 			}
 		case key.Matches(msg, m.keys.Filter):
 			if f, ok := m.views[m.current].(filterable); ok && !m.views[m.current].InputActive() {

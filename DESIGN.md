@@ -201,7 +201,9 @@ from a PR lands in the Linear tab even when its source does not list it.
 The browser is the fallback, marked `↗` in the picker. A fetched-in row
 sits in an OPENED section, in the Linear and PRs views alike, that
 survives refreshes and that the next jump replaces or clears. cmd+k / ctrl+k quick search is the
-other way in: its results jump through the same follow-or-fetch path. An issue's detail
+other way in: its results jump through the same follow-or-fetch path, and above them it
+lists commands for the active view's selected item (a PR's verdicts and
+merge through the `r` popup, an issue's status). An issue's detail
 lists its pull requests open, one per line with their status glyphs, and
 a PR's detail names its Linear issues as `status glyph · id · title`, the
 row the picker shows too; `l` from either raises the picker. A jump

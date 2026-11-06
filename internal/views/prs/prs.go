@@ -866,6 +866,10 @@ type reviewFlow struct {
 	method string
 }
 
+// standalone is a verdict opened from cmd+k: esc closes the popup, as there
+// is no picker to go back to.
+func (r *reviewFlow) standalone() bool { return r.verdict == "close" || r.verdict == "add-reviewer" }
+
 // reviewOption is one popup entry: a hotkey, a label, and the gh verdict
 // ("" for entries that are not a review submission).
 type reviewOption struct {
@@ -1606,14 +1610,20 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		v.review = nil
 		if msg.err != nil {
-			v.flash = ui.Red.Render("review failed: " + msg.err.Error())
+			what := "review failed"
+			if msg.what != "" {
+				what = msg.what
+			}
+			v.flash = ui.Red.Render(what + ": " + msg.err.Error())
 			return nil
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
 		if v.held == nil {
 			v.held = map[string]heldReview{}
 		}
-		v.held[msg.url] = heldReview{msg.state, time.Now().Add(reviewHold)}
+		if msg.state != "" {
+			v.held[msg.url] = heldReview{msg.state, time.Now().Add(reviewHold)}
+		}
 		v.applySort()
 		// Review submitted: you are done with this one, so the diff or
 		// comments pane you opened to review it folds away with the reveal.
@@ -2124,6 +2134,10 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 			if what == "approve" {
 				return v.submitReview("approve")
 			}
+			if what == "close" {
+				return v.submitGh("closed "+r.repo+"#"+strconv.Itoa(r.num),
+					"pr", "close", strconv.Itoa(r.num), "-R", r.repo, "--comment", r.body)
+			}
 			return v.submitMerge(what == "auto")
 		default:
 			r.confirm, r.warn = "", ""
@@ -2155,10 +2169,23 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 	}
 	switch msg.String() {
 	case "esc":
+		if r.standalone() {
+			v.review = nil // started from cmd+k, not the picker
+			return nil
+		}
 		r.verdict, r.body = "", "" // back to the verdict picker
 	case "enter":
 		if strings.TrimSpace(r.body) == "" {
 			return nil // GitHub requires a body for these verdicts
+		}
+		switch r.verdict {
+		case "close":
+			r.confirm = "close"
+			return nil
+		case "add-reviewer":
+			who := strings.TrimPrefix(strings.TrimSpace(r.body), "@")
+			return v.submitGh("requested "+who+" on "+r.repo+"#"+strconv.Itoa(r.num),
+				"pr", "edit", strconv.Itoa(r.num), "-R", r.repo, "--add-reviewer", who)
 		}
 		return v.submitReview(r.verdict)
 	case "backspace":
@@ -2331,6 +2358,12 @@ func (v *View) Overlay() string {
 	heading := "Review"
 	if r.merging() {
 		heading = "Merge"
+	} else if r.verdict == "close" {
+		heading = "Close"
+	} else if r.verdict == "add-reviewer" {
+		heading = "Add reviewer"
+	} else if r.action == "gh" {
+		heading = "Update"
 	}
 	b.WriteString(ui.Bold.Render(fmt.Sprintf("%s %s#%d", heading, r.repo, r.num)))
 	b.WriteString("\n\n")
@@ -2347,6 +2380,8 @@ func (v *View) Overlay() string {
 	case r.submitting:
 		verb := "submitting review…"
 		switch r.action {
+		case "gh":
+			verb = "working…"
 		case "merge":
 			verb = "merging…"
 		case "auto":
@@ -2363,12 +2398,14 @@ func (v *View) Overlay() string {
 			what = "Merge this PR once its checks pass?"
 		case "approve":
 			what = "Approve it again?"
+		case "close":
+			what = "Close this PR with this comment?"
 		}
 		b.WriteString(what + "\n")
 		if title := v.mergeTitle(r.url); title != "" {
 			b.WriteString(ui.Dim.Render("  "+title) + "\n")
 		}
-		if r.confirm != "approve" {
+		if r.confirm == "merge" || r.confirm == "auto" {
 			b.WriteString(ui.Faint.Render("  "+v.mergeDetail(false)) + "\n")
 		}
 		if r.warn != "" {
@@ -2399,13 +2436,20 @@ func (v *View) Overlay() string {
 		b.WriteString(ui.Dim.Render("↑↓ move · enter select · esc close"))
 	default:
 		label := r.verdict
-		if label == "request-changes" {
+		switch label {
+		case "request-changes":
 			label = "request changes"
+		case "add-reviewer":
+			label = "reviewer"
 		}
 		b.WriteString(ui.Yellow.Render(label + ": "))
 		b.WriteString(r.body + "█")
 		b.WriteString("\n\n")
-		b.WriteString(ui.Dim.Render("enter submit · esc back"))
+		hint := "enter submit · esc back"
+		if r.standalone() {
+			hint = "enter submit · esc cancel"
+		}
+		b.WriteString(ui.Dim.Render(hint))
 	}
 
 	return lipgloss.NewStyle().
