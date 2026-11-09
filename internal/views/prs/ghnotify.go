@@ -51,11 +51,15 @@ type threadsReadMsg struct{ read map[string]bool }
 // which are read. Silent on failure: a sync that cannot run leaves the
 // local marks exactly as they were.
 func fetchReadThreads() tea.Cmd {
+	if _, paused := rateLimitedUntil(); paused {
+		return nil
+	}
 	return func() tea.Msg {
 		// all=true is the point: the default list omits read threads, which
 		// are precisely the ones that clear a local mark.
 		out, err := exec.Command("gh", "api", "/notifications?all=true", "--paginate").Output()
 		if err != nil {
+			_ = cmdErr(err) // starts the shared pause on a rate limit
 			return nil
 		}
 		var threads []ghThread
@@ -76,9 +80,13 @@ func fetchReadThreads() tea.Cmd {
 // and github.com/notifications agree. Best-effort and silent: this is a
 // courtesy sync, and failing it must never interrupt reading a PR.
 func markThreadRead(repo string, number int) tea.Cmd {
+	if _, paused := rateLimitedUntil(); paused {
+		return nil
+	}
 	return func() tea.Msg {
 		out, err := exec.Command("gh", "api", "/notifications", "--paginate").Output()
 		if err != nil {
+			_ = cmdErr(err)
 			return nil
 		}
 		var threads []ghThread
