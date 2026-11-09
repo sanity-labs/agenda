@@ -82,12 +82,12 @@ func TestSidebarMilestoneIsAChildOfTheProject(t *testing.T) {
 	}
 }
 
-func TestSidebarMilestoneConnectorDimNameNot(t *testing.T) {
+func TestSidebarMilestoneConnectorDimNameMuted(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	on := true
 	v := New(config.LinearConfig{Token: "t", DetailSidebar: &on}, nil, nil, nil)
-	if got := v.sidebar(sideIssue("M1", 0, "x"), 40); !strings.Contains(got, ui.Dim.Render("└")+" "+ui.Glyph(ui.IconMilestone, ">")+"M1") {
-		t.Errorf("want a dim connector and a plain name, got:\n%q", got)
+	if got := v.sidebar(sideIssue("M1", 0, "x"), 40); !strings.Contains(got, ui.Dim.Render("└")+" "+ui.Yellow.Faint(true).Render(ui.Glyph(ui.IconMilestone, ">")+"M1")) {
+		t.Errorf("want a dim connector and a muted yellow name, got:\n%q", got)
 	}
 }
 
