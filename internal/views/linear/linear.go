@@ -96,6 +96,9 @@ type issue struct {
 	Project struct {
 		Name string `json:"name"`
 	} `json:"project"`
+	ProjectMilestone struct {
+		Name string `json:"name"`
+	} `json:"projectMilestone"`
 	Assignee struct {
 		DisplayName string `json:"displayName"`
 	} `json:"assignee"`
@@ -912,6 +915,7 @@ const issueFields = `
         state { name type color }
         team { key }
         project { name }
+        projectMilestone { name }
         assignee { displayName }
         comments(first: 50) { nodes { id } pageInfo { hasNextPage } }
         labels(first: 10) { nodes { name color } }
@@ -1882,38 +1886,11 @@ func (v *View) PreviewView() string {
 	b.WriteString(ui.Bold.Width(v.prevW).Render(i.Title))
 	b.WriteString("\n\n")
 
-	statusLine := ui.IssueStatusIcon(i.State.Type, i.State.Name) + " " + hexStyle(i.State.Color).Render(i.State.Name)
-	if i.PriorityLabel != "" && i.Priority != 0 {
-		statusLine += "   " + i.priorityCell() + " " + i.PriorityLabel
-	}
-	if i.Project.Name != "" {
-		statusLine += "   " + ui.Yellow.Render("◇ "+i.Project.Name)
-	}
-	b.WriteString(statusLine)
-	b.WriteByte('\n')
-
-	if pills := labelPills(i.Labels.Nodes); pills != "" {
-		b.WriteString(pills)
-		b.WriteByte('\n')
-	}
-
-	b.WriteString(ui.Dim.Render(strings.Repeat("─", min(v.prevW, 60))))
-	b.WriteByte('\n')
-	// Description, then comments, headed like the PRs view so the two
-	// panes read alike.
-	b.WriteString(ui.BlockHeader("Description"))
-	b.WriteByte('\n')
-	b.WriteString(v.renderedBody(i))
-	b.WriteString("\n\n")
-	b.WriteString(ui.BlockHeader("Pull requests"))
-	b.WriteByte('\n')
-	b.WriteString(v.renderPRs(i))
-	b.WriteString("\n\n")
-	if rel := v.relatedFor(i); len(rel) > 0 {
-		b.WriteString(ui.BlockHeader("Related issues"))
-		b.WriteByte('\n')
-		b.WriteString(v.renderRelated(rel))
+	if w := v.sidebarWidth(); w > 0 {
+		b.WriteString(v.twoColumns(i, w))
 		b.WriteString("\n\n")
+	} else {
+		v.stackedDetail(&b, i)
 	}
 	// Record where the section starts so the 'c' jump can target it.
 	v.commentsLine = strings.Count(b.String(), "\n") + 1
@@ -1932,13 +1909,113 @@ func (v *View) PreviewView() string {
 	return b.String()
 }
 
+// sidebarMinW is the narrowest sidebar worth drawing; a pane too narrow
+// for it keeps the stacked layout.
+const sidebarMinW = 24
+
+// sidebarWidth is the sidebar's width, a quarter of the pane, or 0 when the
+// option is off or the pane is too narrow for it.
+func (v *View) sidebarWidth() int {
+	if w := v.prevW / 4; v.cfg.DetailSidebarOn() && w >= sidebarMinW {
+		return w
+	}
+	return 0
+}
+
+func (v *View) stackedDetail(b *strings.Builder, i issue) {
+	statusLine := ui.IssueStatusIcon(i.State.Type, i.State.Name) + " " + hexStyle(i.State.Color).Render(i.State.Name)
+	if i.PriorityLabel != "" && i.Priority != 0 {
+		statusLine += "   " + i.priorityCell() + " " + i.PriorityLabel
+	}
+	if i.Project.Name != "" {
+		statusLine += "   " + ui.Yellow.Render("◇ "+i.Project.Name)
+	}
+	if m := i.ProjectMilestone.Name; m != "" {
+		statusLine += "   " + ui.Glyph(ui.IconMilestone, ">") + m
+	}
+	b.WriteString(statusLine)
+	b.WriteByte('\n')
+
+	if pills := labelPills(i.Labels.Nodes); pills != "" {
+		b.WriteString(pills)
+		b.WriteByte('\n')
+	}
+
+	b.WriteString(ui.Dim.Render(strings.Repeat("─", min(v.prevW, 60))))
+	b.WriteByte('\n')
+	// Description, then comments, headed like the PRs view so the two
+	// panes read alike.
+	b.WriteString(ui.BlockHeader("Description"))
+	b.WriteByte('\n')
+	b.WriteString(v.renderedBody(i, v.prevW))
+	b.WriteString("\n\n")
+	b.WriteString(ui.BlockHeader("Pull requests"))
+	b.WriteByte('\n')
+	b.WriteString(v.renderPRs(i, v.prevW))
+	b.WriteString("\n\n")
+	if rel := v.relatedFor(i); len(rel) > 0 {
+		b.WriteString(ui.BlockHeader("Related issues"))
+		b.WriteByte('\n')
+		b.WriteString(v.renderRelated(rel, v.prevW))
+		b.WriteString("\n\n")
+	}
+}
+
+// twoColumns is the description beside the sidebar. JoinHorizontal pads the
+// shorter column, so what follows starts below both.
+func (v *View) twoColumns(i issue, sideW int) string {
+	const gap = 2
+	descW := v.prevW - sideW - gap
+	left := ui.BlockHeader("Description") + "\n" + v.renderedBody(i, descW)
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(descW).Render(left),
+		strings.Repeat(" ", gap),
+		v.sidebar(i, sideW))
+}
+
+func (v *View) sidebar(i issue, w int) string {
+	var lines []string
+	add := func(s string) { lines = append(lines, ansi.Truncate(s, w, "…")) }
+	status := ui.IssueStatusIcon(i.State.Type, i.State.Name) + " " + hexStyle(i.State.Color).Render(i.State.Name)
+	if i.PriorityLabel != "" && i.Priority != 0 {
+		status += "   " + i.priorityCell() + " " + i.PriorityLabel
+	}
+	add(status)
+	if i.Project.Name != "" {
+		add(ui.Yellow.Render("◇ " + i.Project.Name))
+	}
+	if m := i.ProjectMilestone.Name; m != "" {
+		add(ui.Glyph(ui.IconMilestone, ">") + m)
+	}
+	lines = append(lines, "")
+	section := func(name, body string) {
+		lines = append(lines, ui.BlockHeader(name))
+		for _, l := range strings.Split(body, "\n") {
+			add(l)
+		}
+		lines = append(lines, "")
+	}
+	if len(i.Labels.Nodes) > 0 {
+		var ls []string
+		for _, l := range i.Labels.Nodes {
+			ls = append(ls, labelPills([]label{l}))
+		}
+		section("Labels", strings.Join(ls, "\n"))
+	}
+	section("Pull requests", v.renderPRs(i, w))
+	if rel := v.relatedFor(i); len(rel) > 0 {
+		section("Related issues", v.renderRelated(rel, w))
+	}
+	return lipgloss.NewStyle().Width(w).Render(strings.Join(lines, "\n"))
+}
+
 // commentsMarker is the phrase the clickable comments hint ends with.
 const commentsMarker = "to toggle comments"
 
 // renderPRs is the detail's pull-request section: the PRs Linear has
 // attached to the issue, one per line with the PRs view's live status
 // glyphs where it has them; 'l' raises the picker to jump to one.
-func (v *View) renderPRs(i issue) string {
+func (v *View) renderPRs(i issue, w int) string {
 	type row struct {
 		pr               store.PR
 		repo, title, url string
@@ -1978,7 +2055,7 @@ func (v *View) renderPRs(i issue) string {
 		}
 		line += ui.Cyan.Render(fmt.Sprintf("%s#%d", r.repo, r.num))
 		if r.title != "" {
-			line += "  " + ui.Truncate(r.title, max(10, v.prevW-lipgloss.Width(line)-2))
+			line += "  " + ui.Truncate(r.title, max(10, w-lipgloss.Width(line)-2))
 		}
 		b.WriteString(line)
 	}
@@ -1988,7 +2065,7 @@ func (v *View) renderPRs(i issue) string {
 
 // renderRelated is the detail's related-issues section: status glyph, id,
 // title, then how it relates, dim; the same row the picker shows.
-func (v *View) renderRelated(rel []related) string {
+func (v *View) renderRelated(rel []related, w int) string {
 	var b strings.Builder
 	for n, r := range rel {
 		if n > 0 {
@@ -2000,7 +2077,7 @@ func (v *View) renderRelated(rel []related) string {
 		}
 		line += r.issue.Identifier
 		how := ui.Dim.Render("  " + r.how)
-		room := max(10, v.prevW-lipgloss.Width(line)-lipgloss.Width(how)-4)
+		room := max(10, w-lipgloss.Width(line)-lipgloss.Width(how)-4)
 		if r.issue.Title != "" {
 			line += "  " + ui.Truncate(r.issue.Title, room)
 		}
@@ -2120,16 +2197,16 @@ func (v *View) TakePreviewJump() (int, bool) {
 	return v.commentsLine, true
 }
 
-func (v *View) renderedBody(i issue) string {
+func (v *View) renderedBody(i issue, w int) string {
 	desc := strings.TrimSpace(i.Description)
 	if desc == "" {
 		return ui.Faint.Render("(no description)")
 	}
-	key := fmt.Sprintf("%s:%d:%d", i.Identifier, v.prevW, ui.PaletteGen())
+	key := fmt.Sprintf("%s:%d:%d", i.Identifier, w, ui.PaletteGen())
 	if v.bodyKey == key {
 		return v.body
 	}
-	out := ui.Markdown(desc, v.prevW)
+	out := ui.Markdown(desc, w)
 	v.bodyKey, v.body = key, out
 	return out
 }

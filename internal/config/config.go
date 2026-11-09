@@ -139,6 +139,9 @@ func (c Config) MouseEnabled() bool { return c.Mouse == nil || *c.Mouse }
 // resets to the configured view.
 func (c Config) TogglesPersist() bool { return c.Toggles == "persist" }
 
+// DetailSidebarOn reports whether the issue detail uses the sidebar layout.
+func (c LinearConfig) DetailSidebarOn() bool { return c.DetailSidebar == nil || *c.DetailSidebar }
+
 // UnreadEnabled reports whether new rows are marked unread.
 func (c Config) UnreadEnabled() bool { return c.Unread == nil || *c.Unread }
 
@@ -393,6 +396,10 @@ type LinearConfig struct {
 	// Nav shows the navigation tree (My Issues / All Issues / pinned
 	// projects) on startup. Off by default; ctrl+p toggles it either way.
 	Nav bool `yaml:"nav"`
+	// DetailSidebar lays the issue detail out as the description beside a
+	// sidebar (status, project, milestone, labels, PRs, related issues).
+	// On unless false: the stacked layout is detail_sidebar: false.
+	DetailSidebar *bool `yaml:"detail_sidebar"`
 	// Triage adds a Triage entry to the tree: issues in triage for your
 	// teams (or filter.teams). Off by default.
 	Triage bool `yaml:"triage"`
