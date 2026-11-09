@@ -244,7 +244,9 @@ The daemon reads the config when it starts. A search edited with `F`, or a
 setting it acts on changed in the overlay, restarts it on the new file
 (the window fetches for itself in the gap and says so with a toast); a
 reload (`r`) restarts it along with the window; an edit to the file by hand
-wants `agenda restart`. With `refresh.every` unset the daemon
+wants `agenda restart`. A window that finds a daemon from another build
+says so in its message log: until it is restarted, the daemon's caches
+lack anything the newer build fetches. With `refresh.every` unset the daemon
 refreshes every 5 minutes (a window with no daemon still fetches only on
 `ctrl+r`, as before); set it to choose.
 

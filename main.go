@@ -134,6 +134,10 @@ func main() {
 			m = m.WithStartupStatus(ui.Status(ui.SeverityWarn, "daemon", "no daemon: fetching here", err.Error()))
 		} else {
 			m = m.WithDaemon(c, exe)
+			if v := staleDaemon(c); v != "" {
+				m = m.WithStartupStatus(ui.Status(ui.SeverityWarn, "daemon",
+					"daemon is "+v+", this is "+versionString()+": run agenda restart", ""))
+			}
 		}
 	}
 	p := tea.NewProgram(m)
