@@ -1,6 +1,9 @@
 package prs
 
 import (
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sanity-labs/agenda/internal/ui"
@@ -132,5 +135,57 @@ func TestOnlyReadThreadsAreCollected(t *testing.T) {
 	}
 	if got["o/r#2"] {
 		t.Error("an unread thread was collected as read")
+	}
+}
+
+func resetNotifSync() {
+	notifSync.mu.Lock()
+	notifSync.threads, notifSync.lastMod = nil, ""
+	notifSync.mu.Unlock()
+}
+
+// The first sync lists everything; later ones send If-Modified-Since, ask
+// only for changes, merge by thread id, and treat a 304 as no change.
+func TestSyncThreadsIsIncremental(t *testing.T) {
+	resetNotifSync()
+	t.Cleanup(resetNotifSync)
+	thread := func(id, n string, unread bool) string {
+		return fmt.Sprintf(`{"id":%q,"unread":%t,"subject":{"url":"https://api.github.com/repos/o/r/pulls/%s"}}`, id, unread, n)
+	}
+	var calls []string
+	replies := []string{
+		"HTTP/2.0 200 OK\nLast-Modified: Mon, 09 Nov 2026 16:00:00 GMT\r\nLink: <x>; rel=\"next\"\r\n\r\n[" + thread("1", "1", true) + "]",
+		"HTTP/2.0 200 OK\r\n\r\n[" + thread("2", "2", false) + "]",
+		"HTTP/2.0 200 OK\nLast-Modified: Mon, 09 Nov 2026 16:01:00 GMT\r\n\r\n[" + thread("1", "1", false) + "]",
+		"HTTP/2.0 304 Not Modified\r\n\r\n",
+	}
+	old := ghRun
+	t.Cleanup(func() { ghRun = old })
+	ghRun = func(args ...string) ([]byte, error) {
+		calls = append(calls, strings.Join(args, " "))
+		out := []byte(replies[len(calls)-1])
+		if len(calls) == 4 {
+			return out, errors.New("exit status 1")
+		}
+		return out, nil
+	}
+
+	read, ok := syncThreads()
+	if !ok || read["o/r#2"] != true || read["o/r#1"] {
+		t.Fatalf("first sync = %v %v", read, ok)
+	}
+	read, ok = syncThreads()
+	if !ok || !read["o/r#1"] || !read["o/r#2"] {
+		t.Fatalf("incremental did not replace thread 1: %v", read)
+	}
+	if !strings.Contains(calls[2], "since=") || !strings.Contains(calls[2], "If-Modified-Since: Mon, 09 Nov 2026 16:00:00 GMT") {
+		t.Errorf("second sync call = %q", calls[2])
+	}
+	if strings.Contains(calls[1], "since=") || !strings.Contains(calls[1], "page=2") {
+		t.Errorf("first sync page 2 = %q", calls[1])
+	}
+	read, ok = syncThreads()
+	if !ok || !read["o/r#1"] || len(calls) != 4 {
+		t.Errorf("304 lost state: %v %v", read, ok)
 	}
 }
