@@ -300,6 +300,10 @@ linear:
   # projects) on startup. ctrl+p toggles it in-app either way; left/right
   # move between the tree and the list.
   nav: false
+  # Issue detail as the description beside a sidebar (status, project,
+  # milestone, labels, pull requests, related issues). Needs a wide pane;
+  # narrower ones, and false, keep the stacked layout.
+  detail_sidebar: true
   # Add a Triage entry to the tree: issues in triage for the teams you are
   # in, or for filter.teams when set.
   triage: false

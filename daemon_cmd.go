@@ -13,6 +13,16 @@ import (
 // run before it loads like the other plain commands. `agenda daemon`
 // itself needs the views and is handled in main after they are built.
 
+// staleDaemon is the daemon's version when it is another build. A window
+// paints that build's caches, so a field added since never shows.
+func staleDaemon(c *daemon.Client) string {
+	var st daemon.Status
+	if c.Call(daemon.MethodStatus, nil, &st) != nil || st.Version == versionString() {
+		return ""
+	}
+	return st.Version
+}
+
 func runStatus(w io.Writer, _ []string) int {
 	sock, err := daemon.SocketPath()
 	if err != nil {

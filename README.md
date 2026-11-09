@@ -188,7 +188,10 @@ triage) with `linear.triage`, or one team's with `linear.triage_team`. Lists loa
 gives no total, so the status line reads `100 loaded · more below` until the
 last page is in, and `fetching more…` with the tab spinner while a page is on its way. Rows carry priority, state,
 `id · project · assignee`, comment count and labels. Sorts: date, status
-(in progress, todo, triage, backlog), project, priority.
+(in progress, todo, triage, backlog), project, priority. The detail (`v`) puts
+the description beside a sidebar (status, project, milestone, labels, pull
+requests, related issues) when the pane is about 96 columns or wider;
+`linear.detail_sidebar: false` keeps the stacked layout.
 
 The Inbox shows one row per issue, dim once read. A comment notification
 opens (`v`) on the comments, scrolled to that comment; `←` steps back to the
@@ -241,7 +244,9 @@ The daemon reads the config when it starts. A search edited with `F`, or a
 setting it acts on changed in the overlay, restarts it on the new file
 (the window fetches for itself in the gap and says so with a toast); a
 reload (`r`) restarts it along with the window; an edit to the file by hand
-wants `agenda restart`. With `refresh.every` unset the daemon
+wants `agenda restart`. A window that finds a daemon from another build
+says so in its message log: until it is restarted, the daemon's caches
+lack anything the newer build fetches. With `refresh.every` unset the daemon
 refreshes every 5 minutes (a window with no daemon still fetches only on
 `ctrl+r`, as before); set it to choose.
 

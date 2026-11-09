@@ -57,3 +57,37 @@ func TestStatusAndStopAgainstADaemon(t *testing.T) {
 	}
 	<-stopped
 }
+
+// A daemon left running from an older build writes its caches in its own
+// shapes, so the window must say so rather than quietly paint them.
+func TestStaleDaemonNamesAnotherBuild(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "agenda-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("XDG_STATE_HOME", dir)
+	sock, _ := daemon.SocketPath()
+	version := "v0.13.2"
+	s, err := daemon.Listen(sock, func(_ context.Context, req daemon.Request) (any, error) {
+		return daemon.Status{Version: version, Protocol: daemon.Protocol}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Serve(ctx)
+	c, err := daemon.Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if got := staleDaemon(c); got != "v0.13.2" {
+		t.Errorf("another build: staleDaemon = %q, want v0.13.2", got)
+	}
+	version = versionString()
+	if got := staleDaemon(c); got != "" {
+		t.Errorf("same build: staleDaemon = %q, want empty", got)
+	}
+}

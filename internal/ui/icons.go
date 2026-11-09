@@ -59,6 +59,9 @@ func IssueStatusIcon(stateType, stateName string) string {
 	return ""
 }
 
+// IconMilestone prefixes an issue's project milestone.
+const IconMilestone = "\uf45d" //
+
 // IconSection heads a preview section (Description, Checks, Comments).
 const IconSection = "\uf0c9" //  list
 
