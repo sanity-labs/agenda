@@ -69,6 +69,28 @@ func TestSidebarMilestoneOnlyWhenSet(t *testing.T) {
 	}
 }
 
+func TestSidebarMilestoneIsAChildOfTheProject(t *testing.T) {
+	lines := sideView(t, 160, true, sideIssue("M1", 0, "x"))
+	p := lineOf(lines, "Big Project")
+	if p < 0 || p+1 >= len(lines) {
+		t.Fatalf("no project line:\n%s", strings.Join(lines, "\n"))
+	}
+	colOf := func(l, s string) int { return ansi.StringWidth(l[:max(strings.Index(l, s), 0)]) }
+	col := colOf(lines[p], "◇")
+	if got := lines[p+1]; !strings.Contains(got, "  └ ") || colOf(got, "  └ ") != col || !strings.HasSuffix(strings.TrimSpace(got), "M1") {
+		t.Errorf("milestone line %q, want └ M1 under the project at col %d:\n%s", got, col, strings.Join(lines, "\n"))
+	}
+}
+
+func TestSidebarMilestoneConnectorDimNameNot(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	on := true
+	v := New(config.LinearConfig{Token: "t", DetailSidebar: &on}, nil, nil, nil)
+	if got := v.sidebar(sideIssue("M1", 0, "x"), 40); !strings.Contains(got, ui.Dim.Render("└")+" "+ui.Glyph(ui.IconMilestone, ">")+"M1") {
+		t.Errorf("want a dim connector and a plain name, got:\n%q", got)
+	}
+}
+
 func TestSidebarPadsShorterColumn(t *testing.T) {
 	long := strings.Repeat("word ", 400)
 	for name, c := range map[string]struct {

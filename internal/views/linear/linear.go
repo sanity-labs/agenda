@@ -1985,7 +1985,7 @@ func (v *View) sidebar(i issue, w int) string {
 		add(ui.Yellow.Render("◇ " + i.Project.Name))
 	}
 	if m := i.ProjectMilestone.Name; m != "" {
-		add(ui.Glyph(ui.IconMilestone, ">") + m)
+		add("  " + ui.Dim.Render("└") + " " + ui.Glyph(ui.IconMilestone, ">") + m)
 	}
 	lines = append(lines, "")
 	section := func(name, body string) {
