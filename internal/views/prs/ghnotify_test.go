@@ -170,11 +170,11 @@ func TestSyncThreadsIsIncremental(t *testing.T) {
 		return out, nil
 	}
 
-	read, ok := syncThreads()
+	read, ok, _ := syncThreads()
 	if !ok || read["o/r#2"] != true || read["o/r#1"] {
 		t.Fatalf("first sync = %v %v", read, ok)
 	}
-	read, ok = syncThreads()
+	read, ok, _ = syncThreads()
 	if !ok || !read["o/r#1"] || !read["o/r#2"] {
 		t.Fatalf("incremental did not replace thread 1: %v", read)
 	}
@@ -184,7 +184,7 @@ func TestSyncThreadsIsIncremental(t *testing.T) {
 	if strings.Contains(calls[1], "since=") || !strings.Contains(calls[1], "page=2") {
 		t.Errorf("first sync page 2 = %q", calls[1])
 	}
-	read, ok = syncThreads()
+	read, ok, _ = syncThreads()
 	if !ok || !read["o/r#1"] || len(calls) != 4 {
 		t.Errorf("304 lost state: %v %v", read, ok)
 	}

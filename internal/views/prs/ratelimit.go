@@ -112,7 +112,7 @@ func asRateLimit(err error) *rateLimitErr {
 }
 
 func (e *rateLimitErr) post() tea.Cmd {
-	if !e.first {
+	if e == nil || !e.first {
 		return nil
 	}
 	return statusCmd(ui.SeverityWarn, e)

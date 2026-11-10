@@ -199,3 +199,19 @@ func TestPaneShowsPausedStateNotError(t *testing.T) {
 		t.Errorf("raw = %d, statusText = %q", len(v.raw), v.statusText())
 	}
 }
+
+func TestNotificationSyncPostsTheRateLimitNotice(t *testing.T) {
+	now := time.Date(2026, 11, 9, 15, 0, 0, 0, time.Local)
+	limitedView(t, &now, time.Date(2026, 11, 9, 16, 3, 0, 0, time.Local))
+	resetNotifSync()
+	t.Cleanup(resetNotifSync)
+	old := ghRun
+	t.Cleanup(func() { ghRun = old })
+	ghRun = func(args ...string) ([]byte, error) {
+		return []byte(limitText), errors.New("exit status 1")
+	}
+	msg, ok := fetchReadThreads()().(ui.StatusMsg)
+	if !ok || msg.Summary != "GitHub rate limited, resumes 16:03" {
+		t.Errorf("sync msg = %#v", msg)
+	}
+}

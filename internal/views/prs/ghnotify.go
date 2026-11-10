@@ -98,8 +98,9 @@ func getNotifPage(path, ifModified string) (header http.Header, body []byte, not
 }
 
 // syncThreads returns the PR keys whose notification is read, calling the
-// API as little as possible. ok is false when the sync could not run.
-func syncThreads() (read map[string]bool, ok bool) {
+// API as little as possible. ok is false when the sync could not run; rl is
+// set when that was the rate limit.
+func syncThreads() (read map[string]bool, ok bool, rl *rateLimitErr) {
 	notifSync.mu.Lock()
 	defer notifSync.mu.Unlock()
 	st := &notifSync
@@ -123,10 +124,10 @@ func syncThreads() (read map[string]bool, ok bool) {
 		}
 		h, body, notModified, err := getNotifPage(path, ifMod)
 		if err != nil {
-			return nil, false
+			return nil, false, asRateLimit(err)
 		}
 		if notModified {
-			return readKeys(st.threads), true
+			return readKeys(st.threads), true, nil
 		}
 		ifMod = ""
 		if page == 1 {
@@ -134,7 +135,7 @@ func syncThreads() (read map[string]bool, ok bool) {
 		}
 		var threads []ghThread
 		if json.Unmarshal(body, &threads) != nil {
-			return nil, false
+			return nil, false, nil
 		}
 		for _, t := range threads {
 			fresh[t.ID] = t
@@ -151,7 +152,7 @@ func syncThreads() (read map[string]bool, ok bool) {
 		}
 	}
 	st.lastMod, st.since = lastMod, started
-	return readKeys(st.threads), true
+	return readKeys(st.threads), true, nil
 }
 
 func readKeys(threads map[string]ghThread) map[string]bool {
@@ -171,8 +172,13 @@ func fetchReadThreads() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		read, ok := syncThreads()
+		read, ok, rl := syncThreads()
 		if !ok {
+			// The search runs concurrently and may have lost the race to be
+			// first, so this is the only place that can post the notice.
+			if cmd := rl.post(); cmd != nil {
+				return cmd()
+			}
 			return nil
 		}
 		return threadsReadMsg{read: read}
