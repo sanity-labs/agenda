@@ -753,6 +753,7 @@ type View struct {
 	// is an open reply/comment prompt. flash is a transient status-line
 	// result (cleared on the next fetch).
 	review *reviewFlow
+	walk   *threadWalk
 	// spinFrame follows the root spinner so the popup's glyph turns with it.
 	spinFrame int
 	input     *threadFlow
@@ -1662,8 +1663,11 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if st, ok := v.comments[msg.url]; ok {
 			st.data, st.err, st.done = msg.data, msg.err, true
 			v.commentsRev++
+			return v.walkLoaded(msg.url)
 		}
 		return nil
+	case threadResolvedMsg:
+		return v.walkResolved(msg)
 	case ui.TogglesPersistMsg:
 		v.togglesPersist = bool(msg)
 		return nil
@@ -1791,6 +1795,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		}
 		return v.maybeFetchComments()
 	case tea.KeyMsg:
+		if v.walk != nil {
+			return v.updateWalk(msg)
+		}
 		if v.review != nil {
 			return v.updateReview(msg)
 		}
@@ -2376,6 +2383,9 @@ func (v *View) askMerge(kind string) {
 func (v *View) Overlay() string {
 	if v.rerun != nil {
 		return v.rerunOverlay()
+	}
+	if v.walk != nil {
+		return v.walkOverlay()
 	}
 	r := v.review
 	if r == nil {
@@ -3973,7 +3983,7 @@ func (v *View) Dismiss() bool {
 }
 
 func (v *View) InputActive() bool {
-	return v.list.Filtering() || v.review != nil || v.rerun != nil ||
+	return v.list.Filtering() || v.review != nil || v.walk != nil || v.rerun != nil ||
 		v.input != nil || v.filterEd != nil
 }
 

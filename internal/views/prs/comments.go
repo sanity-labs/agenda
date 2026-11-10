@@ -24,6 +24,7 @@ type prAuthor struct {
 
 type prComment struct {
 	ID        string    `json:"id"`
+	URL       string    `json:"url"`
 	Author    prAuthor  `json:"author"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -81,7 +82,7 @@ const commentsQuery = `query($owner: String!, $name: String!, $number: Int!) {
       reviewThreads(first: 100) {
         nodes {
           id isResolved isOutdated path line
-          comments(first: 50) { nodes { id author { login } body createdAt } }
+          comments(first: 50) { nodes { id url author { login } body createdAt } }
         }
       }
     }
