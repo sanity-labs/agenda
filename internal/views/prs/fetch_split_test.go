@@ -125,3 +125,16 @@ func TestStaleFetchDoesNotUndoApproval(t *testing.T) {
 		t.Errorf("an expired hold still overrides the data: state %q", state())
 	}
 }
+
+// fetchReview flags reviewLoading synchronously, so it shows whether the
+// review search was issued without running gh.
+func TestAutoApproveReviewFetchIsDaemonOnly(t *testing.T) {
+	cfg := config.GitHubConfig{AutoApproveSkim: true}
+	for _, headless := range []bool{false, true} {
+		v := &View{cfg: cfg, headless: headless}
+		v.fetch()
+		if v.reviewLoading != headless {
+			t.Errorf("headless=%v: review search issued=%v, want %v", headless, v.reviewLoading, headless)
+		}
+	}
+}

@@ -1391,9 +1391,10 @@ func (v *View) fetch() tea.Cmd {
 		return mineMsg{from: v, page: page, err: err}
 	}}
 	// The review search only runs when something consumes it: the visible
-	// section, review-request notifications, or auto-approval. Otherwise
-	// the view does exactly one search, as it originally did.
-	if v.showReview || v.notifier != nil || v.cfg.AutoApproveSkim {
+	// section, review-request notifications, or auto-approval (daemon only,
+	// the one process that approves). Otherwise the view does exactly one
+	// search, as it originally did.
+	if v.showReview || v.notifier != nil || (v.headless && v.cfg.AutoApproveSkim) {
 		cmds = append(cmds, v.fetchReview())
 	}
 	if v.unreadSync {
