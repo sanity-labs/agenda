@@ -45,22 +45,23 @@ type label struct {
 // non-empty Separator is a divider, not a pull request: the mine/review
 // section split, or (with Group set) a swimlane header.
 type pr struct {
-	Separator      string    `json:"-"`
-	Group          bool      `json:"-"`
-	Number         int       `json:"number"`
-	Title          string    `json:"title"`
-	URL            string    `json:"url"`
-	State          string    `json:"state"`
-	IsDraft        bool      `json:"isDraft"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	HeadRefName    string    `json:"headRefName"`
-	BaseRefName    string    `json:"baseRefName"`
-	Additions      int       `json:"additions"`
-	Deletions      int       `json:"deletions"`
-	Mergeable      string    `json:"mergeable"`
-	ReviewDecision string    `json:"reviewDecision"`
-	Body           string    `json:"body"`
-	Author         struct {
+	Separator        string    `json:"-"`
+	Group            bool      `json:"-"`
+	Number           int       `json:"number"`
+	Title            string    `json:"title"`
+	URL              string    `json:"url"`
+	State            string    `json:"state"`
+	IsDraft          bool      `json:"isDraft"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+	HeadRefName      string    `json:"headRefName"`
+	BaseRefName      string    `json:"baseRefName"`
+	Additions        int       `json:"additions"`
+	Deletions        int       `json:"deletions"`
+	Mergeable        string    `json:"mergeable"`
+	MergeStateStatus string    `json:"mergeStateStatus"`
+	ReviewDecision   string    `json:"reviewDecision"`
+	Body             string    `json:"body"`
+	Author           struct {
 		Login string `json:"login"`
 	} `json:"author"`
 	ViewerLatestReview struct {
@@ -726,6 +727,7 @@ type View struct {
 	headless  bool
 	auto      map[string]autoApproval
 	approving map[string]bool
+	skipped   map[string]string
 
 	// filterEd is the open search-filter editor ('F'), nil when closed.
 	filterEd *filterEdit
@@ -1194,7 +1196,7 @@ const graphqlQuery = `query($q: String!, $n: Int!, $after: String) {
 const prFragment = `
 fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName baseRefName
-  additions deletions mergeable reviewDecision body
+  additions deletions mergeable mergeStateStatus reviewDecision body
   viewerLatestReview { state } viewerDidAuthor
   latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
   reviewRequests(first: 10) { nodes { requestedReviewer {
@@ -1204,7 +1206,7 @@ fragment prFields on PullRequest {
   author { login }
   repository { nameWithOwner }
   comments { totalCount }
-  labels(first: 6) { nodes { name color } }
+  labels(first: 20) { nodes { name color } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
     state
     contexts(last: 1) {

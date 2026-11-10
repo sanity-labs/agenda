@@ -36,8 +36,13 @@ func skimPR(url string, num int) pr {
 	p := mkPR(url, "bump deps", time.Hour)
 	p.Number, p.State = num, "OPEN"
 	p.Labels.Nodes = []label{{Name: "ci"}, {Name: skimLabel}}
+	p.Mergeable, p.MergeStateStatus = "MERGEABLE", "BLOCKED"
+	p.Commits.Nodes = make([]commitNode, 1)
+	p.Commits.Nodes[0].Commit.StatusCheckRollup.State = "SUCCESS"
 	return p
 }
+
+func setCI(p *pr, state string) { p.Commits.Nodes[0].Commit.StatusCheckRollup.State = state }
 
 // runAuto executes cmd the way the runtime would, feeding the view's own
 // results back to it, and returns the message-log lines it produced.
@@ -86,7 +91,7 @@ func TestSkimLabelApprovesOnceFromTheDaemon(t *testing.T) {
 	n := &recNotifier{}
 	d := daemonView(skimCfg(), n)
 	logged := runAuto(d, d.Update(page))
-	want := "pr review 1 -R acme/repo --approve"
+	want := "pr review 1 -R acme/repo --approve --body " + approveBody
 	if len(*calls) != 1 || strings.Join((*calls)[0], " ") != want {
 		t.Fatalf("gh calls = %v, want one %q", *calls, want)
 	}
@@ -123,6 +128,75 @@ func TestAutoApproveSkipsOwnApprovedAndDrafts(t *testing.T) {
 	runAuto(d, d.Update(reviewListMsg{page: searchPage{prs: []pr{own, approved, draft}}}))
 	if len(*calls) != 0 {
 		t.Errorf("approved a PR it should have skipped: %v", *calls)
+	}
+}
+
+func TestAutoApproveRefusesUnreadyPRs(t *testing.T) {
+	cases := map[string]func(*pr){
+		"behind":            func(p *pr) { p.MergeStateStatus = "BEHIND" },
+		"conflicting":       func(p *pr) { p.MergeStateStatus, p.Mergeable = "DIRTY", "CONFLICTING" },
+		"unknown":           func(p *pr) { p.MergeStateStatus, p.Mergeable = "UNKNOWN", "UNKNOWN" },
+		"unstable":          func(p *pr) { p.MergeStateStatus = "UNSTABLE" },
+		"ci failing":        func(p *pr) { setCI(p, "FAILURE") },
+		"ci errored":        func(p *pr) { setCI(p, "ERROR") },
+		"ci pending":        func(p *pr) { setCI(p, "PENDING") },
+		"no ci":             func(p *pr) { p.Commits.Nodes = nil },
+		"title wip":         func(p *pr) { p.Title = "[WIP] bump deps" },
+		"body dnm":          func(p *pr) { p.Body = "Please DNM until the release" },
+		"body depends":      func(p *pr) { p.Body = "Depends on #12" },
+		"stacked":           func(p *pr) { p.Body = "stacked on #12" },
+		"label hold":        func(p *pr) { p.Labels.Nodes = append(p.Labels.Nodes, label{Name: "on-hold"}) },
+		"label bare hold":   func(p *pr) { p.Labels.Nodes = append(p.Labels.Nodes, label{Name: "Hold"}) },
+		"mergeable unknown": func(p *pr) { p.MergeStateStatus, p.Mergeable = "CLEAN", "UNKNOWN" },
+		"label dnm":         func(p *pr) { p.Labels.Nodes = append(p.Labels.Nodes, label{Name: "do-not-merge"}) },
+		"draft":             func(p *pr) { p.IsDraft = true },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			calls := stubApprove(t)
+			p := skimPR("u1", 1)
+			mutate(&p)
+			d := daemonView(skimCfg(), &recNotifier{})
+			runAuto(d, d.Update(reviewListMsg{page: searchPage{prs: []pr{p}}}))
+			if len(*calls) != 0 {
+				t.Errorf("approved: %v", *calls)
+			}
+		})
+	}
+}
+
+func TestAutoApproveIgnoresWordsInsideOtherWords(t *testing.T) {
+	calls := stubApprove(t)
+	p := skimPR("u1", 1)
+	p.Title, p.Body = "Fix wiping of drafts-free cache", "adds a dnmasq helper, unblocked path"
+	d := daemonView(skimCfg(), &recNotifier{})
+	runAuto(d, d.Update(reviewListMsg{page: searchPage{prs: []pr{p}}}))
+	if len(*calls) != 1 {
+		t.Errorf("a substring hit blocked the approval: %v", *calls)
+	}
+}
+
+// A PR held back by a safeguard is looked at again on the next poll, and
+// approved once the safeguard clears, but never twice.
+func TestAutoApproveWaitsForGreenCI(t *testing.T) {
+	calls := stubApprove(t)
+	p := skimPR("u1", 1)
+	setCI(&p, "PENDING")
+	d := daemonView(skimCfg(), &recNotifier{})
+	poll := func(p pr) []ui.StatusMsg {
+		return runAuto(d, d.Update(reviewListMsg{page: searchPage{prs: []pr{p}}}))
+	}
+	if logged := poll(p); len(*calls) != 0 || len(logged) != 1 {
+		t.Fatalf("pending: calls %v, logged %v; want no call and one line", *calls, logged)
+	}
+	if logged := poll(p); len(logged) != 0 {
+		t.Errorf("same reason logged again: %v", logged)
+	}
+	p = skimPR("u1", 1)
+	poll(p)
+	poll(p)
+	if len(*calls) != 1 {
+		t.Errorf("approvals after CI went green = %d, want 1", len(*calls))
 	}
 }
 

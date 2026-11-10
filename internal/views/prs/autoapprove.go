@@ -2,7 +2,9 @@ package prs
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,7 +16,15 @@ import (
 const (
 	skimLabel = "reviewbot:skim"
 	autoCache = "auto-approved"
+
+	approveBody = "Auto-approved by agenda: the review bot labelled this PR reviewbot:skim " +
+		"(low risk, skim-level review) and it passed the auto-approve checks."
 )
+
+// notReady matches title, body and label text that says the PR is unfinished
+// or waits on something. It errs toward blocking: a false hit costs a manual
+// click, a miss approves work in progress.
+var notReady = regexp.MustCompile(`(?i)\b(wip|work in progress|do not merge|don.?t merge|dnm|draft|blocked|on hold|depends on|waiting on|waiting for|stacked on|requires #\d+|after #\d+)\b`)
 
 // autoApproval is one PR the daemon approved. Entries are never dropped,
 // so a restart cannot approve the same PR twice; PR is the row as it was,
@@ -44,9 +54,40 @@ func (p pr) hasLabel(name string) bool {
 	return false
 }
 
+// notReadyReason names the safeguard that stops an approval, or "" when the
+// PR is ready. BLOCKED is allowed: it is what a PR waiting for review is.
+func (p pr) notReadyReason() string {
+	switch p.MergeStateStatus {
+	case "CLEAN", "BLOCKED", "HAS_HOOKS":
+	case "BEHIND":
+		return "branch is behind its base"
+	case "DIRTY":
+		return "merge conflicts"
+	default:
+		return "merge state " + strings.ToLower(p.MergeStateStatus)
+	}
+	if p.Mergeable != "MERGEABLE" {
+		return "mergeable " + strings.ToLower(p.Mergeable)
+	}
+	if s := p.ciState(); s != "SUCCESS" {
+		return "CI " + strings.ToLower(s)
+	}
+	text := p.Title + "\n" + p.Body
+	for _, l := range p.Labels.Nodes {
+		text += "\n" + strings.NewReplacer("-", " ", "_", " ").Replace(l.Name)
+		if strings.EqualFold(strings.TrimSpace(l.Name), "hold") {
+			return "marked as not ready"
+		}
+	}
+	if notReady.MatchString(text) {
+		return "marked as not ready"
+	}
+	return ""
+}
+
 // autoApprove approves the review-requested rows carrying the skim label:
-// never your own, never a draft, never one you already approved, and
-// each at most once.
+// never your own, never a draft, never one you already approved, never one
+// that is not ready (re-checked every poll), and each at most once.
 func (v *View) autoApprove(page []pr) tea.Cmd {
 	if !v.headless || !v.cfg.AutoApproveSkim || v.reviewsElsewhere {
 		return nil
@@ -59,11 +100,21 @@ func (v *View) autoApprove(page []pr) tea.Cmd {
 			continue
 		}
 		if v.approving == nil {
-			v.approving = map[string]bool{}
+			v.approving, v.skipped = map[string]bool{}, map[string]string{}
+		}
+		if why := p.notReadyReason(); why != "" {
+			if v.skipped[p.URL] != why {
+				v.skipped[p.URL] = why
+				name := fmt.Sprintf("%s#%d", p.repo(), p.Number)
+				cmds = append(cmds, func() tea.Msg {
+					return ui.Status(ui.SeverityInfo, "PRs", "Not auto-approving "+name, why)
+				})
+			}
+			continue
 		}
 		v.approving[p.URL] = true
 		cmds = append(cmds, func() tea.Msg {
-			out, err := ghCombined("pr", "review", strconv.Itoa(p.Number), "-R", p.repo(), "--approve")
+			out, err := ghCombined("pr", "review", strconv.Itoa(p.Number), "-R", p.repo(), "--approve", "--body", approveBody)
 			if err != nil {
 				err = ghErr(err, out)
 			}
