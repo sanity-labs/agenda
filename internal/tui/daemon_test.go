@@ -223,6 +223,23 @@ func TestHeadlessEmitsInsteadOfDrawing(t *testing.T) {
 	}
 }
 
+type headlessView struct {
+	fatView
+	headless bool
+}
+
+func (h *headlessView) RunHeadless() { h.headless = true }
+
+// Only the daemon's views are told they run headless; a window's never are.
+func TestHeadlessTellsTheViews(t *testing.T) {
+	w, d := &headlessView{}, &headlessView{}
+	New(config.Default(), []View{w})
+	New(config.Default(), []View{d}).withHeadless(func(string, any) {})
+	if w.headless || !d.headless {
+		t.Errorf("window headless %v, daemon headless %v", w.headless, d.headless)
+	}
+}
+
 // shortSock is a socket path under /tmp: a t.TempDir() path is longer
 // than a unix socket path may be on macOS.
 func shortSock(t *testing.T, name string) string {
