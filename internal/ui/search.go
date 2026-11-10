@@ -44,6 +44,8 @@ type SearchBox struct {
 	title   string
 	Query   string
 	Scope   string
+	Path    string // menu levels opened so far, shown before the query
+	Hint    string // replaces the empty-box prompt
 	results []Ref
 	labels  []string
 	cursor  int
@@ -146,11 +148,18 @@ func (s *SearchBox) View() string {
 	if s.Scope != "" {
 		b.WriteString(Accent.Render(s.Scope) + Faint.Render(" › "))
 	}
+	if s.Path != "" {
+		b.WriteString(Accent.Render(s.Path) + Faint.Render(" › "))
+	}
 	b.WriteString(s.Query + Accent.Render("▏"))
 	b.WriteString("\n\n")
 	switch {
 	case s.Query == "" && len(s.results) == 0:
-		b.WriteString(Faint.Render("Type a command or search"))
+		hint := "Type a command or search"
+		if s.Hint != "" {
+			hint = s.Hint
+		}
+		b.WriteString(Faint.Render(hint))
 		b.WriteByte('\n')
 	case s.err != nil:
 		b.WriteString(Red.Render(Truncate(s.err.Error(), searchWidth)))
@@ -178,6 +187,9 @@ func (s *SearchBox) View() string {
 	}
 	b.WriteByte('\n')
 	hint := "↑/↓ select · enter select · esc close"
+	if s.Path != "" {
+		hint = "↑/↓ select · enter select · esc back"
+	}
 	if s.Scope != "" {
 		hint += " · ⌫ drops the repo"
 	}
