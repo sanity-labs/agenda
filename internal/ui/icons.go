@@ -79,6 +79,9 @@ const IconSearch = "\uf422" //  search
 // select it.
 const IconUnread = "\u25cf" // ●
 
+// IconAutoApproved tags a PR the daemon approved for its label.
+const IconAutoApproved = "\U000f0068" // 󰁨 auto-fix
+
 // IconHidden marks a row hidden by hand, in the gap before the scrollbar.
 const IconHidden = "\u00d7" // ×
 

@@ -66,6 +66,7 @@ type pr struct {
 	ViewerLatestReview struct {
 		State string `json:"state"`
 	} `json:"viewerLatestReview"`
+	ViewerDidAuthor          bool `json:"viewerDidAuthor"`
 	LatestOpinionatedReviews struct {
 		Nodes []struct {
 			State  string `json:"state"`
@@ -92,6 +93,9 @@ type pr struct {
 	// (set at assembly when github.mark_reviewed is on): rendered dim with a
 	// "reviewed" tag so the eye can skip it.
 	Reviewed bool `json:"-"`
+	// AutoApproved tags a row the daemon approved for its reviewbot:skim
+	// label, set at assembly while the approval lingers.
+	AutoApproved bool `json:"-"`
 	// ShowLabels adds a label column, set at assembly when the preview pane
 	// is off and the row is wide enough to spare the space.
 	ShowLabels bool `json:"-"`
@@ -426,6 +430,12 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 		styled += ui.Dim.Render(" · " + p.HeadRefName)
 	}
 
+	if p.AutoApproved {
+		tag := ui.Glyph(ui.IconAutoApproved, "") + "auto-approved"
+		plain += " · " + tag
+		styled += ui.Dim.Render(" · ") + ui.Magenta.Render(tag)
+	}
+
 	// Already reviewed by you: tag the metadata and dim the whole row so the
 	// eye skims past it (glyphs keep their colors; status stays readable).
 	if p.Reviewed {
@@ -709,6 +719,13 @@ type View struct {
 	hideApproved bool
 	// hideDrafts drops draft PRs from both sections.
 	hideDrafts bool
+
+	// headless is the daemon, the one process that auto-approves. auto is
+	// every approval it made, shared through its own cache file;
+	// approving is this run's attempts, so a failure is not retried.
+	headless  bool
+	auto      map[string]autoApproval
+	approving map[string]bool
 
 	// filterEd is the open search-filter editor ('F'), nil when closed.
 	filterEd *filterEdit
@@ -1017,6 +1034,8 @@ func newView(cfg config.GitHubConfig, km config.Keymap, n notify.Notifier, st *s
 	v.list.Rebind(func(a string, d ...string) []string { return km.Of("list", a, d...) })
 	v.nav = newNavKeys(km)
 
+	v.auto = map[string]autoApproval{}
+	v.mergeAuto()
 	// Paint last run's PRs immediately; the live fetch refreshes them.
 	v.loadCache(false)
 	return v
@@ -1176,7 +1195,7 @@ const prFragment = `
 fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName baseRefName
   additions deletions mergeable reviewDecision body
-  viewerLatestReview { state }
+  viewerLatestReview { state } viewerDidAuthor
   latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
   reviewRequests(first: 10) { nodes { requestedReviewer {
     ... on User { login }
@@ -1370,9 +1389,9 @@ func (v *View) fetch() tea.Cmd {
 		return mineMsg{from: v, page: page, err: err}
 	}}
 	// The review search only runs when something consumes it: the visible
-	// section, or review-request notifications. Otherwise the view does
-	// exactly one search, as it originally did.
-	if v.showReview || v.notifier != nil {
+	// section, review-request notifications, or auto-approval. Otherwise
+	// the view does exactly one search, as it originally did.
+	if v.showReview || v.notifier != nil || v.cfg.AutoApproveSkim {
 		cmds = append(cmds, v.fetchReview())
 	}
 	if v.unreadSync {
@@ -1532,6 +1551,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if partial != nil {
 			cmd = tea.Batch(cmd, partial)
 		}
+		cmd = tea.Batch(cmd, v.autoApprove(msg.page.prs))
 		v.reviewRaw = next
 		v.reviewPage.cursor, v.reviewPage.hasMore = msg.page.cursor, msg.page.hasMore
 		v.reviewPage.total = msg.page.total
@@ -1670,7 +1690,16 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 	case ui.SpinnerTickMsg:
 		v.spinFrame = msg.Frame
 		return nil
+	case autoApprovedMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
+		return v.autoApproved(msg)
 	case ui.CacheChangedMsg:
+		if msg.Matches(autoCache) {
+			v.mergeAuto()
+			v.applySort()
+		}
 		// The daemon fetched: repaint from its cache, selection kept by
 		// identity, and say so if the selected row left.
 		if !msg.Matches(v.cacheName()) {
@@ -3013,6 +3042,7 @@ func (v *View) applySort() {
 	if v.hideDrafts {
 		mine, rev = dropDrafts(mine), dropDrafts(rev)
 	}
+	rev = v.withAutoApproved(rev)
 	if v.cfg.MarkReviewed {
 		for i := range rev {
 			rev[i].Reviewed = rev[i].reviewedByMe()
@@ -3237,6 +3267,7 @@ func (v *View) clearUnread() { v.clearUnreadFor(v.list.Selected().URL) }
 // the time a move is handled, so the caller that is leaving a row has to
 // name it: clearing "the selection" there would read the row you land on.
 func (v *View) clearUnreadFor(url string) {
+	v.seeAuto(url)
 	if url == "" || !v.unread[url] {
 		return
 	}

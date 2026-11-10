@@ -105,6 +105,7 @@ own PRs only and `w` says so.
 | `mouse` | capture clicks and the wheel (on); off hands the mouse to the terminal so dragging selects and copies text, say from a CI log |
 | `daemon` | keep a background agenda fetching and notifying with no window open; the TUI starts one and paints from its cache (see [Daemon](#daemon)) |
 | `github.merge` | `m`/`M` in the review popup merge or enable auto-merge, after confirming |
+| `github.auto_approve_skim` | the daemon approves review requests labelled `reviewbot:skim`, once each, never your own or a draft; they stay listed, tagged `auto-approved`, for `github.auto_approve_linger` (24h) or until you open the detail and move on |
 | `github.sort`, `linear.sort`, `sessions.sort` | the sort each view opens on |
 | `theme.name` | `catppuccin-mocha`, `tokyonight`, `gruvbox`, `dracula`, `nord`, `rose-pine`, … |
 | `toggles: persist` | keep `d`/`c`/`t` and an expanded description across rows instead of per row, and keep a `ctrl+p` tree up after leaving it |
@@ -228,6 +229,9 @@ itself and keeps trying the socket). Desktop and `herdr` notifications come
 from the daemon and need no window; terminal toasts are forwarded to the
 windows that are open, and the ones raised while none was are handed to the
 next window that connects, with each in its message log (`!`).
+With `github.auto_approve_skim` on, the daemon is also the one process that
+approves `reviewbot:skim` PRs; its record of them, in the cache's
+`auto-approved.json`, is what keeps a restart from approving one again.
 
 ```sh
 agenda status    # client and daemon versions, pid, uptime, views, clients
