@@ -433,8 +433,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.view >= len(m.views) || msg.gen != m.refreshGen {
 			return m, nil
 		}
-		// Always reschedule; skip the refetch when one is already in flight.
-		if m.views[msg.view].Loading() {
+		// Always reschedule; skip the refetch when one is in flight or paused.
+		if p, ok := m.views[msg.view].(interface{ Paused() bool }); m.views[msg.view].Loading() || (ok && p.Paused()) {
 			return m, m.refreshTick(msg.view)
 		}
 		wasLoading := m.anyLoading()

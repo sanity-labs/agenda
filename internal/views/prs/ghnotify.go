@@ -1,10 +1,17 @@
 package prs
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/textproto"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -47,26 +54,132 @@ func (t ghThread) key() string {
 // notification is already read, so marks cleared elsewhere clear here too.
 type threadsReadMsg struct{ read map[string]bool }
 
-// fetchReadThreads lists notifications including the read ones and reports
-// which are read. Silent on failure: a sync that cannot run leaves the
-// local marks exactly as they were.
-func fetchReadThreads() tea.Cmd {
-	return func() tea.Msg {
-		// all=true is the point: the default list omits read threads, which
-		// are precisely the ones that clear a local mark.
-		out, err := exec.Command("gh", "api", "/notifications?all=true", "--paginate").Output()
+// notifSync is the known notification state, shared by every view because
+// they spend one quota. Only the first sync lists everything; later ones ask
+// for what changed since and merge by thread id.
+var notifSync struct {
+	mu      sync.Mutex
+	threads map[string]ghThread
+	lastMod string    // Last-Modified of the newest first page
+	since   time.Time // start of the last successful sync
+	fullAt  time.Time
+}
+
+// fullResync bounds how long a thread read elsewhere can go unnoticed: a
+// read may not bump the thread's updated time, so since= alone can miss it.
+const fullResync = time.Hour
+
+// Package variable so tests stand in for gh.
+var ghRun = func(args ...string) ([]byte, error) {
+	return exec.Command("gh", args...).Output()
+}
+
+// getNotifPage fetches one page with response headers. On a 304 gh exits
+// non-zero but the headers are on stdout, so the status is read first.
+func getNotifPage(path, ifModified string) (header http.Header, body []byte, notModified bool, err error) {
+	args := []string{"api", "-i", path}
+	if ifModified != "" {
+		args = append(args, "-H", "If-Modified-Since: "+ifModified)
+	}
+	out, err := ghRun(args...)
+	head, body, _ := bytes.Cut(out, []byte("\r\n\r\n"))
+	status, rest, _ := bytes.Cut(head, []byte("\n"))
+	if bytes.Contains(status, []byte(" 304")) {
+		return nil, nil, true, nil
+	}
+	if err != nil {
+		return nil, nil, false, cmdErrOut(err, out)
+	}
+	h, perr := textproto.NewReader(bufio.NewReader(bytes.NewReader(append(rest, "\r\n\r\n"...)))).ReadMIMEHeader()
+	if perr != nil {
+		return nil, nil, false, perr
+	}
+	return http.Header(h), body, false, nil
+}
+
+// syncThreads returns the PR keys whose notification is read, calling the
+// API as little as possible. ok is false when the sync could not run; rl is
+// set when that was the rate limit.
+func syncThreads() (read map[string]bool, ok bool, rl *rateLimitErr) {
+	notifSync.mu.Lock()
+	defer notifSync.mu.Unlock()
+	st := &notifSync
+	started := ghNow()
+	full := st.threads == nil || started.Sub(st.fullAt) >= fullResync
+	// all=true is the point: the default list omits read threads, which
+	// are precisely the ones that clear a local mark.
+	query := "/notifications?all=true&per_page=100"
+	ifMod := st.lastMod
+	if !full {
+		query += "&since=" + st.since.Add(-time.Minute).UTC().Format(time.RFC3339)
+	} else {
+		ifMod = ""
+	}
+	fresh := map[string]ghThread{}
+	lastMod := ""
+	for page := 1; ; page++ {
+		path := query
+		if page > 1 {
+			path += "&page=" + strconv.Itoa(page)
+		}
+		h, body, notModified, err := getNotifPage(path, ifMod)
 		if err != nil {
-			return nil
+			return nil, false, asRateLimit(err)
+		}
+		if notModified {
+			return readKeys(st.threads), true, nil
+		}
+		ifMod = ""
+		if page == 1 {
+			lastMod = h.Get("Last-Modified")
 		}
 		var threads []ghThread
-		if json.Unmarshal(out, &threads) != nil {
-			return nil
+		if json.Unmarshal(body, &threads) != nil {
+			return nil, false, nil
 		}
-		read := map[string]bool{}
 		for _, t := range threads {
-			if k := t.key(); k != "" && !t.Unread {
-				read[k] = true
+			fresh[t.ID] = t
+		}
+		if !strings.Contains(h.Get("Link"), `rel="next"`) {
+			break
+		}
+	}
+	if full {
+		st.threads, st.fullAt = fresh, started
+	} else {
+		for id, t := range fresh {
+			st.threads[id] = t
+		}
+	}
+	st.lastMod, st.since = lastMod, started
+	return readKeys(st.threads), true, nil
+}
+
+func readKeys(threads map[string]ghThread) map[string]bool {
+	read := map[string]bool{}
+	for _, t := range threads {
+		if k := t.key(); k != "" && !t.Unread {
+			read[k] = true
+		}
+	}
+	return read
+}
+
+// fetchReadThreads reports which PR notifications are read. Silent on
+// failure: a sync that cannot run leaves the local marks exactly as they were.
+func fetchReadThreads() tea.Cmd {
+	if _, paused := rateLimitedUntil(); paused {
+		return nil
+	}
+	return func() tea.Msg {
+		read, ok, rl := syncThreads()
+		if !ok {
+			// The search runs concurrently and may have lost the race to be
+			// first, so this is the only place that can post the notice.
+			if cmd := rl.post(); cmd != nil {
+				return cmd()
 			}
+			return nil
 		}
 		return threadsReadMsg{read: read}
 	}
@@ -76,9 +189,13 @@ func fetchReadThreads() tea.Cmd {
 // and github.com/notifications agree. Best-effort and silent: this is a
 // courtesy sync, and failing it must never interrupt reading a PR.
 func markThreadRead(repo string, number int) tea.Cmd {
+	if _, paused := rateLimitedUntil(); paused {
+		return nil
+	}
 	return func() tea.Msg {
 		out, err := exec.Command("gh", "api", "/notifications", "--paginate").Output()
 		if err != nil {
+			_ = cmdErr(err)
 			return nil
 		}
 		var threads []ghThread

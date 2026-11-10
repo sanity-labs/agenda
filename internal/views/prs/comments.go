@@ -365,13 +365,13 @@ const unresolveMutation = `mutation($thread: ID!) {
 // submitThreadReply posts a reply into an inline review thread.
 func submitThreadReply(from *View, url, threadID, body string) tea.Cmd {
 	return func() tea.Msg {
-		err := exec.Command("gh", "api", "graphql",
+		out, err := exec.Command("gh", "api", "graphql",
 			"-f", "query="+replyMutation,
 			"-f", "thread="+threadID,
 			"-f", "body="+body,
-		).Run()
+		).CombinedOutput()
 		if err != nil {
-			return threadDoneMsg{from: from, url: url, err: cmdErr(err)}
+			return threadDoneMsg{from: from, url: url, err: cmdErrOut(err, out)}
 		}
 		return threadDoneMsg{from: from, url: url, what: "replied"}
 	}
@@ -380,9 +380,9 @@ func submitThreadReply(from *View, url, threadID, body string) tea.Cmd {
 // submitTopComment posts a top-level PR comment via gh pr comment.
 func submitTopComment(from *View, url, repo string, num int, body string) tea.Cmd {
 	return func() tea.Msg {
-		err := exec.Command("gh", "pr", "comment", strconv.Itoa(num), "-R", repo, "--body", body).Run()
+		out, err := exec.Command("gh", "pr", "comment", strconv.Itoa(num), "-R", repo, "--body", body).CombinedOutput()
 		if err != nil {
-			return threadDoneMsg{from: from, url: url, err: cmdErr(err)}
+			return threadDoneMsg{from: from, url: url, err: cmdErrOut(err, out)}
 		}
 		return threadDoneMsg{from: from, url: url, what: "commented"}
 	}
@@ -397,12 +397,12 @@ func toggleResolve(from *View, url, threadID string, resolved bool) tea.Cmd {
 		what = "unresolved thread"
 	}
 	return func() tea.Msg {
-		err := exec.Command("gh", "api", "graphql",
+		out, err := exec.Command("gh", "api", "graphql",
 			"-f", "query="+mutation,
 			"-f", "thread="+threadID,
-		).Run()
+		).CombinedOutput()
 		if err != nil {
-			return threadDoneMsg{from: from, url: url, err: cmdErr(err)}
+			return threadDoneMsg{from: from, url: url, err: cmdErrOut(err, out)}
 		}
 		return threadDoneMsg{from: from, url: url, what: what}
 	}

@@ -1145,6 +1145,9 @@ func (v *View) Title() string {
 }
 
 func (v *View) Init() tea.Cmd {
+	if notice := pausedNotice(); notice != nil {
+		return notice
+	}
 	v.loading = true
 	// A refresh covers the jobs pane too: it is the retry for a fetch that
 	// failed, and otherwise refetches what is on screen.
@@ -1291,6 +1294,9 @@ func dropEmpty(prs []pr) []pr {
 // then reports `invalid character '<'`), so transient failures retry with a
 // short backoff before surfacing.
 func searchPRs(q string, size int, after string) (searchPage, error, error) {
+	if until, ok := rateLimitedUntil(); ok {
+		return searchPage{}, &rateLimitErr{until: until}, nil
+	}
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -1312,6 +1318,13 @@ func searchPRs(q string, size int, after string) (searchPage, error, error) {
 		out, err := exec.CommandContext(ctx, "gh", args...).Output()
 		cancel()
 		if err != nil {
+			// A retry would only extend a rate limit.
+			if rl := asRateLimit(cmdErr(err)); rl != nil {
+				return searchPage{}, rl, nil
+			}
+			if isRateLimit(string(out)) {
+				return searchPage{}, tripLimit(), nil
+			}
 			// gh exits non-zero when GraphQL reports errors, but the body is
 			// still on stdout: keep whatever rows came back.
 			if page, gqlErr, ok := decodeSearch(out); ok {
@@ -1324,6 +1337,9 @@ func searchPRs(q string, size int, after string) (searchPage, error, error) {
 		if !ok {
 			lastErr = fmt.Errorf("parsing gh output: unexpected response")
 			continue
+		}
+		if gqlErr != nil && len(page.prs) == 0 && isRateLimit(gqlErr.Error()) {
+			return searchPage{}, tripLimit(), nil
 		}
 		return page, nil, gqlErr
 	}
@@ -1437,6 +1453,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		before := v.list.Selected()
 		v.loading = false
 		v.minePage.loading = false
+		if rl := asRateLimit(msg.err); rl != nil {
+			if len(v.raw) == 0 {
+				v.err = rl
+			}
+			return rl.post()
+		}
 		// A partly forbidden search returns rows and an error together, so
 		// show the rows and raise the reason the rest are missing. With no
 		// rows at all but a cache on screen, the data is stale rather than
@@ -1478,6 +1500,13 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		before := v.list.Selected()
 		v.reviewLoading = false
 		v.reviewPage.loading = false
+		if rl := asRateLimit(msg.err); rl != nil {
+			if len(v.reviewRaw) == 0 {
+				v.reviewErr = rl
+				v.applySort()
+			}
+			return rl.post()
+		}
 		if msg.err != nil && len(msg.page.prs) == 0 {
 			v.reviewErr = msg.err
 			v.applySort() // the section separator shows the failure
@@ -2544,6 +2573,9 @@ func fallbackMethod(tried string, allowed map[string]bool) string {
 // mergeable" or a forbidden method is the useful part, and cmdErr would
 // reduce it to "exit status 1".
 func ghErr(err error, out []byte) error {
+	if isRateLimit(string(out)) {
+		return tripLimit()
+	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "X"))
 		if line != "" && !strings.HasPrefix(line, "!") {
@@ -2572,8 +2604,8 @@ func (v *View) submitReview(verdict string) tea.Cmd {
 	}
 	url := r.url
 	return func() tea.Msg {
-		if err := exec.Command("gh", args...).Run(); err != nil {
-			return reviewDoneMsg{from: v, err: cmdErr(err)}
+		if out, err := exec.Command("gh", args...).CombinedOutput(); err != nil {
+			return reviewDoneMsg{from: v, err: cmdErrOut(err, out)}
 		}
 		return reviewDoneMsg{from: v, what: what, url: url, state: state}
 	}
@@ -3061,6 +3093,9 @@ func dropDrafts(prs []pr) []pr {
 // those the viewer has already reviewed (so the dimmed rows below are
 // accounted for before you read them), or the fetch error if there was one.
 func (v *View) reviewLabel(rev []pr) string {
+	if rl := asRateLimit(v.reviewErr); rl != nil {
+		return "REVIEW REQUESTED  ·  " + rl.Error()
+	}
 	if v.reviewErr != nil {
 		return "REVIEW REQUESTED  ·  fetch failed (ctrl+r)"
 	}
@@ -3338,10 +3373,24 @@ func (v *View) ListView() string {
 	return header + "\n" + v.list.View()
 }
 
+// limitLine is the paused state, or a rate-limit error still on screen
+// from before the pause ended; "" when neither.
+func (v *View) limitLine() string {
+	if until, ok := rateLimitedUntil(); ok {
+		return (&rateLimitErr{until: until}).Error()
+	}
+	if rl := asRateLimit(v.err); rl != nil {
+		return rl.Error()
+	}
+	return ""
+}
+
 func (v *View) statusText() string {
 	switch {
 	case v.loading:
 		return "Loading PRs…"
+	case v.limitLine() != "":
+		return v.limitLine()
 	case v.err != nil:
 		return "Error (ctrl+r to retry)"
 	case v.flash != "":
@@ -4045,6 +4094,9 @@ func statusCmd(sev ui.Severity, err error) tea.Cmd {
 
 func cmdErr(err error) error {
 	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+		if isRateLimit(string(ee.Stderr)) {
+			return tripLimit()
+		}
 		return fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
 	}
 	return err

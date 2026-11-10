@@ -332,6 +332,9 @@ func (v *View) maybeFetchJobs() tea.Cmd {
 	if v.pane != paneJobs {
 		return nil
 	}
+	if _, paused := rateLimitedUntil(); paused {
+		return nil
+	}
 	p := v.list.Selected()
 	if p.URL == "" {
 		return nil

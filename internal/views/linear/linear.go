@@ -1909,6 +1909,9 @@ func (v *View) PreviewView() string {
 	return b.String()
 }
 
+// milestoneStyle is the project's yellow, muted so it reads as its child.
+var milestoneStyle = ui.Yellow.Faint(true)
+
 // sidebarMinW is the narrowest sidebar worth drawing; a pane too narrow
 // for it keeps the stacked layout.
 const sidebarMinW = 24
@@ -1931,7 +1934,7 @@ func (v *View) stackedDetail(b *strings.Builder, i issue) {
 		statusLine += "   " + ui.Yellow.Render("◇ "+i.Project.Name)
 	}
 	if m := i.ProjectMilestone.Name; m != "" {
-		statusLine += "   " + ui.Glyph(ui.IconMilestone, ">") + m
+		statusLine += "   " + milestoneStyle.Render(ui.Glyph(ui.IconMilestone, ">")+m)
 	}
 	b.WriteString(statusLine)
 	b.WriteByte('\n')
@@ -1985,7 +1988,7 @@ func (v *View) sidebar(i issue, w int) string {
 		add(ui.Yellow.Render("◇ " + i.Project.Name))
 	}
 	if m := i.ProjectMilestone.Name; m != "" {
-		add("  " + ui.Dim.Render("└") + " " + ui.Glyph(ui.IconMilestone, ">") + m)
+		add("  " + ui.Dim.Render("└") + " " + milestoneStyle.Render(ui.Glyph(ui.IconMilestone, ">")+m))
 	}
 	lines = append(lines, "")
 	section := func(name, body string) {
