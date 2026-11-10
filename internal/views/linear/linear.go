@@ -1377,6 +1377,8 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			v.jumpPending = v.jumpPending || (v.jumpComment != "" && msg.id == v.list.Selected().Identifier)
 		}
 		return nil
+	case relationMsg:
+		return v.updateRelation(msg)
 	case relatedMsg:
 		if st, ok := v.related[msg.id]; ok {
 			st.rel, st.err, st.done = msg.issue.relatedIssues(), msg.err, true

@@ -124,19 +124,23 @@ func (v *View) PrepareCommands() tea.Cmd {
 	}
 }
 
-// Commands implements ui.Commander: one "Status: X" per workflow state of
-// the selected issue's team, bar the one it is in, then subscribe or
-// unsubscribe.
+// Commands implements ui.Commander: Status (opens the team's workflow
+// states), Link related issue, then subscribe or unsubscribe.
 func (v *View) Commands() []ui.Command {
 	sel := v.list.Selected()
+	detail := sel.Identifier + " " + sel.Title
 	var cmds []ui.Command
-	for _, s := range v.states[sel.Identifier].states {
-		if s.Name == sel.State.Name {
-			continue
-		}
+	if st, ok := v.states[sel.Identifier]; ok {
 		cmds = append(cmds, ui.Command{
-			ID: "status:" + s.ID, Title: "Status: " + s.Name, Detail: sel.Identifier + " " + sel.Title,
-			Run: func() tea.Cmd { return v.setState(sel.Identifier, v.states[sel.Identifier].id, s) },
+			ID: "status", Title: "Status", Detail: detail, Aliases: []string{"state", "move"},
+			Next: func() *ui.Menu { return v.statusMenu(sel, st) },
+		})
+	}
+	if sel.Identifier != "" && v.token != "" {
+		cmds = append(cmds, ui.Command{
+			ID: "link", Title: "Link related issue", Detail: detail,
+			Aliases: []string{"mark", "relate", "relation", "block", "duplicate"},
+			Next:    func() *ui.Menu { return v.relationMenu(sel.Identifier) },
 		})
 	}
 	if st, ok := v.states[sel.Identifier]; ok {
@@ -150,6 +154,18 @@ func (v *View) Commands() []ui.Command {
 		})
 	}
 	return cmds
+}
+
+func (v *View) statusMenu(sel issue, st issueStates) *ui.Menu {
+	m := &ui.Menu{Title: "Status"}
+	for _, s := range st.states {
+		title, run := s.Name, func() tea.Cmd { return v.setState(sel.Identifier, st.id, s) }
+		if s.Name == sel.State.Name {
+			title, run = s.Name+" (current)", func() tea.Cmd { return nil }
+		}
+		m.Options = append(m.Options, ui.Command{ID: "status:" + s.ID, Title: title, Run: run})
+	}
+	return m
 }
 
 func (v *View) setSubscribed(ident, id string, on bool) tea.Cmd {

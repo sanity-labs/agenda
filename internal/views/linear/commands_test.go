@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 func TestStatusCommandsFromTeamStates(t *testing.T) {
@@ -39,15 +40,19 @@ func TestStatusCommandsFromTeamStates(t *testing.T) {
 	i.State.Name = "Todo"
 	v.Update(loadedMsg{issues: []issue{i}})
 
-	if len(v.Commands()) != 0 {
-		t.Fatal("no commands before the states are known")
+	if c := v.Commands(); len(c) != 1 || c[0].ID != "link" {
+		t.Fatalf("before the states are known only Link related issue is offered, got %+v", c)
 	}
 	v.Update(v.PrepareCommands()())
 	cmds := v.Commands()
-	if len(cmds) != 2 || cmds[0].Title != "Status: Done" || cmds[1].ID != "subscribe" {
-		t.Fatalf("commands = %+v, want Status: Done (current state left out) then subscribe", cmds)
+	if len(cmds) != 3 || cmds[0].Title != "Status" || cmds[1].ID != "link" || cmds[2].ID != "subscribe" {
+		t.Fatalf("commands = %+v, want one Status row, Link related issue, subscribe", cmds)
 	}
-	v.Update(cmds[0].Run()())
+	menu := cmds[0].Next()
+	if len(menu.Options) != 2 || menu.Options[0].Title != "Todo (current)" || menu.Options[1].Title != "Done" {
+		t.Fatalf("status options = %+v, want Todo (current) then Done", menu.Options)
+	}
+	v.Update(menu.Options[1].Run()())
 	mu.Lock()
 	defer mu.Unlock()
 	if !strings.Contains(mutation, `"id":"uuid-1"`) || !strings.Contains(mutation, `"stateId":"s2"`) {
@@ -94,16 +99,15 @@ func TestSubscribeCommandToggles(t *testing.T) {
 	v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1", Title: "x"}}})
 	v.Update(v.PrepareCommands()())
 
-	cmds := v.Commands()
-	if len(cmds) != 1 || cmds[0].Title != "Subscribe to issue" {
-		t.Fatalf("commands = %+v, want Subscribe to issue", cmds)
+	last := func() ui.Command { c := v.Commands(); return c[len(c)-1] }
+	if c := last(); c.Title != "Subscribe to issue" {
+		t.Fatalf("last command = %+v, want Subscribe to issue", c)
 	}
-	v.Update(cmds[0].Run()())
-	cmds = v.Commands()
-	if len(cmds) != 1 || cmds[0].Title != "Unsubscribe from issue" {
-		t.Fatalf("commands = %+v, want Unsubscribe from issue", cmds)
+	v.Update(last().Run()())
+	if c := last(); c.Title != "Unsubscribe from issue" {
+		t.Fatalf("last command = %+v, want Unsubscribe from issue", c)
 	}
-	v.Update(cmds[0].Run()())
+	v.Update(last().Run()())
 	mu.Lock()
 	defer mu.Unlock()
 	if len(mutations) != 2 || !strings.Contains(mutations[0], "issueSubscribe") ||
