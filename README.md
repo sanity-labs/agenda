@@ -105,6 +105,7 @@ own PRs only and `w` says so.
 | `mouse` | capture clicks and the wheel (on); off hands the mouse to the terminal so dragging selects and copies text, say from a CI log |
 | `daemon` | keep a background agenda fetching and notifying with no window open; the TUI starts one and paints from its cache (see [Daemon](#daemon)) |
 | `github.merge` | `m`/`M` in the review popup merge or enable auto-merge, after confirming |
+| `github.auto_approve_hours` | when the daemon may auto-approve: `business` (default, Monday to Friday 08:00 to 17:00 local time) or `always`; a PR outside the window waits for the next poll inside it |
 | `github.auto_approve_skim` | the daemon approves review requests labelled `reviewbot:skim`, once each, with a comment saying so; never your own, a draft, a PR behind its base or with conflicts, one whose CI is not all green (pending counts), or one marked WIP / do not merge / blocked / on hold / depends on / stacked on in its title, body or labels (re-checked every poll, so it is approved once it clears); they stay listed, tagged `auto-approved`, for `github.auto_approve_linger` (24h) or until you open the detail and move on |
 | `github.sort`, `linear.sort`, `sessions.sort` | the sort each view opens on |
 | `theme.name` | `catppuccin-mocha`, `tokyonight`, `gruvbox`, `dracula`, `nord`, `rose-pine`, … |

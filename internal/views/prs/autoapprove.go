@@ -85,11 +85,19 @@ func (p pr) notReadyReason() string {
 	return ""
 }
 
+func businessHours(t time.Time) bool {
+	d := t.Weekday()
+	return d != time.Saturday && d != time.Sunday && t.Hour() >= 8 && t.Hour() < 17
+}
+
 // autoApprove approves the review-requested rows carrying the skim label:
 // never your own, never a draft, never one you already approved, never one
 // that is not ready (re-checked every poll), and each at most once.
 func (v *View) autoApprove(page []pr) tea.Cmd {
 	if !v.headless || !v.cfg.AutoApproveSkim || v.reviewsElsewhere {
+		return nil
+	}
+	if v.cfg.ResolvedAutoApproveHours() == "business" && !businessHours(ghNow().In(time.Local)) {
 		return nil
 	}
 	var cmds []tea.Cmd

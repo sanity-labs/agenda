@@ -406,6 +406,12 @@ func settingsTable() []setting {
 		boolSetting("auto-approve reviewbot:skim", "github.auto_approve_skim", "",
 			func(c config.Config) bool { return c.GitHub.AutoApproveSkim },
 			func(c *config.Config, v bool) { c.GitHub.AutoApproveSkim = v }),
+		{
+			label: "auto-approve hours", path: "github.auto_approve_hours", kind: kindEnum,
+			options: func() []string { return []string{"business", "always"} },
+			get:     func(c config.Config) string { return c.GitHub.ResolvedAutoApproveHours() },
+			set:     func(c *config.Config, v string) { c.GitHub.AutoApproveHours = v },
+		},
 		withNote(durSetting("keep auto-approved for", "github.auto_approve_linger",
 			func(c config.Config) string {
 				return formatDur(config.Duration(c.GitHub.ResolvedAutoApproveLinger()))

@@ -28,8 +28,42 @@ func stubApprove(t *testing.T) *[][]string {
 		*calls = append(*calls, args)
 		return nil, nil
 	}
-	t.Cleanup(func() { ghCombined = prev })
+	prevNow := ghNow
+	ghNow = func() time.Time { return atLocal(2026, 11, 10, 12) }
+	t.Cleanup(func() { ghCombined, ghNow = prev, prevNow })
 	return calls
+}
+
+func atLocal(y int, m time.Month, d, h int) time.Time {
+	return time.Date(y, m, d, h, 0, 0, 0, time.Local)
+}
+
+func TestAutoApproveHours(t *testing.T) {
+	cases := []struct {
+		name, hours string
+		at          time.Time
+		want        int
+	}{
+		{"tuesday 03:00", "", atLocal(2026, 11, 10, 3), 0},
+		{"saturday noon", "", atLocal(2026, 11, 14, 12), 0},
+		{"tuesday 17:00", "", atLocal(2026, 11, 10, 17), 0},
+		{"tuesday 08:00", "", atLocal(2026, 11, 10, 8), 1},
+		{"tuesday noon", "business", atLocal(2026, 11, 10, 12), 1},
+		{"always at 03:00", "always", atLocal(2026, 11, 10, 3), 1},
+		{"always saturday", "always", atLocal(2026, 11, 14, 12), 1},
+	}
+	for _, c := range cases {
+		calls := stubApprove(t)
+		at := c.at
+		ghNow = func() time.Time { return at }
+		cfg := skimCfg()
+		cfg.AutoApproveHours = c.hours
+		d := daemonView(cfg, &recNotifier{})
+		runAuto(d, d.Update(reviewListMsg{page: searchPage{prs: []pr{skimPR("u1", 1)}}}))
+		if len(*calls) != c.want {
+			t.Errorf("%s: %d approvals, want %d", c.name, len(*calls), c.want)
+		}
+	}
 }
 
 func skimPR(url string, num int) pr {

@@ -258,6 +258,10 @@ github:
   # Only the daemon does it (needs daemon: true), so several windows never
   # approve twice. Off by default: it submits reviews in your name.
   auto_approve_skim: false
+  # When approvals may happen: business (Monday to Friday, 08:00 to 17:00
+  # local time) or always. Outside the window a PR waits for the next poll
+  # inside it.
+  auto_approve_hours: business
   # How long an auto-approved PR stays in the review list after its
   # approval, tagged "auto-approved", until you open its detail and move
   # on. 0 turns the lingering off.

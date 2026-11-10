@@ -331,6 +331,17 @@ type GitHubConfig struct {
 	// AutoApproveLinger keeps an auto-approved PR in the review list this
 	// long after its approval, tagged, until you look at it (default 24h).
 	AutoApproveLinger *Duration `yaml:"auto_approve_linger"`
+	// AutoApproveHours is "business" (default: Monday to Friday, 08:00 to
+	// 17:00 local time) or "always".
+	AutoApproveHours string `yaml:"auto_approve_hours"`
+}
+
+// ResolvedAutoApproveHours is AutoApproveHours, "business" unless "always".
+func (g GitHubConfig) ResolvedAutoApproveHours() string {
+	if g.AutoApproveHours == "always" {
+		return "always"
+	}
+	return "business"
 }
 
 // ResolvedAutoApproveLinger is AutoApproveLinger, 24h when unset.
