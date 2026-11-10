@@ -2,6 +2,9 @@ package linear
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -25,6 +28,11 @@ var relationKinds = []struct {
 	{"duplicated by", "duplicate", true},
 }
 
+type exactMsg struct {
+	i   issue
+	err error
+}
+
 type relationMsg struct {
 	ident, target, title string
 	err                  error
@@ -45,11 +53,25 @@ func (v *View) relationMenu(ident string) *ui.Menu {
 	return m
 }
 
-// searchOthers is Search without the issue being linked.
+var identRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*-\d+$`)
+
+// searchOthers is Search without the issue being linked. A typed identifier
+// is looked up exactly and put first: Linear's search is fuzzy and may not
+// return it.
 func (v *View) searchOthers(ident, q string, limit int) tea.Cmd {
 	search := v.Search(q, "", limit+1)
+	var exact tea.Cmd
+	if id := strings.ToUpper(strings.TrimSpace(q)); identRe.MatchString(id) {
+		exact = v.fetchIssue(id, func(i issue, err error) tea.Msg { return exactMsg{i, err} })
+	}
 	return func() tea.Msg {
 		res, _ := search().(ui.SearchResultsMsg)
+		if exact != nil {
+			if e, _ := exact().(exactMsg); e.err == nil && e.i.Identifier != "" {
+				ref := ui.IssueRef(e.i.Identifier, e.i.Title, e.i.URL, ui.IssueStatusIcon(e.i.State.Type, e.i.State.Name))
+				res.Results = append([]ui.Ref{ref}, slices.DeleteFunc(res.Results, func(r ui.Ref) bool { return r.ID == ref.ID })...)
+			}
+		}
 		kept := res.Results[:0]
 		for _, r := range res.Results {
 			if r.ID != ident && len(kept) < limit {

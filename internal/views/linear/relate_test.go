@@ -111,3 +111,25 @@ func TestLinkPickerLeavesOutTheIssueItself(t *testing.T) {
 		t.Errorf("results = %+v, want only SRE-2", res.Results)
 	}
 }
+
+// Linear's search is fuzzy, so a typed identifier is fetched exactly and
+// comes first.
+func TestLinkPickerFindsATypedIdentifier(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(b), "searchIssues") {
+			_, _ = w.Write([]byte(`{"data":{"searchIssues":{"nodes":[{"identifier":"SRE-3","title":"fuzzy"}]}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"identifier":"SRE-1234","title":"exact"}}}`))
+	}))
+	defer srv.Close()
+	old := endpoint
+	endpoint = srv.URL
+	defer func() { endpoint = old }()
+	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
+	res := v.searchOthers("SRE-1", "sre-1234", 10)().(ui.SearchResultsMsg)
+	if len(res.Results) != 2 || res.Results[0].ID != "SRE-1234" {
+		t.Errorf("results = %+v, want SRE-1234 first", res.Results)
+	}
+}
