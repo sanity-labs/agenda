@@ -60,8 +60,17 @@ func (m Model) WithStartupStatus(msg ui.StatusMsg) Model {
 // would have shown to the connected clients.
 func (m Model) withHeadless(emit func(event string, data any)) Model {
 	m.headless, m.emit = true, emit
+	for _, v := range m.views {
+		if r, ok := v.(headlessRunner); ok {
+			r.RunHeadless()
+		}
+	}
 	return m
 }
+
+// headlessRunner is a view with work only one process may do, such as
+// acting on GitHub in the user's name, which several windows would repeat.
+type headlessRunner interface{ RunHeadless() }
 
 // hookSeen points every view's seen hook at the daemon.
 func (m *Model) hookSeen() {

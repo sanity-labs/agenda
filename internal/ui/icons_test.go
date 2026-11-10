@@ -20,7 +20,7 @@ var allIcons = map[string]string{
 	"IconApproved": IconApproved,
 	"IconChanges":  IconChanges, "IconReviewReq": IconReviewReq,
 	"IconComment": IconComment, "IconDot": IconDot,
-	"IconSection": IconSection, "IconSearch": IconSearch, "IconIssue": IconIssue, "IconReset": IconReset, "IconUnread": IconUnread,
+	"IconSection": IconSection, "IconSearch": IconSearch, "IconIssue": IconIssue, "IconReset": IconReset, "IconUnread": IconUnread, "IconAutoApproved": IconAutoApproved,
 	"IconPillLeft": IconPillLeft, "IconPillRight": IconPillRight,
 	"IconTabPRs": IconTabPRs, "IconTabSessions": IconTabSessions,
 	"IconTabLinear": IconTabLinear, "IconNavMine": IconNavMine,

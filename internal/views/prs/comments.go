@@ -130,6 +130,9 @@ func (v *View) prByURL(url string) (pr, bool) {
 			}
 		}
 	}
+	if a, ok := v.auto[url]; ok && a.PR != nil {
+		return *a.PR, true // a lingering auto-approval
+	}
 	return pr{}, false
 }
 

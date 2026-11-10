@@ -324,6 +324,32 @@ type GitHubConfig struct {
 	// MergeDeleteBranch deletes the head branch after a successful merge,
 	// for repos that do not do it themselves. Off by default.
 	MergeDeleteBranch bool `yaml:"merge_delete_branch"`
+	// AutoApproveSkim has the daemon approve PRs labelled reviewbot:skim
+	// that wait on your review, once each. Off by default: it submits
+	// reviews in your name.
+	AutoApproveSkim bool `yaml:"auto_approve_skim"`
+	// AutoApproveLinger keeps an auto-approved PR in the review list this
+	// long after its approval, tagged, until you look at it (default 24h).
+	AutoApproveLinger *Duration `yaml:"auto_approve_linger"`
+	// AutoApproveHours is "business" (default: Monday to Friday, 08:00 to
+	// 17:00 local time) or "always".
+	AutoApproveHours string `yaml:"auto_approve_hours"`
+}
+
+// ResolvedAutoApproveHours is AutoApproveHours, "business" unless "always".
+func (g GitHubConfig) ResolvedAutoApproveHours() string {
+	if g.AutoApproveHours == "always" {
+		return "always"
+	}
+	return "business"
+}
+
+// ResolvedAutoApproveLinger is AutoApproveLinger, 24h when unset.
+func (g GitHubConfig) ResolvedAutoApproveLinger() time.Duration {
+	if g.AutoApproveLinger == nil {
+		return 24 * time.Hour
+	}
+	return time.Duration(*g.AutoApproveLinger)
 }
 
 // RefreshRowEnabled reports whether the selected PR is re-read on settle.

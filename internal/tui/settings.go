@@ -134,6 +134,8 @@ func durSetting(label, path string, get func(config.Config) string, set func(*co
 	}
 }
 
+func withNote(s setting, note string) setting { s.note = note; return s }
+
 func parseDur(s string) (config.Duration, error) {
 	switch strings.TrimSpace(s) {
 	case "", "0", "off", "none":
@@ -401,6 +403,20 @@ func settingsTable() []setting {
 		boolSetting("delete branch after merge", "github.merge_delete_branch", noteReload,
 			func(c config.Config) bool { return c.GitHub.MergeDeleteBranch },
 			func(c *config.Config, v bool) { c.GitHub.MergeDeleteBranch = v }),
+		boolSetting("auto-approve reviewbot:skim", "github.auto_approve_skim", "",
+			func(c config.Config) bool { return c.GitHub.AutoApproveSkim },
+			func(c *config.Config, v bool) { c.GitHub.AutoApproveSkim = v }),
+		{
+			label: "auto-approve hours", path: "github.auto_approve_hours", kind: kindEnum,
+			options: func() []string { return []string{"business", "always"} },
+			get:     func(c config.Config) string { return c.GitHub.ResolvedAutoApproveHours() },
+			set:     func(c *config.Config, v string) { c.GitHub.AutoApproveHours = v },
+		},
+		withNote(durSetting("keep auto-approved for", "github.auto_approve_linger",
+			func(c config.Config) string {
+				return formatDur(config.Duration(c.GitHub.ResolvedAutoApproveLinger()))
+			},
+			func(c *config.Config, d config.Duration) { c.GitHub.AutoApproveLinger = &d }), noteReload),
 		header("Linear"),
 		sortSetting("linear.sort", config.LinearSortNames,
 			func(c config.Config) string { return c.Linear.Sort },
