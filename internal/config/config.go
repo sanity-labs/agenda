@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -304,6 +305,9 @@ type GitHubConfig struct {
 	// HideDependencyBots leaves Renovate and Dependabot PRs out of the
 	// review-requested search. Off by default: some teams do review them.
 	HideDependencyBots bool `yaml:"hide_dependency_bots"`
+	// ReviewMaxAge leaves out review requests on PRs nobody has touched
+	// for longer than this. Zero (default) keeps them all.
+	ReviewMaxAge Duration `yaml:"review_max_age"`
 	// RefreshRow re-reads the selected PR once the cursor stops moving, so
 	// check state and review decisions are current on the row you are
 	// about to act on rather than as of the last full refresh. On by
@@ -338,15 +342,25 @@ var dependencyBots = []string{"-author:app/renovate", "-author:app/dependabot"}
 // search rather than on the fetched rows because bots can be most of a
 // queue, and dropping them from a page would leave it near empty with a
 // count that still includes them.
-func (g GitHubConfig) ReviewQuery() string {
+func (g GitHubConfig) ReviewQuery() string { return g.reviewQueryAt(time.Now()) }
+
+func (g GitHubConfig) reviewQueryAt(now time.Time) string {
 	q := g.ReviewFilter
-	if !g.HideDependencyBots {
-		return q
-	}
-	for _, term := range dependencyBots {
-		if !strings.Contains(q, term) {
-			q = strings.TrimSpace(q + " " + term)
+	if g.HideDependencyBots {
+		for _, term := range dependencyBots {
+			if !strings.Contains(q, term) {
+				q = strings.TrimSpace(q + " " + term)
+			}
 		}
+	}
+	if g.ReviewMaxAge > 0 {
+		// Search cannot see when the review was requested, but requesting
+		// one bumps the PR's updated time, so updated never hides a fresh
+		// request on an old PR the way created would. The cutoff is cut to
+		// the hour so the query, and the page cursors issued for it, hold
+		// still between fetches.
+		cutoff := now.Add(-time.Duration(g.ReviewMaxAge)).UTC().Truncate(time.Hour)
+		q = strings.TrimSpace(q + " updated:>=" + cutoff.Format("2006-01-02T15:04:05Z"))
 	}
 	return q
 }
@@ -673,7 +687,7 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 		*d = 0
 		return nil
 	}
-	dur, err := time.ParseDuration(s)
+	dur, err := ParseDuration(s)
 	if err != nil {
 		return fmt.Errorf("line %d: invalid duration %q", n.Line, s)
 	}
@@ -686,6 +700,42 @@ func (d Duration) MarshalYAML() (any, error) {
 		return "0", nil
 	}
 	return time.Duration(d).String(), nil
+}
+
+// ParseDuration is time.ParseDuration plus d (24h) and w (7d), since the
+// ages people mean for a review queue are counted in days. Units combine as
+// in Go ("1w2d", "1d12h"); m stays minutes.
+func ParseDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	var total time.Duration
+	rest := s
+	for rest != "" {
+		i := strings.IndexAny(rest, "dw")
+		if i < 0 {
+			break
+		}
+		n, err := strconv.ParseFloat(rest[:i], 64)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("invalid duration %q", s)
+		}
+		unit := 24 * time.Hour
+		if rest[i] == 'w' {
+			unit *= 7
+		}
+		total += time.Duration(n * float64(unit))
+		rest = rest[i+1:]
+	}
+	if rest == "" {
+		if rest == s {
+			return 0, fmt.Errorf("invalid duration %q", s)
+		}
+		return total, nil
+	}
+	d, err := time.ParseDuration(rest)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q", s)
+	}
+	return total + d, nil
 }
 
 // Chord is one action's key list. It unmarshals from either a single scalar

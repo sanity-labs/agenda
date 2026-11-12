@@ -134,14 +134,19 @@ func durSetting(label, path string, get func(config.Config) string, set func(*co
 	}
 }
 
+func withNote(note string, s setting) setting {
+	s.note = note
+	return s
+}
+
 func parseDur(s string) (config.Duration, error) {
 	switch strings.TrimSpace(s) {
 	case "", "0", "off", "none":
 		return 0, nil
 	}
-	d, err := time.ParseDuration(s)
+	d, err := config.ParseDuration(s)
 	if err != nil {
-		return 0, fmt.Errorf("not a duration (try 5m, 90s, 0)")
+		return 0, fmt.Errorf("not a duration (try 5m, 90s, 7d, 0)")
 	}
 	return config.Duration(d), nil
 }
@@ -149,6 +154,9 @@ func parseDur(s string) (config.Duration, error) {
 func formatDur(d config.Duration) string {
 	if d == 0 {
 		return "0"
+	}
+	if day := 24 * time.Hour; time.Duration(d)%day == 0 {
+		return strconv.FormatInt(int64(time.Duration(d)/day), 10) + "d"
 	}
 	s := time.Duration(d).String()
 	if strings.HasSuffix(s, "m0s") {
@@ -347,6 +355,9 @@ func settingsTable() []setting {
 		boolSetting("hide dependency bots", "github.hide_dependency_bots", noteReload,
 			func(c config.Config) bool { return c.GitHub.HideDependencyBots },
 			func(c *config.Config, v bool) { c.GitHub.HideDependencyBots = v }),
+		withNote(noteReload, durSetting("review max age", "github.review_max_age",
+			func(c config.Config) string { return formatDur(c.GitHub.ReviewMaxAge) },
+			func(c *config.Config, d config.Duration) { c.GitHub.ReviewMaxAge = d })),
 		header("Fetching"),
 		boolSetting("lazy paging", "github.lazy_paging", noteReload,
 			func(c config.Config) bool { return c.GitHub.LazyPagingEnabled() },
