@@ -10,7 +10,19 @@ import (
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
-func (v *View) PrepareCommands() tea.Cmd { return nil }
+// PrepareCommands fetches the selected PR's threads, so "Resolve threads"
+// can hide itself when there are none.
+func (v *View) PrepareCommands() tea.Cmd {
+	p := v.list.Selected()
+	if _, started := v.comments[p.URL]; p.URL == "" || started {
+		return nil
+	}
+	if v.comments == nil {
+		v.comments = map[string]*commentsState{}
+	}
+	v.comments[p.URL] = &commentsState{}
+	return v.fetchCommentsCmd(p)
+}
 
 // Commands implements ui.Commander: what the review popup offers, plus the
 // branch and draft actions, on the selected PR. The verdicts and merge go
@@ -52,6 +64,11 @@ func (v *View) Commands() []ui.Command {
 	} else {
 		cmds = append(cmds, ui.Command{ID: "draft", Title: "Mark as draft",
 			Run: gh(name+" is a draft", "pr", "ready", num, "-R", repo, "--undo")})
+	}
+	if st := v.comments[p.URL]; st == nil || !st.done || st.err != nil || len(unresolved(st.data.ReviewThreads.Nodes)) > 0 {
+		cmds = append(cmds, ui.Command{ID: "resolve-threads", Title: "Resolve threads…",
+			Aliases: []string{"resolve", "threads", "comments"},
+			Run:     func() tea.Cmd { return v.openWalk(p) }})
 	}
 	cmds = append(cmds, ui.Command{ID: "close", Title: "Close with comment", Run: func() tea.Cmd {
 		v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number, verdict: "close"}
