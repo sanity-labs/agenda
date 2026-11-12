@@ -306,6 +306,9 @@ linear:
   # projects) on startup. ctrl+p toggles it in-app either way; left/right
   # move between the tree and the list.
   nav: false
+  # left from the list opens and focuses the tree even when hidden; right in
+  # the tree picks the highlighted entry, like enter.
+  arrow_tree: false
   # Issue detail as the description beside a sidebar (status, project,
   # milestone, labels, pull requests, related issues). Needs a wide pane;
   # narrower ones, and false, keep the stacked layout.

@@ -359,3 +359,60 @@ func TestLeavingCtrlPTreeHidesIt(t *testing.T) {
 		t.Error("leaving a reopened linear.nav tree hid it")
 	}
 }
+
+func arrowView(t *testing.T, on bool) *View {
+	t.Helper()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.LinearConfig{Token: "t", ArrowTree: on}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1", Title: "t"}}, source: v.defaultSource})
+	return v
+}
+
+// With linear.arrow_tree, left from the list brings a hidden tree up and
+// focuses it like ctrl+p, and the tree hides again when the keys leave it.
+func TestArrowTreeLeftOpensHiddenTree(t *testing.T) {
+	left := tea.KeyPressMsg{Code: tea.KeyLeft}
+
+	v := arrowView(t, true)
+	v.Update(left)
+	if !v.navShown || !v.navFocus || !v.navTemp {
+		t.Fatalf("left: shown=%v focus=%v temp=%v, want a focused ephemeral tree", v.navShown, v.navFocus, v.navTemp)
+	}
+	if !strings.Contains(ansi.Strip(v.navView()), "My Issues") {
+		t.Error("the tree did not render")
+	}
+	v.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if v.navShown || v.navFocus {
+		t.Errorf("leaving: shown=%v focus=%v, want it hidden again", v.navShown, v.navFocus)
+	}
+
+	v = arrowView(t, false)
+	v.Update(left)
+	if v.navShown || v.navFocus {
+		t.Errorf("key off: shown=%v focus=%v, want left to do nothing", v.navShown, v.navFocus)
+	}
+}
+
+// With linear.arrow_tree, right in the tree is enter: it picks the
+// highlighted source. Off, right only hands the keys back.
+func TestArrowTreeRightPicks(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		v := arrowView(t, on)
+		v.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+		for i, it := range v.navItems {
+			if !it.header && it.source != v.source {
+				v.navSel = i
+				break
+			}
+		}
+		want := v.navItems[v.navSel].source
+		cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+		if v.navFocus {
+			t.Errorf("on=%v: the tree kept the keys", on)
+		}
+		if got := v.source == want; got != on || (cmd != nil) != on {
+			t.Errorf("on=%v: source applied=%v refetch=%v", on, got, cmd != nil)
+		}
+	}
+}

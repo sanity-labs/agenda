@@ -115,7 +115,11 @@ pane hands the keys to the list, and only the list hands them to the tree.
 it, or just focuses it when it is already up (a permanently-on tree
 included); pressed with the tree focused, it hides it. Under ephemeral
 `toggles` a tree ctrl+p brought up also hides when the keys leave it
-(`→`, `esc`, `enter`, a click in the list); a `linear.nav` tree stays. Taking the keys
+(`→`, `esc`, `enter`, a click in the list); a `linear.nav` tree stays. With `linear.arrow_tree`
+on, `←` from the list does what `ctrl+p` does even when the tree is hidden
+(the same ephemeral hide on leaving), and `→` in the tree is `enter`: it
+picks the highlighted entry. The tree is flat, so `→` has nothing to
+expand. Taking the keys
 there closes whatever pane or float is open, so the tree never becomes a
 fourth thing to arrow between. Stepping an open comments
 pane back to the description beside a list is `esc`. The two previews are headed alike (Description, Comments),

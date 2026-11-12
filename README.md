@@ -193,6 +193,7 @@ last page is in, and `fetching more…` with the tab spinner while a page is on 
 the description beside a sidebar (status, project, milestone, labels, pull
 requests, related issues) when the pane is about 96 columns or wider;
 `linear.detail_sidebar: false` keeps the stacked layout.
+`linear.arrow_tree: true` makes `←` from the list open the project pane and `→` in it pick the highlighted entry.
 
 The Inbox shows one row per issue, dim once read. A comment notification
 opens (`v`) on the comments, scrolled to that comment; `←` steps back to the

@@ -1212,6 +1212,38 @@ func appendIssues(have, more []issue) []issue {
 	return have
 }
 
+// toggleNav is ctrl+p; see the comment inside.
+func (v *View) toggleNav() tea.Cmd {
+	// ctrl+p is "take me to the tree": it shows the tree and puts the
+	// keys in it, or just focuses it when the tree is already up (a
+	// permanently-on tree included). Pressed with the tree focused,
+	// it hides the tree.
+	switch {
+	case !v.navShown:
+		v.navShown, v.navFocus, v.navTemp = true, true, !v.togglesPersist && !v.navPinned
+	case !v.navFocus:
+		v.navFocus = true
+	default:
+		v.navShown, v.navFocus, v.navTemp = false, false, false
+	}
+	// The tree is a different place to be: whatever pane was open
+	// closes rather than three things competing for the arrows.
+	var cmds []tea.Cmd
+	if v.navFocus {
+		if v.floatReveal {
+			cmds = append(cmds, v.closeFloat())
+		} else {
+			v.showComments, v.commentsJumped, v.paneFocus = v.cfgShowComments, false, false
+		}
+	}
+	v.resizeList()
+	if v.navShown && !v.favsLoaded {
+		v.favsLoaded = true
+		cmds = append(cmds, v.fetchFavs())
+	}
+	return tea.Batch(cmds...)
+}
+
 // Update handles a message, then fetches the selected issue's relations
 // if the selection is on an issue it has not fetched for yet. The
 // selection moves in many ways (keys, a load, a cache repaint from the
@@ -1447,34 +1479,7 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 		// The nav pane toggle works regardless of focus; while the tree has
 		// focus it takes the navigation keys.
 		if key.Matches(msg, v.keys.Nav) {
-			// ctrl+p is "take me to the tree": it shows the tree and puts the
-			// keys in it, or just focuses it when the tree is already up (a
-			// permanently-on tree included). Pressed with the tree focused,
-			// it hides the tree.
-			switch {
-			case !v.navShown:
-				v.navShown, v.navFocus, v.navTemp = true, true, !v.togglesPersist && !v.navPinned
-			case !v.navFocus:
-				v.navFocus = true
-			default:
-				v.navShown, v.navFocus, v.navTemp = false, false, false
-			}
-			// The tree is a different place to be: whatever pane was open
-			// closes rather than three things competing for the arrows.
-			var cmds []tea.Cmd
-			if v.navFocus {
-				if v.floatReveal {
-					cmds = append(cmds, v.closeFloat())
-				} else {
-					v.showComments, v.commentsJumped, v.paneFocus = v.cfgShowComments, false, false
-				}
-			}
-			v.resizeList()
-			if v.navShown && !v.favsLoaded {
-				v.favsLoaded = true
-				cmds = append(cmds, v.fetchFavs())
-			}
-			return tea.Batch(cmds...)
+			return v.toggleNav()
 		}
 		if v.navFocus {
 			return v.updateNav(msg)
@@ -1495,6 +1500,8 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			case !v.paneFocus && v.showComments && msg.String() == "right":
 				v.paneFocus = true
 				return ui.RevealPreview
+			case !v.navShown && v.cfg.ArrowTree && msg.String() == "left":
+				return v.toggleNav()
 			case v.navShown && msg.String() == "left":
 				v.navFocus = true
 				return nil

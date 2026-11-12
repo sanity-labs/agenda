@@ -227,7 +227,12 @@ func (v *View) updateNav(msg tea.KeyMsg) tea.Cmd {
 		for range max(v.jump, 1) {
 			v.navMove(d)
 		}
-	case "right", "esc":
+	case "right":
+		if v.cfg.ArrowTree {
+			return v.applyNav()
+		}
+		v.leaveNav()
+	case "esc":
 		v.leaveNav()
 	case "enter":
 		return v.applyNav()
