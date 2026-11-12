@@ -98,6 +98,7 @@ type Model struct {
 	// quick-search box (nil unless open), over the view it searches.
 	search     *ui.SearchBox
 	searchView int
+	menus      []*ui.Menu // open palette levels below the top
 	searchGen  int
 
 	// config overlay (nil unless open).

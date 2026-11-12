@@ -1377,6 +1377,8 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			v.jumpPending = v.jumpPending || (v.jumpComment != "" && msg.id == v.list.Selected().Identifier)
 		}
 		return nil
+	case relationMsg:
+		return v.updateRelation(msg)
 	case relatedMsg:
 		if st, ok := v.related[msg.id]; ok {
 			st.rel, st.err, st.done = msg.issue.relatedIssues(), msg.err, true
@@ -2369,7 +2371,7 @@ func (v *View) SetFilter(query string, enabled []string, caseSensitive bool) {
 // scroll resets on toggle and re-renders when comments land.
 func (v *View) PreviewKey() string {
 	sel := v.list.Selected()
-	k := sel.Identifier + "#" + sel.State.Name
+	k := fmt.Sprintf("%s#%s#p%d", sel.Identifier, sel.State.Name, sel.Priority)
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
 	}
