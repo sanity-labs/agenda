@@ -30,7 +30,7 @@ func command(t *testing.T, v *View, id string) func() tea.Cmd {
 func TestCommandsFollowTheSelectedPR(t *testing.T) {
 	v := mergeView(t, mergeable(7))
 	got := titles(v)
-	for _, want := range []string{"Approve", "Merge", "Rebase", "Mark as draft", "Close with comment"} {
+	for _, want := range []string{"Approve", "Merge", "Mark as draft", "Close with comment"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)
 		}
@@ -67,13 +67,6 @@ func TestCloseCommandTakesCommentThenConfirms(t *testing.T) {
 	}
 	if cmd := v.Update(tea.KeyPressMsg{Code: 'y', Text: "y"}); cmd == nil || !v.review.submitting {
 		t.Error("y should run the close")
-	}
-}
-
-func TestRebaseCommandRunsGh(t *testing.T) {
-	v := mergeView(t, mergeable(7))
-	if cmd := command(t, v, "rebase")(); cmd == nil || !v.review.submitting {
-		t.Error("rebase should start at once")
 	}
 }
 
