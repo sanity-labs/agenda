@@ -54,6 +54,14 @@ type subscribedMsg struct {
 	err   error
 }
 
+type prioritySetMsg struct {
+	ident string
+	to    int
+	err   error
+}
+
+var priorityNames = []string{"No priority", "Urgent", "High", "Medium", "Low"}
+
 type stateSetMsg struct {
 	ident string
 	to    workflowState
@@ -138,6 +146,11 @@ func (v *View) Commands() []ui.Command {
 	}
 	if sel.Identifier != "" && v.token != "" {
 		cmds = append(cmds, ui.Command{
+			ID: "priority", Title: "Priority", Detail: priorityNames[sel.Priority%len(priorityNames)] + "  " + detail,
+			Aliases: []string{"prio", "p1", "p2", "p3", "p4"},
+			Next:    func() *ui.Menu { return v.priorityMenu(sel) },
+		})
+		cmds = append(cmds, ui.Command{
 			ID: "link", Title: "Link related issue", Detail: detail,
 			Aliases: []string{"mark", "relate", "relation", "block", "duplicate"},
 			Next:    func() *ui.Menu { return v.relationMenu(sel.Identifier) },
@@ -166,6 +179,29 @@ func (v *View) statusMenu(sel issue, st issueStates) *ui.Menu {
 		m.Options = append(m.Options, ui.Command{ID: "status:" + s.ID, Title: title, Run: run})
 	}
 	return m
+}
+
+func (v *View) priorityMenu(sel issue) *ui.Menu {
+	m := &ui.Menu{Title: "Priority"}
+	for p, name := range priorityNames {
+		title, run := name, func() tea.Cmd { return v.setPriority(sel.Identifier, p) }
+		if p == sel.Priority {
+			title, run = name+" (current)", func() tea.Cmd { return nil }
+		}
+		m.Options = append(m.Options, ui.Command{ID: "priority:" + name, Title: title, Run: run})
+	}
+	return m
+}
+
+func (v *View) setPriority(ident string, to int) tea.Cmd {
+	return func() tea.Msg {
+		var out struct{ IssueUpdate struct{ Success bool } }
+		err := v.post(stateMutation, map[string]any{"id": ident, "input": map[string]any{"priority": to}}, &out)
+		if err == nil && !out.IssueUpdate.Success {
+			err = fmt.Errorf("linear: issueUpdate was not successful")
+		}
+		return prioritySetMsg{ident: ident, to: to, err: err}
+	}
 }
 
 func (v *View) setSubscribed(ident, id string, on bool) tea.Cmd {
@@ -224,6 +260,21 @@ func (v *View) updateStates(msg tea.Msg) (tea.Cmd, bool) {
 			func() tea.Msg { return ui.CommandsChangedMsg{} },
 			func() tea.Msg { return ui.ToastMsg{Title: "Linear", Body: body} },
 		), true
+	case prioritySetMsg:
+		if msg.err != nil {
+			return func() tea.Msg {
+				return ui.Status(ui.SeverityError, "Linear", "could not change priority of "+msg.ident, msg.err.Error())
+			}, true
+		}
+		for i := range v.raw {
+			if v.raw[i].Identifier == msg.ident {
+				v.raw[i].Priority, v.raw[i].PriorityLabel = msg.to, priorityNames[msg.to]
+			}
+		}
+		v.applySort()
+		return func() tea.Msg {
+			return ui.ToastMsg{Title: "Linear", Body: msg.ident + " priority is now " + priorityNames[msg.to]}
+		}, true
 	case stateSetMsg:
 		if msg.err != nil {
 			return func() tea.Msg {
