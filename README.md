@@ -128,7 +128,7 @@ them elsewhere).
 |---|---|---|
 | Global | `tab` / `shift+tab`, `1`…`9` | switch view |
 | Global | `/`, `f` | filter the loaded rows (fuzzy on word starts, plus GitHub-style terms like `-label:x is:draft`); field-scoped filter popup. `esc` clears it |
-| Global | `cmd+k`, `ctrl+k` | quick search. PRs: a number finds that issue or PR in every loaded repo, plus open ones it prefixes; words offer a repo to narrow to (yours, or any in the same orgs), then search inside it. Linear: searches the whole workspace. Shows `search_results` hits (default 5) in the view's sort order; `enter` opens one like a cross-reference, past any filter. It is also a command palette: the matching commands for the selected item come first (typing `mer` finds Merge). PRs: approve, comment, request changes, merge and auto-merge (as in `r`, same confirmations), rebase, mark draft or ready, close with comment, resolve threads, add reviewer, and remove each requested reviewer. Linear: `Status: <state>` for each workflow state of the issue's team, and `Subscribe to issue` / `Unsubscribe from issue` |
+| Global | `cmd+k`, `ctrl+k` | quick search. PRs: a number finds that issue or PR in every loaded repo, plus open ones it prefixes; words offer a repo to narrow to (yours, or any in the same orgs), then search inside it. Linear: searches the whole workspace. Shows `search_results` hits (default 5) in the view's sort order; `enter` opens one like a cross-reference, past any filter. It is also a command palette: the matching commands for the selected item come first (typing `mer` finds Merge). PRs: approve, comment, request changes, merge and auto-merge (as in `r`, same confirmations), rebase onto the base branch when GitHub says it is behind or it conflicts (run with your git in a temporary worktree of the `ghq` clone, so commits are signed as you sign them, then force-pushed with a lease after a `y`; a fork's branch is refused), mark draft or ready, close with comment, resolve threads, add reviewer, and remove each requested reviewer. Linear: `Status: <state>` for each workflow state of the issue's team, and `Subscribe to issue` / `Unsubscribe from issue` |
 | Global | `→` / `←` | give the keys to the pane / back to the list; in a float, `←` steps a level out |
 | Global | `esc` | step back: focus, then the pane, then a float, then zoom. Never quits |
 | Global | `v`, `z` | show/hide (or float) the preview; zoom it |
@@ -193,6 +193,7 @@ last page is in, and `fetching more…` with the tab spinner while a page is on 
 the description beside a sidebar (status, project, milestone, labels, pull
 requests, related issues) when the pane is about 96 columns or wider;
 `linear.detail_sidebar: false` keeps the stacked layout.
+`linear.arrow_tree: true` makes `←` from the list open the project pane and `→` in it pick the highlighted entry.
 
 The Inbox shows one row per issue, dim once read. A comment notification
 opens (`v`) on the comments, scrolled to that comment; `←` steps back to the

@@ -414,6 +414,9 @@ type LinearConfig struct {
 	// sidebar (status, project, milestone, labels, PRs, related issues).
 	// On unless false: the stacked layout is detail_sidebar: false.
 	DetailSidebar *bool `yaml:"detail_sidebar"`
+	// ArrowTree makes left from the list open and focus the tree, and right
+	// in the tree act as enter. Off by default.
+	ArrowTree bool `yaml:"arrow_tree"`
 	// Triage adds a Triage entry to the tree: issues in triage for your
 	// teams (or filter.teams). Off by default.
 	Triage bool `yaml:"triage"`

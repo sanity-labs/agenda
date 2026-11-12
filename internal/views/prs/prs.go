@@ -45,22 +45,27 @@ type label struct {
 // non-empty Separator is a divider, not a pull request: the mine/review
 // section split, or (with Group set) a swimlane header.
 type pr struct {
-	Separator      string    `json:"-"`
-	Group          bool      `json:"-"`
-	Number         int       `json:"number"`
-	Title          string    `json:"title"`
-	URL            string    `json:"url"`
-	State          string    `json:"state"`
-	IsDraft        bool      `json:"isDraft"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	HeadRefName    string    `json:"headRefName"`
-	BaseRefName    string    `json:"baseRefName"`
-	Additions      int       `json:"additions"`
-	Deletions      int       `json:"deletions"`
-	Mergeable      string    `json:"mergeable"`
-	ReviewDecision string    `json:"reviewDecision"`
-	Body           string    `json:"body"`
-	Author         struct {
+	Separator   string    `json:"-"`
+	Group       bool      `json:"-"`
+	Number      int       `json:"number"`
+	Title       string    `json:"title"`
+	URL         string    `json:"url"`
+	State       string    `json:"state"`
+	IsDraft     bool      `json:"isDraft"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	HeadRefName string    `json:"headRefName"`
+	BaseRefName string    `json:"baseRefName"`
+	Additions   int       `json:"additions"`
+	Deletions   int       `json:"deletions"`
+	Mergeable   string    `json:"mergeable"`
+	// ViewerCanUpdateBranch is GitHub's own "behind its base and you can
+	// push to it", which offers the rebase command.
+	ViewerCanUpdateBranch bool   `json:"viewerCanUpdateBranch"`
+	IsCrossRepository     bool   `json:"isCrossRepository"`
+	ViewerDidAuthor       bool   `json:"viewerDidAuthor"`
+	ReviewDecision        string `json:"reviewDecision"`
+	Body                  string `json:"body"`
+	Author                struct {
 		Login string `json:"login"`
 	} `json:"author"`
 	ViewerLatestReview struct {
@@ -869,7 +874,9 @@ type reviewFlow struct {
 
 // standalone is a verdict opened from cmd+k: esc closes the popup, as there
 // is no picker to go back to.
-func (r *reviewFlow) standalone() bool { return r.verdict == "close" || r.verdict == "add-reviewer" }
+func (r *reviewFlow) standalone() bool {
+	return r.verdict == "close" || r.verdict == "add-reviewer" || r.verdict == "rebase"
+}
 
 // reviewOption is one popup entry: a hotkey, a label, and the gh verdict
 // ("" for entries that are not a review submission).
@@ -1177,6 +1184,7 @@ const prFragment = `
 fragment prFields on PullRequest {
   number title url state isDraft updatedAt headRefName baseRefName
   additions deletions mergeable reviewDecision body
+  viewerCanUpdateBranch isCrossRepository viewerDidAuthor
   viewerLatestReview { state }
   latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
   reviewRequests(first: 10) { nodes { requestedReviewer {
@@ -1645,6 +1653,9 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 				what = msg.what
 			}
 			v.flash = ui.Red.Render(what + ": " + msg.err.Error())
+			if msg.toast {
+				return func() tea.Msg { return ui.ToastMsg{Title: what, Body: msg.err.Error()} }
+			}
 			return nil
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
@@ -1658,6 +1669,10 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		// Review submitted: you are done with this one, so the diff or
 		// comments pane you opened to review it folds away with the reveal.
 		v.resetToggles()
+		if msg.toast {
+			return tea.Batch(ui.ConcealPreview, v.fetch(),
+				func() tea.Msg { return ui.ToastMsg{Title: msg.what, Success: true} })
+		}
 		return tea.Batch(ui.ConcealPreview, v.fetch())
 	case commentsMsg:
 		if st, ok := v.comments[msg.url]; ok {
@@ -2146,6 +2161,9 @@ type reviewDoneMsg struct {
 	// optimistically so the row dims before the refetch lands.
 	state string
 	err   error
+	// toast repeats the outcome as a toast, for work long enough that the
+	// popup may have been looked away from.
+	toast bool
 }
 
 // updateReview handles keys while the review popup is open: pick an option
@@ -2170,12 +2188,19 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 			if what == "approve" {
 				return v.submitReview("approve")
 			}
+			if what == "rebase" {
+				return v.submitRebase()
+			}
 			if what == "close" {
 				return v.submitGh("closed "+r.repo+"#"+strconv.Itoa(r.num),
 					"pr", "close", strconv.Itoa(r.num), "-R", r.repo, "--comment", r.body)
 			}
 			return v.submitMerge(what == "auto")
 		default:
+			if r.verdict == "rebase" {
+				v.review = nil // nothing behind the confirmation to return to
+				return nil
+			}
 			r.confirm, r.warn = "", ""
 			return nil
 		}
@@ -2401,6 +2426,8 @@ func (v *View) Overlay() string {
 		heading = "Close"
 	} else if r.verdict == "add-reviewer" {
 		heading = "Add reviewer"
+	} else if r.verdict == "rebase" {
+		heading = "Rebase"
 	} else if r.action == "gh" {
 		heading = "Update"
 	}
@@ -2425,6 +2452,8 @@ func (v *View) Overlay() string {
 			verb = "merging…"
 		case "auto":
 			verb = "enabling auto-merge…"
+		case "rebase":
+			verb = "rebasing in a local worktree…"
 		}
 		b.WriteString(ui.SpinnerFrame(v.spinFrame) + " " + ui.Faint.Render(verb) + "\n")
 		if r.action == "merge" {
@@ -2439,6 +2468,8 @@ func (v *View) Overlay() string {
 			what = "Approve it again?"
 		case "close":
 			what = "Close this PR with this comment?"
+		case "rebase":
+			what = "Rebase this PR and force-push its branch?"
 		}
 		b.WriteString(what + "\n")
 		if title := v.mergeTitle(r.url); title != "" {
@@ -2446,6 +2477,9 @@ func (v *View) Overlay() string {
 		}
 		if r.confirm == "merge" || r.confirm == "auto" {
 			b.WriteString(ui.Faint.Render("  "+v.mergeDetail(false)) + "\n")
+		}
+		if p, ok := v.prByURL(r.url); ok && r.confirm == "rebase" {
+			b.WriteString(ui.Faint.Render("  "+p.HeadRefName+" onto "+p.BaseRefName+", locally, with lease") + "\n")
 		}
 		if r.warn != "" {
 			b.WriteString("\n" + ui.Yellow.Render("! "+r.warn) + "\n")

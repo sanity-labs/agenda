@@ -56,8 +56,11 @@ func (v *View) Commands() []ui.Command {
 			ui.Command{ID: "merge", Title: "Merge", Run: popup(mergeLabel)},
 			ui.Command{ID: "auto-merge", Title: "Enable auto-merge", Run: popup(autoLabel)})
 	}
-	cmds = append(cmds, ui.Command{ID: "rebase", Title: "Rebase onto base branch",
-		Run: gh("rebased "+name, "pr", "update-branch", num, "-R", repo, "--rebase")})
+	if p.ViewerCanUpdateBranch || p.Mergeable == "CONFLICTING" {
+		cmds = append(cmds, ui.Command{ID: "rebase", Title: "Rebase onto " + p.BaseRefName,
+			Aliases: []string{"rebase", "update", "sync"},
+			Run:     func() tea.Cmd { return v.askRebase(p) }})
+	}
 	if p.IsDraft {
 		cmds = append(cmds, ui.Command{ID: "ready", Title: "Mark ready for review",
 			Run: gh(name+" is ready for review", "pr", "ready", num, "-R", repo)})
