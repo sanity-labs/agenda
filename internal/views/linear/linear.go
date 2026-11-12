@@ -2371,7 +2371,7 @@ func (v *View) SetFilter(query string, enabled []string, caseSensitive bool) {
 // scroll resets on toggle and re-renders when comments land.
 func (v *View) PreviewKey() string {
 	sel := v.list.Selected()
-	k := sel.Identifier + "#" + sel.State.Name
+	k := fmt.Sprintf("%s#%s#p%d", sel.Identifier, sel.State.Name, sel.Priority)
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
 	}

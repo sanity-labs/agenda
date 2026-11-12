@@ -116,6 +116,17 @@ func TestSubscribeCommandToggles(t *testing.T) {
 	}
 }
 
+func TestPriorityChangeRefreshesDetail(t *testing.T) {
+	v := New(config.LinearConfig{Token: "x"}, nil, nil, nil)
+	v.raw = mkIDs("A-1")
+	v.applySort()
+	before := v.PreviewKey()
+	v.Update(prioritySetMsg{ident: "A-1", to: 1})
+	if v.PreviewKey() == before {
+		t.Fatalf("PreviewKey unchanged after a priority change: detail keeps the old priority")
+	}
+}
+
 func TestPriorityCommandSetsPriority(t *testing.T) {
 	var mu sync.Mutex
 	var mutation string
