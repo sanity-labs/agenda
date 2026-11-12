@@ -233,6 +233,12 @@ github:
   # -author:app/dependabot), so counts and paging only see the rest. Off by
   # default: some teams do review them.
   hide_dependency_bots: false
+  # Leave out review requests on PRs nobody has touched for longer than
+  # this: GitHub search cannot see when the review was requested, so it
+  # goes by the PR's last update, which a new request also bumps. Go
+  # durations plus d (days) and w (weeks): 2w, 30d, 36h. m is minutes, as
+  # in Go. "0" (default) keeps them all.
+  review_max_age: "0"
   # Re-read the selected PR once the cursor stops moving, so check state and
   # review decisions are current on the row you are about to act on rather
   # than as of the last full refresh. On by default: one request for a single

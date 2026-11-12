@@ -78,6 +78,7 @@ github:
   review_filter: review-requested:@me is:open archived:false
   hide_approved: true           # someone already approved: the ball is with the author
   hide_dependency_bots: true    # leave Renovate and Dependabot out of the search
+  review_max_age: 30d           # leave out PRs untouched for longer (d, w, or Go units)
   mark_reviewed: true           # dim what you have already reviewed
 notifications:
   popup: desktop                # a review request arrives: say so
