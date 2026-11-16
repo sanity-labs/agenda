@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -196,5 +197,87 @@ func TestJumpKeysScrollAFocusedFloat(t *testing.T) {
 	m = got.(Model)
 	if m.previewScroll != cfg.ListJumpSize() || !m.floating() {
 		t.Errorf("shift+up: scroll=%d float=%v, want %d and still floating", m.previewScroll, m.floating(), cfg.ListJumpSize())
+	}
+}
+
+// 'v' over a pane goes back to the description instead of closing the float:
+// via 'v' first the float stays and left closes it next; opened straight
+// from the list, the description replaces the pane and left closes too.
+func TestVReturnsToTheDescriptionEndToEnd(t *testing.T) {
+	press := func(m Model, k rune) Model {
+		got, cmd := m.Update(tea.KeyPressMsg{Code: k})
+		m = got.(Model)
+		runCmds(t, &m, cmd, 0)
+		return m
+	}
+	for _, viaV := range []bool{true, false} {
+		m, _ := focusIntegrationModel(t)
+		if viaV {
+			m = press(m, 'v')
+		}
+		m = press(m, 'c')
+		m = press(m, 'v')
+		if !m.floating() {
+			t.Fatalf("via v %v: v over a pane closed the float", viaV)
+		}
+		if m.views[0].(describer).ShowDescription() {
+			t.Errorf("via v %v: a pane is still showing after v", viaV)
+		}
+		m = press(m, 'v')
+		if m.floating() {
+			t.Errorf("via v %v: v on the description did not close the float", viaV)
+		}
+	}
+}
+
+// paneStub renders from its pane state and keys its preview on it, as the
+// real views do. 'd' toggles the pane.
+type paneStub struct {
+	fatView
+	pane bool
+}
+
+func (p *paneStub) Update(msg tea.Msg) tea.Cmd {
+	if k, ok := msg.(tea.KeyPressMsg); ok && k.Code == 'd' {
+		p.pane = !p.pane
+	}
+	return nil
+}
+func (p *paneStub) PreviewKey() string {
+	if p.pane {
+		return "x#diff"
+	}
+	return "x"
+}
+func (p *paneStub) PreviewView() string {
+	if p.pane {
+		return "the diff"
+	}
+	return "the description"
+}
+func (p *paneStub) ShowDescription() bool { was := p.pane; p.pane = false; return was }
+
+// What is on screen has to change, not only the view's state: the root
+// model caches the rendered preview.
+func TestVSwapsTheRenderedPaneForTheDescription(t *testing.T) {
+	cfg := config.Default()
+	cfg.HidePreview = true
+	v := &paneStub{fatView: fatView{title: "PRs"}}
+	m := New(cfg, []View{v})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	for _, k := range []rune{'d'} {
+		got, cmd := m.Update(tea.KeyPressMsg{Code: k})
+		m = got.(Model)
+		runCmds(t, &m, cmd, 0)
+	}
+	m.setPreview(false, true)
+	if text, _ := m.renderedPreview(v); !strings.Contains(text, "diff") {
+		t.Fatalf("setup: preview = %q, want the diff", text)
+	}
+	got, _ := m.Update(tea.KeyPressMsg{Code: 'v'})
+	m = got.(Model)
+	if text, _ := m.renderedPreview(v); !strings.Contains(text, "description") {
+		t.Errorf("after v the preview is still %q", text)
 	}
 }
