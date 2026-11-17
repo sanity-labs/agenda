@@ -22,6 +22,7 @@ type Command struct {
 
 // Menu is one level below a command: a fixed list of Options, or, when
 // Search is set, a picker over what Search finds, whose choice goes to Pick.
+// Text instead takes free text: enter hands the typed line to it.
 // Title joins the path shown in the box ("Status ›").
 type Menu struct {
 	Title   string
@@ -29,6 +30,10 @@ type Menu struct {
 	Options []Command
 	Search  func(query string, limit int) tea.Cmd
 	Pick    func(Ref) tea.Cmd
+	Text    func(string) tea.Cmd
+	// Fallback offers rows made from the typed query when no option matches
+	// it (a "Create ..." entry).
+	Fallback func(query string) []Command
 }
 
 // Commander is a view that offers commands on its selected item. Commands

@@ -46,6 +46,7 @@ type SearchBox struct {
 	Scope   string
 	Path    string // menu levels opened so far, shown before the query
 	Hint    string // replaces the empty-box prompt
+	Free    bool   // free-text level: enter confirms any non-blank query
 	results []Ref
 	labels  []string
 	cursor  int
@@ -88,7 +89,7 @@ func (s *SearchBox) Update(msg tea.Msg) SearchAction {
 	case "esc", "ctrl+c":
 		return SearchCancel
 	case "enter":
-		if _, ok := s.Selected(); ok {
+		if _, ok := s.Selected(); ok || s.Free && strings.TrimSpace(s.Query) != "" {
 			return SearchConfirm
 		}
 		return SearchNone
@@ -166,6 +167,9 @@ func (s *SearchBox) View() string {
 		b.WriteByte('\n')
 	case s.Loading && len(s.results) == 0:
 		b.WriteString(Faint.Render("searching…"))
+		b.WriteByte('\n')
+	case s.Free:
+		b.WriteString(Faint.Render("enter to submit"))
 		b.WriteByte('\n')
 	case len(s.results) == 0:
 		b.WriteString(Faint.Render("no matches"))

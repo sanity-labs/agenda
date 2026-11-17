@@ -118,3 +118,80 @@ func TestPaletteLastLevelRunsAndCloses(t *testing.T) {
 		t.Errorf("picked=%q open=%v, want SRE-9 handed to Pick", lv.picked, m.search != nil)
 	}
 }
+
+func TestPaletteFreeTextLevelSubmitsTheLine(t *testing.T) {
+	var got []string
+	lv := &textView{levelView: levelView{searchView: searchView{jumpView: jumpView{fatView: fatView{title: "Linear"}, id: "u1"}}}, got: &got}
+	m := New(config.Default(), []View{lv})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	m, _ = hit(m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = typeText(m, "comment")
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter}) // blank: nothing to submit
+	if m.search == nil || len(got) != 0 {
+		t.Fatalf("a blank line should not submit; open=%v got=%v", m.search != nil, got)
+	}
+	m = typeText(m, "hi there")
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.search != nil || len(got) != 1 || got[0] != "hi there" {
+		t.Errorf("open=%v got=%v, want the line submitted once and the box closed", m.search != nil, got)
+	}
+}
+
+type textView struct {
+	levelView
+	got *[]string
+}
+
+func (l *textView) Commands() []ui.Command {
+	return []ui.Command{{ID: "comment", Title: "Comment", Next: func() *ui.Menu {
+		return &ui.Menu{Title: "Comment", Text: func(s string) tea.Cmd { *l.got = append(*l.got, s); return nil }}
+	}}}
+}
+
+func TestPaletteMenuFallbackOffersTheTypedQuery(t *testing.T) {
+	var made []string
+	lv := &fallbackView{levelView: levelView{searchView: searchView{jumpView: jumpView{fatView: fatView{title: "Linear"}, id: "u1"}}}, made: &made}
+	m := New(config.Default(), []View{lv})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	m, _ = hit(m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = typeText(m, "labels")
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = typeText(m, "bug")
+	if v := m.search.View(); strings.Contains(v, "Create") {
+		t.Fatalf("a matching option should hide the fallback:\n%s", v)
+	}
+	m = typeText(m, "gy")
+	if v := m.search.View(); !strings.Contains(v, `Create "buggy"`) {
+		t.Fatalf("no match should offer the typed query:\n%s", v)
+	}
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.search == nil || m.search.Path != "Labels › Create" {
+		t.Fatalf("the fallback should open its own level, path=%v", m.search)
+	}
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if len(made) != 1 || made[0] != "buggy" || m.search != nil {
+		t.Errorf("made=%v open=%v, want buggy created and the box closed", made, m.search != nil)
+	}
+}
+
+type fallbackView struct {
+	levelView
+	made *[]string
+}
+
+func (l *fallbackView) Commands() []ui.Command {
+	return []ui.Command{{ID: "labels", Title: "Labels", Next: func() *ui.Menu {
+		return &ui.Menu{
+			Title:   "Labels",
+			Options: []ui.Command{{ID: "bug", Title: "bug", Run: func() tea.Cmd { return nil }}},
+			Fallback: func(q string) []ui.Command {
+				return []ui.Command{{ID: "create", Title: `Create "` + q + `"`, Next: func() *ui.Menu {
+					return &ui.Menu{Title: "Create", Options: []ui.Command{{ID: "go", Title: "go", Run: func() tea.Cmd { *l.made = append(*l.made, q); return nil }}}}
+				}}}
+			},
+		}
+	}}}
+}

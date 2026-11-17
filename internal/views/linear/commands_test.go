@@ -40,13 +40,13 @@ func TestStatusCommandsFromTeamStates(t *testing.T) {
 	i.State.Name = "Todo"
 	v.Update(loadedMsg{issues: []issue{i}})
 
-	if c := v.Commands(); len(c) != 2 || c[1].ID != "link" {
-		t.Fatalf("before the states are known only Link related issue is offered, got %+v", c)
+	if c := v.Commands(); len(c) != 3 || c[1].ID != "link" || c[2].ID != "comment" {
+		t.Fatalf("before the states are known Priority, Link related issue and Add comment are offered, got %+v", c)
 	}
 	v.Update(v.PrepareCommands()())
 	cmds := v.Commands()
-	if len(cmds) != 4 || cmds[0].Title != "Status" || cmds[1].ID != "priority" || cmds[2].ID != "link" || cmds[3].ID != "subscribe" {
-		t.Fatalf("commands = %+v, want Status, Priority, Link related issue, subscribe", cmds)
+	if len(cmds) != 7 || cmds[0].Title != "Status" || cmds[1].ID != "priority" || cmds[2].ID != "assign" || cmds[3].ID != "labels" || cmds[4].ID != "link" || cmds[5].ID != "comment" || cmds[6].ID != "subscribe" {
+		t.Fatalf("commands = %+v, want Status, Priority, Assign, Labels, Link related issue, Add comment, subscribe", cmds)
 	}
 	menu := cmds[0].Next()
 	if len(menu.Options) != 2 || menu.Options[0].Title != "Todo (current)" || menu.Options[1].Title != "Done" {

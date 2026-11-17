@@ -25,14 +25,17 @@ type workflowState struct {
 // issueStates is what the palette commands need: the issue's UUID, the
 // workflow states of its team, and whether the viewer is subscribed.
 type issueStates struct {
-	id         string
-	states     []workflowState
-	subscribed bool
+	id, teamID, viewerID string
+	states               []workflowState
+	labels               []teamLabel
+	members              []member
+	subscribed           bool
+	assigneeID           string
 }
 
 const statesQuery = `query($id: String!) {
   viewer { id }
-  issue(id: $id) { id subscribers(first: 250) { nodes { id } } team { states(first: 50) { nodes { id name type color position } } } }
+  issue(id: $id) { id assignee { id } subscribers(first: 250) { nodes { id } } team { id states(first: 50) { nodes { id name type color position } } } }
 }`
 
 const subscribeMutation = `mutation($id: String!) { issueSubscribe(id: $id) { success } }`
@@ -108,16 +111,22 @@ func (v *View) PrepareCommands() tea.Cmd {
 			Viewer struct{ ID string }
 			Issue  struct {
 				ID          string
+				Assignee    struct{ ID string }
 				Subscribers struct{ Nodes []struct{ ID string } }
 				Team        struct {
+					ID     string
 					States struct{ Nodes []workflowState }
 				}
 			}
 		}
 		err := v.post(statesQuery, map[string]any{"id": ident}, &out)
-		st := issueStates{id: out.Issue.ID, states: out.Issue.Team.States.Nodes}
+		st := issueStates{id: out.Issue.ID, viewerID: out.Viewer.ID, teamID: out.Issue.Team.ID, states: out.Issue.Team.States.Nodes, assigneeID: out.Issue.Assignee.ID}
 		for _, u := range out.Issue.Subscribers.Nodes {
 			st.subscribed = st.subscribed || u.ID == out.Viewer.ID
+		}
+		if err == nil {
+			// A failure only leaves these menus empty.
+			st.labels, st.members = v.fetchLabels(st.teamID), v.fetchMembers(st.teamID)
 		}
 		slices.SortFunc(st.states, func(a, b workflowState) int {
 			switch {
@@ -133,7 +142,7 @@ func (v *View) PrepareCommands() tea.Cmd {
 }
 
 // Commands implements ui.Commander: Status (opens the team's workflow
-// states), Link related issue, then subscribe or unsubscribe.
+// states), Priority, Labels, Link related issue, Add comment, then subscribe or unsubscribe.
 func (v *View) Commands() []ui.Command {
 	sel := v.list.Selected()
 	detail := sel.Identifier + " " + sel.Title
@@ -150,10 +159,34 @@ func (v *View) Commands() []ui.Command {
 			Aliases: []string{"prio", "p1", "p2", "p3", "p4"},
 			Next:    func() *ui.Menu { return v.priorityMenu(sel) },
 		})
+		if st, ok := v.states[sel.Identifier]; ok {
+			cmds = append(cmds, ui.Command{
+				ID: "assign", Title: "Assign", Detail: detail, Aliases: []string{"assignee", "owner", "unassign"},
+				Next: func() *ui.Menu { return v.assignMenu(sel, st) },
+			}, ui.Command{
+				ID: "labels", Title: "Labels", Detail: detail, Aliases: []string{"label", "tag"},
+				Next: func() *ui.Menu { return v.labelsMenu(sel, st) },
+			})
+		}
 		cmds = append(cmds, ui.Command{
 			ID: "link", Title: "Link related issue", Detail: detail,
 			Aliases: []string{"mark", "relate", "relation", "block", "duplicate"},
 			Next:    func() *ui.Menu { return v.relationMenu(sel.Identifier) },
+		}, ui.Command{
+			ID: "comment", Title: "Add comment", Detail: detail, Aliases: []string{"reply", "note"},
+			Next: func() *ui.Menu {
+				return &ui.Menu{
+					Title: "Comment", Hint: "Type a comment",
+					Text: func(body string) tea.Cmd { return v.addComment(sel.Identifier, body) },
+				}
+			},
+		})
+	}
+	if src := v.source; src.scoped() && v.token != "" && !slices.ContainsFunc(v.favs, func(f navProject) bool { return f.ID == src.ProjectID }) {
+		cmds = append(cmds, ui.Command{
+			ID: "favorite", Title: "Add " + src.Kind + " to favorites", Detail: src.Label,
+			Aliases: []string{"favourite", "fav", "pin", "star"},
+			Run:     func() tea.Cmd { return v.addFavorite(src) },
 		})
 	}
 	if st, ok := v.states[sel.Identifier]; ok {
@@ -275,6 +308,21 @@ func (v *View) updateStates(msg tea.Msg) (tea.Cmd, bool) {
 		return func() tea.Msg {
 			return ui.ToastMsg{Title: "Linear", Body: msg.ident + " priority is now " + priorityNames[msg.to]}
 		}, true
+	case assignedMsg:
+		return v.updateAssigned(msg), true
+	case favoriteAddedMsg:
+		if msg.err != nil {
+			return func() tea.Msg {
+				return ui.Status(ui.SeverityError, "Linear", "could not favorite "+msg.src.Label, msg.err.Error())
+			}, true
+		}
+		return tea.Batch(v.fetchFavs(), func() tea.Msg {
+			return ui.ToastMsg{Title: "Linear", Body: msg.src.Label + " added to favorites"}
+		}), true
+	case labelSetMsg:
+		return v.updateLabel(msg), true
+	case commentAddedMsg:
+		return v.updateCommentAdded(msg), true
 	case stateSetMsg:
 		if msg.err != nil {
 			return func() tea.Msg {

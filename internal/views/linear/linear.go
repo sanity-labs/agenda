@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -45,6 +46,7 @@ func hexStyle(hex string) lipgloss.Style {
 // --- data -------------------------------------------------------------------
 
 type label struct {
+	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Color string `json:"color"`
 }
@@ -100,6 +102,7 @@ type issue struct {
 		Name string `json:"name"`
 	} `json:"projectMilestone"`
 	Assignee struct {
+		ID          string `json:"id"`
 		DisplayName string `json:"displayName"`
 	} `json:"assignee"`
 	// Comments carries ids only, to count: Linear's CommentConnection has
@@ -613,14 +616,18 @@ type View struct {
 	// is asked of Linear once.
 	resolving map[string]bool
 	states    map[string]issueStates // by issue identifier, for status commands
-	onSeen    func(view string, ids []string)
-	list      ui.List[issue]
-	raw       []issue
-	sort      sortMode
-	rev       bool // sort order reversed
-	inactive  bool // not the tab on screen; zero value means active
-	grouping  bool // swimlanes derived from the active sort
-	store     *store.Store
+	// Team-wide menu data, fetched once per team; failed fetches stay out.
+	teamMu      sync.Mutex
+	labelCache  map[string][]teamLabel
+	memberCache map[string][]member
+	onSeen      func(view string, ids []string)
+	list        ui.List[issue]
+	raw         []issue
+	sort        sortMode
+	rev         bool // sort order reversed
+	inactive    bool // not the tab on screen; zero value means active
+	grouping    bool // swimlanes derived from the active sort
+	store       *store.Store
 
 	// Navigation tree state (ctrl+p). source drives what fetch() queries;
 	// defaultSource is the config-derived one whose results are cached.
@@ -916,9 +923,9 @@ const issueFields = `
         team { key }
         project { name }
         projectMilestone { name }
-        assignee { displayName }
+        assignee { id displayName }
         comments(first: 50) { nodes { id } pageInfo { hasNextPage } }
-        labels(first: 10) { nodes { name color } }
+        labels(first: 10) { nodes { id name color } }
         attachments(first: 20) { nodes { url sourceType title metadata } }`
 
 // relatedFields are an issue's parent, sub-issues and relations. Not part
@@ -2117,6 +2124,9 @@ const issueQuery = `query($id: String!) {
 // It sits in an OPENED band below the source, through refreshes, until
 // a jump lands elsewhere.
 func (v *View) FetchRef(id, url string) tea.Cmd {
+	if src, ok := parseScopeRef(id); ok {
+		return v.useSource(src)
+	}
 	return v.fetchIssue(id, func(i issue, err error) tea.Msg {
 		return issueFetchedMsg{id: id, url: url, issue: i, err: err}
 	})
@@ -2391,7 +2401,7 @@ func (v *View) SetFilter(query string, enabled []string, caseSensitive bool) {
 // scroll resets on toggle and re-renders when comments land.
 func (v *View) PreviewKey() string {
 	sel := v.list.Selected()
-	k := fmt.Sprintf("%s#%s#p%d", sel.Identifier, sel.State.Name, sel.Priority)
+	k := fmt.Sprintf("%s#%s#p%d#l%d#a%s", sel.Identifier, sel.State.Name, sel.Priority, len(sel.Labels.Nodes), sel.Assignee.ID)
 	if v.showComments {
 		k += fmt.Sprintf("#comments%d", v.commentsRev)
 	}
