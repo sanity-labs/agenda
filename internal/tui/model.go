@@ -601,6 +601,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusOpen = !m.statusOpen
 			return m, nil
 		case key.Matches(msg, m.keys.TogglePreview):
+			// A pane over the detail goes back to the description first;
+			// 'v' only toggles once the description is what is showing.
+			if d, ok := m.views[m.current].(describer); ok && !m.previewHidden && d.ShowDescription() {
+				m.syncPreviewKey(true) // the description shows from the top, even if the key did not change
+				return m, nil
+			}
 			// With the pane configured off, 'v' shows the detail as a float
 			// over the list rather than splitting it, and pressing it again
 			// closes that. Otherwise it is the plain pane toggle.
@@ -1297,6 +1303,14 @@ func (m Model) paneFocused() bool {
 	}
 	f, ok := m.views[m.current].(paneFocuser)
 	return ok && f.PaneFocused() && f.PaneScrolls()
+}
+
+// describer is optionally implemented by views whose preview can show a
+// pane (diff, comments, jobs) instead of the description. ShowDescription
+// switches back and reports whether it had to, so 'v' can tell a return
+// to the description from a toggle.
+type describer interface {
+	ShowDescription() bool
 }
 
 // dismisser is optionally implemented by views with their own closable

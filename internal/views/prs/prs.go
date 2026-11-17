@@ -2113,6 +2113,20 @@ func (v *View) leaveFloat() tea.Cmd {
 	return v.closeFloat()
 }
 
+// ShowDescription replaces an open pane with the description. In a float
+// the description is level one then, so left closes it.
+func (v *View) ShowDescription() bool {
+	if v.pane == paneBody {
+		return false
+	}
+	v.pane = paneBody
+	v.jobsFocus, v.logView = false, nil
+	if v.floatReveal {
+		v.floatBase, v.paneFocus = true, true
+	}
+	return true
+}
+
 // closeFloat shuts a floated detail from inside, whatever level it is on.
 func (v *View) closeFloat() tea.Cmd {
 	v.pane = paneBody

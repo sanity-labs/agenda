@@ -76,8 +76,11 @@ is the one the arrows will move.
   the file list and jobs pane make of it (expand, open). A pane opened
   straight from the list is level one itself, so `←` closes it rather
   than dropping onto a description nobody asked for. Toggling a pane off
-  with its own key is the same step. `floatBase` records that level one
-  was opened; it is set when a float settles on the description.
+  with its own key is the same step. `v` over a pane always goes back to
+  the description (level one, so `←` then closes) instead of closing; it
+  toggles only when the description, or nothing, is showing.
+  `floatBase` records that level one was opened; it is set when a float
+  settles on the description, or when `v` swaps a pane for it.
 - A pane opened **beside a visible list** waits to be asked, since both
   are visible and either could reasonably take the arrows.
 - Changing panes drops focus, so a pane that has just appeared never
