@@ -604,7 +604,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// A pane over the detail goes back to the description first;
 			// 'v' only toggles once the description is what is showing.
 			if d, ok := m.views[m.current].(describer); ok && !m.previewHidden && d.ShowDescription() {
-				m.syncPreviewKey(false) // the preview cache is keyed on the pane
+				m.syncPreviewKey(true) // the description shows from the top, even if the key did not change
 				return m, nil
 			}
 			// With the pane configured off, 'v' shows the detail as a float

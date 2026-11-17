@@ -234,7 +234,8 @@ func TestVReturnsToTheDescriptionEndToEnd(t *testing.T) {
 // real views do. 'd' toggles the pane.
 type paneStub struct {
 	fatView
-	pane bool
+	pane    bool
+	sameKey bool // a key that ignores the pane, like Linear with show_comments on
 }
 
 func (p *paneStub) Update(msg tea.Msg) tea.Cmd {
@@ -244,7 +245,7 @@ func (p *paneStub) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 func (p *paneStub) PreviewKey() string {
-	if p.pane {
+	if p.pane && !p.sameKey {
 		return "x#diff"
 	}
 	return "x"
@@ -279,5 +280,27 @@ func TestVSwapsTheRenderedPaneForTheDescription(t *testing.T) {
 	m = got.(Model)
 	if text, _ := m.renderedPreview(v); !strings.Contains(text, "description") {
 		t.Errorf("after v the preview is still %q", text)
+	}
+}
+
+// A pane whose preview key does not change on the way back still shows the
+// description from the top.
+func TestVResetsTheScrollWhenTheKeyIsUnchanged(t *testing.T) {
+	cfg := config.Default()
+	cfg.HidePreview = true
+	v := &paneStub{fatView: fatView{title: "PRs"}, sameKey: true}
+	m := New(cfg, []View{v})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	got, cmd := m.Update(tea.KeyPressMsg{Code: 'd'})
+	m = got.(Model)
+	runCmds(t, &m, cmd, 0)
+	m.setPreview(false, true)
+	m.syncPreviewKey(false)
+	m.previewScroll = 7
+	got, _ = m.Update(tea.KeyPressMsg{Code: 'v'})
+	m = got.(Model)
+	if m.previewScroll != 0 {
+		t.Errorf("previewScroll = %d after v, want 0", m.previewScroll)
 	}
 }
