@@ -60,6 +60,9 @@ func (m *Model) topMenu() *ui.Menu {
 // the top, a menu's options below it, none for a picker.
 func (m *Model) levelCommands() []ui.Command {
 	if mn := m.topMenu(); mn != nil {
+		if q := strings.TrimSpace(m.search.Query); mn.Fallback != nil && q != "" && len(ui.MatchCommands(mn.Options, q)) == 0 {
+			return mn.Fallback(q)
+		}
 		return mn.Options
 	}
 	c, _ := m.views[m.searchView].(ui.Commander)
@@ -75,9 +78,9 @@ func (m *Model) syncMenu() {
 	for i, mn := range m.menus {
 		path[i] = mn.Title
 	}
-	m.search.Path, m.search.Hint = strings.Join(path, " › "), ""
+	m.search.Path, m.search.Hint, m.search.Free = strings.Join(path, " › "), "", false
 	if mn := m.topMenu(); mn != nil {
-		m.search.Hint = mn.Hint
+		m.search.Hint, m.search.Free = mn.Hint, mn.Text != nil
 	}
 	m.search.Query, m.search.Scope = "", ""
 	m.searchGen++
@@ -129,6 +132,11 @@ func (m *Model) updateSearch(msg tea.KeyMsg) tea.Cmd {
 		m.showCommands()
 		return m.searchSoon()
 	case ui.SearchConfirm:
+		if mn := m.topMenu(); mn != nil && mn.Text != nil {
+			text := strings.TrimSpace(m.search.Query)
+			m.search = nil
+			return mn.Text(text)
+		}
 		ref, _ := m.search.Selected()
 		if ref.Kind == ui.ScopeKind {
 			m.search.Narrow(ref.ID)

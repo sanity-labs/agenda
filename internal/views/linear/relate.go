@@ -74,7 +74,7 @@ func (v *View) searchOthers(ident, q string, limit int) tea.Cmd {
 		}
 		kept := res.Results[:0]
 		for _, r := range res.Results {
-			if r.ID != ident && len(kept) < limit {
+			if _, scope := parseScopeRef(r.ID); !scope && r.ID != ident && len(kept) < limit {
 				kept = append(kept, r)
 			}
 		}

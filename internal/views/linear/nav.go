@@ -259,7 +259,19 @@ func (v *View) applyNav() tea.Cmd {
 	if it.header || it.source == v.source {
 		return nil
 	}
-	v.source = it.source
+	return v.useSource(it.source)
+}
+
+// useSource switches the list to src from outside the tree, as the tree's
+// enter would, keeping the tree's cursor on it when it is listed there.
+func (v *View) useSource(src navSource) tea.Cmd {
+	if i := v.navIndex(src); i >= 0 {
+		v.navSel, src = i, v.navItems[i].source
+	}
+	if src == v.source {
+		return nil
+	}
+	v.source = src
 	_ = cache.Save(sourceCacheName, v.source)
 	v.loading = true
 	return v.fetch()

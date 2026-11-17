@@ -107,6 +107,7 @@ const (
 	IconNavAll        = "\uf0ca"     //  list
 	IconNavProject    = "\uf07b"     //  folder
 	IconNavInitiative = "\uf140"     //  bullseye
+	IconSearchProject = "\U000f01a7" // 󰆧 a project in search results
 	IconStar          = "\uf005"     //  star
 	IconBell          = "\uf0f3"     //  bell
 )
