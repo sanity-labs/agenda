@@ -101,9 +101,20 @@ type pr struct {
 	// is off and the row is wide enough to spare the space.
 	ShowLabels bool `json:"-"`
 	Repository struct {
-		NameWithOwner string `json:"nameWithOwner"`
+		NameWithOwner    string `json:"nameWithOwner"`
+		DefaultBranchRef struct {
+			Name string `json:"name"`
+		} `json:"defaultBranchRef"`
 	} `json:"repository"`
-	Comments struct {
+	// BaseRef lists the PRs whose head is this PR's base branch: that is the
+	// parent when the PR is stacked.
+	BaseRef struct {
+		Open   prNodes `json:"open"`
+		Merged prNodes `json:"merged"`
+	} `json:"baseRef"`
+	// ShowStack is set at assembly from github.show_stacks.
+	ShowStack bool `json:"-"`
+	Comments  struct {
 		TotalCount int `json:"totalCount"`
 	} `json:"comments"`
 	Labels struct {
@@ -139,7 +150,28 @@ type contextCount struct {
 	Count int    `json:"count"`
 }
 
+type prNodes struct {
+	Nodes []struct {
+		Number int `json:"number"`
+	} `json:"nodes"`
+}
+
 func (p pr) repo() string { return p.Repository.NameWithOwner }
+
+// parent is the PR this one is stacked on. merged means that PR already
+// landed while this one still targets its branch, so it needs a restack.
+func (p pr) parent() (num int, merged bool) {
+	if p.IsCrossRepository || p.BaseRefName == "" || p.BaseRefName == p.Repository.DefaultBranchRef.Name {
+		return 0, false
+	}
+	if n := p.BaseRef.Open.Nodes; len(n) > 0 {
+		return n[0].Number, false
+	}
+	if n := p.BaseRef.Merged.Nodes; len(n) > 0 {
+		return n[0].Number, true
+	}
+	return 0, false
+}
 
 // checkCounts sums the rollup buckets into what the preview reports:
 // how many checks passed, failed, and are still running.
@@ -429,6 +461,15 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 	if p.HeadRefName != "" {
 		plain += " · " + p.HeadRefName
 		styled += ui.Dim.Render(" · " + p.HeadRefName)
+	}
+	if n, merged := p.parent(); p.ShowStack && n != 0 {
+		if merged {
+			plain += fmt.Sprintf(" · %s restack", ui.IconWarn)
+			styled += ui.Dim.Render(" · ") + ui.Yellow.Render(fmt.Sprintf("%s restack", ui.IconWarn))
+		} else {
+			plain += fmt.Sprintf(" · ↳ #%d", n)
+			styled += ui.Dim.Render(fmt.Sprintf(" · ↳ #%d", n))
+		}
 	}
 
 	// Already reviewed by you: tag the metadata and dim the whole row so the
@@ -1192,7 +1233,8 @@ fragment prFields on PullRequest {
     ... on Team { combinedSlug }
   } } }
   author { login }
-  repository { nameWithOwner }
+  repository { nameWithOwner defaultBranchRef { name } }
+  baseRef { open: associatedPullRequests(first: 1, states: [OPEN]) { nodes { number } } merged: associatedPullRequests(first: 1, states: [MERGED], orderBy: {field: CREATED_AT, direction: DESC}) { nodes { number } } }
   comments { totalCount }
   labels(first: 6) { nodes { name color } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
@@ -3084,6 +3126,7 @@ func (v *View) applySort() {
 			set[i].Unread = v.unreadOn && v.unread[set[i].URL]
 			set[i].UnreadGutter = v.unreadOn
 			set[i].ShowLabels = labels
+			set[i].ShowStack = v.cfg.ShowStacksEnabled()
 		}
 	}
 
@@ -3498,8 +3541,19 @@ func (v *View) PreviewView() string {
 
 	// What the PR is: state, where it is going, whether it can get there.
 	status := p.stateIcon() + " " + stateWord(p)
+	parent, parentMerged := p.parent()
+	if !v.cfg.ShowStacksEnabled() {
+		parent = 0
+	}
 	if p.BaseRefName != "" && p.HeadRefName != "" {
-		status += ui.Dim.Render("  ·  ") + ui.Faint.Italic(true).Render(p.BaseRefName+" ← "+p.HeadRefName)
+		chain := p.BaseRefName + " ← " + p.HeadRefName
+		if parent != 0 {
+			chain = fmt.Sprintf("%s ← #%d ← %s", p.Repository.DefaultBranchRef.Name, parent, p.HeadRefName)
+		}
+		status += ui.Dim.Render("  ·  ") + ui.Faint.Italic(true).Render(chain)
+	}
+	if parent != 0 && parentMerged {
+		status += ui.Dim.Render("  ·  ") + ui.Yellow.Render(fmt.Sprintf("%s base #%d merged, restack", ui.IconWarn, parent))
 	}
 	if p.Mergeable == "CONFLICTING" {
 		status += ui.Dim.Render("  ·  ") + ui.Red.Render("⚠ conflicts")
