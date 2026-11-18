@@ -314,6 +314,9 @@ type GitHubConfig struct {
 	// default: it is one request for a single PR, debounced, so cycling a
 	// list costs nothing until you stop.
 	RefreshRow *bool `yaml:"refresh_row"`
+	// ShowStacks marks a PR stacked on another PR's branch, and flags one
+	// whose base PR has merged without a restack. On by default.
+	ShowStacks *bool `yaml:"show_stacks"`
 	// Merge adds merge entries to the review popup ('r'). Off by default:
 	// merging is the one irreversible action in that popup, so it is opt-in
 	// rather than a keypress away for everyone.
@@ -331,6 +334,8 @@ type GitHubConfig struct {
 }
 
 // RefreshRowEnabled reports whether the selected PR is re-read on settle.
+func (g GitHubConfig) ShowStacksEnabled() bool { return g.ShowStacks == nil || *g.ShowStacks }
+
 func (g GitHubConfig) RefreshRowEnabled() bool { return g.RefreshRow == nil || *g.RefreshRow }
 
 // dependencyBots are the GitHub Apps HideDependencyBots excludes, as search

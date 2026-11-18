@@ -95,6 +95,7 @@ own PRs only and `w` says so.
 | `hide_preview` | start with the list full width; `v` floats one row's detail |
 | `github.diff_pane` | `d` shows the diff in the pane as a file list instead of paging it through `less` |
 | `github.review_view` | what `r` opens beside the review popup: `files` (default) or `unified` |
+| `github.show_stacks` | mark stacked PRs (`↳ #N`) and flag ones whose base PR merged (`⚠ restack`); on by default |
 | `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `remember_on_quit` | a `q` that quits saves the tab and filters; the next start restores them (off) |
