@@ -109,12 +109,8 @@ type pr struct {
 	// BaseRef lists the PRs whose head is this PR's base branch: that is the
 	// parent when the PR is stacked.
 	BaseRef struct {
-		AssociatedPullRequests struct {
-			Nodes []struct {
-				Number int    `json:"number"`
-				State  string `json:"state"`
-			} `json:"nodes"`
-		} `json:"associatedPullRequests"`
+		Open   prNodes `json:"open"`
+		Merged prNodes `json:"merged"`
 	} `json:"baseRef"`
 	// ShowStack is set at assembly from github.show_stacks.
 	ShowStack bool `json:"-"`
@@ -154,6 +150,12 @@ type contextCount struct {
 	Count int    `json:"count"`
 }
 
+type prNodes struct {
+	Nodes []struct {
+		Number int `json:"number"`
+	} `json:"nodes"`
+}
+
 func (p pr) repo() string { return p.Repository.NameWithOwner }
 
 // parent is the PR this one is stacked on. merged means that PR already
@@ -162,15 +164,13 @@ func (p pr) parent() (num int, merged bool) {
 	if p.IsCrossRepository || p.BaseRefName == "" || p.BaseRefName == p.Repository.DefaultBranchRef.Name {
 		return 0, false
 	}
-	for _, n := range p.BaseRef.AssociatedPullRequests.Nodes {
-		if n.State == "OPEN" {
-			return n.Number, false
-		}
-		if n.State == "MERGED" {
-			num, merged = n.Number, true
-		}
+	if n := p.BaseRef.Open.Nodes; len(n) > 0 {
+		return n[0].Number, false
 	}
-	return num, merged
+	if n := p.BaseRef.Merged.Nodes; len(n) > 0 {
+		return n[0].Number, true
+	}
+	return 0, false
 }
 
 // checkCounts sums the rollup buckets into what the preview reports:
@@ -1234,7 +1234,7 @@ fragment prFields on PullRequest {
   } } }
   author { login }
   repository { nameWithOwner defaultBranchRef { name } }
-  baseRef { associatedPullRequests(first: 2, states: [OPEN, MERGED]) { nodes { number state } } }
+  baseRef { open: associatedPullRequests(first: 1, states: [OPEN]) { nodes { number } } merged: associatedPullRequests(first: 1, states: [MERGED], orderBy: {field: CREATED_AT, direction: DESC}) { nodes { number } } }
   comments { totalCount }
   labels(first: 6) { nodes { name color } }
   commits(last: 1) { nodes { commit { statusCheckRollup {

@@ -15,10 +15,14 @@ func stacked(base string, parents ...string) pr {
 	p.Repository.NameWithOwner = "o/r"
 	p.Repository.DefaultBranchRef.Name = "main"
 	for i, s := range parents {
-		p.BaseRef.AssociatedPullRequests.Nodes = append(p.BaseRef.AssociatedPullRequests.Nodes, struct {
-			Number int    `json:"number"`
-			State  string `json:"state"`
-		}{Number: 4 + i, State: s})
+		n := struct {
+			Number int `json:"number"`
+		}{Number: 4 + i}
+		if s == "OPEN" {
+			p.BaseRef.Open.Nodes = append(p.BaseRef.Open.Nodes, n)
+		} else {
+			p.BaseRef.Merged.Nodes = append(p.BaseRef.Merged.Nodes, n)
+		}
 	}
 	return p
 }
@@ -35,6 +39,7 @@ func TestParentDetection(t *testing.T) {
 		{"open parent", stacked("feat", "OPEN"), 4, false},
 		{"merged parent", stacked("feat", "MERGED"), 4, true},
 		{"open wins over an older merged one", stacked("feat", "MERGED", "OPEN"), 5, false},
+		{"open wins with several merged present", stacked("feat", "MERGED", "MERGED", "OPEN"), 6, false},
 		{"fork is skipped", fork, 0, false},
 		{"default branch is not a stack", stacked("main", "MERGED"), 0, false},
 		{"default branch is the repo's own, not main", func() pr { p := stacked("trunk", "MERGED"); p.Repository.DefaultBranchRef.Name = "trunk"; return p }(), 0, false},
