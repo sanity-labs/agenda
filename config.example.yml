@@ -244,8 +244,9 @@ github:
   # than as of the last full refresh. On by default: one request for a single
   # PR, debounced, so cycling a list costs nothing until you stop.
   refresh_row: true
-  # Mark a PR stacked on another PR's branch ("↳ #N") and flag one whose base
-  # PR already merged ("⚠ restack"). On by default; fork PRs are skipped.
+  # Badge every PR in a stack with its place, GitHub-style (" 2/3" beside
+  # the number, counted from the one on the default branch), and flag one whose
+  # base PR already merged ("⚠ restack"). On by default; fork PRs are skipped.
   show_stacks: true
   # Add merge entries to the review popup ('r'): 'm' merges, 'M' enables
   # auto-merge so a PR lands once its checks pass. Off by default, because
