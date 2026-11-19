@@ -54,7 +54,7 @@ type Model struct {
 	daemonLost bool
 	headless   bool
 	emit       func(event string, data any)
-	startup    []ui.StatusMsg
+	startup    []tea.Msg
 	theme      theme
 	views      []View
 	current    int

@@ -56,6 +56,12 @@ func (m Model) WithStartupStatus(msg ui.StatusMsg) Model {
 	return m
 }
 
+// WithStartupToast queues a toast for Init, for the same reason.
+func (m Model) WithStartupToast(t ui.ToastMsg) Model {
+	m.startup = append(m.startup, t)
+	return m
+}
+
 // withHeadless makes the model the daemon: emit carries what a screen
 // would have shown to the connected clients.
 func (m Model) withHeadless(emit func(event string, data any)) Model {
@@ -455,7 +461,6 @@ func (m *Model) headlessSize() {
 func (m Model) startupCmds() []tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.startup))
 	for _, s := range m.startup {
-		s := s
 		cmds = append(cmds, func() tea.Msg { return s })
 	}
 	return cmds

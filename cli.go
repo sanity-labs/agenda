@@ -45,6 +45,19 @@ func lookup(name string) (command, bool) {
 	return command{}, false
 }
 
+// daemonArgError refuses arguments to `agenda daemon`, which takes none:
+// ignored, "agenda daemon status" would try to start a second daemon.
+func daemonArgError(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	msg := fmt.Sprintf("agenda daemon: unexpected argument %q", args[0])
+	if _, ok := lookup(args[0]); ok {
+		msg += fmt.Sprintf(" (did you mean agenda %s?)", args[0])
+	}
+	return msg
+}
+
 func runVersion(w io.Writer, _ []string) int {
 	fmt.Fprintln(w, "agenda", versionString())
 	return 0

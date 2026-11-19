@@ -20,6 +20,7 @@ const (
 	IconGHIssue   = "\ueb0c" //  issues (codicon)
 	IconComment   = "\uea6b" // 
 	IconDot       = "\u00b7" // ·
+	IconStack     = "\uf51e" //  a PR in a stack, as GitHub's badge
 )
 
 // Linear issue status glyphs, one per workflow state type, coloured by

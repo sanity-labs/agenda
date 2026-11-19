@@ -114,7 +114,10 @@ type pr struct {
 	} `json:"baseRef"`
 	// ShowStack is set at assembly from github.show_stacks.
 	ShowStack bool `json:"-"`
-	Comments  struct {
+	// StackPos and StackTotal place the PR in its stack (1 is the one on the
+	// default branch); total 1 means it is not part of one. Set at assembly.
+	StackPos, StackTotal int `json:"-"`
+	Comments             struct {
 		TotalCount int `json:"totalCount"`
 	} `json:"comments"`
 	Labels struct {
@@ -171,6 +174,114 @@ func (p pr) parent() (num int, merged bool) {
 		return n[0].Number, true
 	}
 	return 0, false
+}
+
+// stackIndex maps fetched PRs by head and open ones by target branch, from
+// the raw lists, so a PR hidden by a filter still counts in its stack.
+func (v *View) stackIndex() (kids map[string][]pr, byHead map[string]pr) {
+	kids, byHead = map[string][]pr{}, map[string]pr{}
+	seen := map[string]bool{}
+	for _, list := range [][]pr{v.raw, v.reviewRaw, v.opened} {
+		for _, p := range list {
+			if p.URL == "" || seen[p.URL] || p.IsCrossRepository {
+				continue
+			}
+			seen[p.URL] = true
+			if old, ok := byHead[p.repo()+"\x00"+p.HeadRefName]; !ok || old.State != "OPEN" {
+				byHead[p.repo()+"\x00"+p.HeadRefName] = p
+			}
+			if p.State == "OPEN" && p.BaseRefName != "" && p.BaseRefName != p.Repository.DefaultBranchRef.Name {
+				k := p.repo() + "\x00" + p.BaseRefName
+				kids[k] = append(kids[k], p)
+			}
+		}
+	}
+	return kids, byHead
+}
+
+// ancestors are the PR numbers under p, base first, and the branch the walk
+// ended on: the default branch, or the first base nobody fetched (or a cycle).
+func ancestors(p pr, byHead map[string]pr) (nums []int, root string) {
+	root = p.Repository.DefaultBranchRef.Name
+	seen := map[int]bool{p.Number: true}
+	cur := p
+	for cur.BaseRefName != "" && cur.BaseRefName != cur.Repository.DefaultBranchRef.Name {
+		next, ok := byHead[cur.repo()+"\x00"+cur.BaseRefName]
+		if !ok && cur.Number == p.Number {
+			if n, _ := p.parent(); n != 0 {
+				return append(nums, n), root
+			}
+		}
+		if !ok || seen[next.Number] {
+			return nums, cur.BaseRefName
+		}
+		seen[next.Number] = true
+		nums = append([]int{next.Number}, nums...)
+		cur = next
+	}
+	return nums, root
+}
+
+// stackChain is the base-to-head path of a stacked PR: "main ← #808 ← #809
+// ← head".
+func stackChain(p pr, byHead map[string]pr) string {
+	nums, root := ancestors(p, byHead)
+	out := root
+	if root != p.Repository.DefaultBranchRef.Name {
+		out = "… ← " + root
+	}
+	for _, n := range nums {
+		out += fmt.Sprintf(" ← #%d", n)
+	}
+	return out + " ← " + p.HeadRefName
+}
+
+// stackPlace is p's depth in its stack and the stack's length. The length is
+// the longest chain from the bottom, so siblings on a branching stack agree.
+func stackPlace(p pr, kids map[string][]pr, byHead map[string]pr) (pos, total int) {
+	nums, _ := ancestors(p, byHead)
+	pos = len(nums) + 1
+	bottom, seen := p, map[int]bool{p.Number: true}
+	for bottom.BaseRefName != bottom.Repository.DefaultBranchRef.Name {
+		next, ok := byHead[bottom.repo()+"\x00"+bottom.BaseRefName]
+		if !ok || seen[next.Number] {
+			break
+		}
+		seen[next.Number] = true
+		bottom = next
+	}
+	pos0 := pos - (len(seen) - 1)
+	seen = map[int]bool{bottom.Number: true}
+	var above func(pr) int
+	above = func(q pr) int {
+		best := 0
+		for _, c := range kids[q.repo()+"\x00"+q.HeadRefName] {
+			if seen[c.Number] {
+				continue
+			}
+			seen[c.Number] = true
+			best = max(best, 1+above(c))
+		}
+		return best
+	}
+	return pos, pos0 + above(bottom)
+}
+
+// stackBadge is GitHub's stack badge, right beside the number: the glyph and
+// pos/total, or a warning when the PR it sits on has merged under it.
+func (p pr) stackBadge() (plain string, styled string) {
+	if !p.ShowStack {
+		return "", ""
+	}
+	if _, merged := p.parent(); merged {
+		t := " " + ui.IconStack + " " + ui.IconWarn + " restack"
+		return t, ui.Yellow.Render(t)
+	}
+	if p.StackTotal > 1 {
+		t := fmt.Sprintf(" %s %d/%d", ui.IconStack, p.StackPos, p.StackTotal)
+		return t, ui.Magenta.Render(t)
+	}
+	return "", ""
 }
 
 // checkCounts sums the rollup buckets into what the preview reports:
@@ -454,6 +565,9 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 	// styled for display).
 	plain := fmt.Sprintf("%s #%d", p.repo(), p.Number)
 	styled := ui.Cyan.Render(p.repo()) + ui.Yellow.Render(fmt.Sprintf(" #%d", p.Number))
+	// Right after the number so a long branch is what truncation eats.
+	sp, ss := p.stackBadge()
+	plain, styled = plain+sp, styled+ss
 	if p.Author.Login != "" {
 		plain += " · @" + p.Author.Login
 		styled += ui.Dim.Render(" · @" + p.Author.Login)
@@ -461,15 +575,6 @@ func (p pr) Render(width int, selected bool, hl ui.Highlighter) string {
 	if p.HeadRefName != "" {
 		plain += " · " + p.HeadRefName
 		styled += ui.Dim.Render(" · " + p.HeadRefName)
-	}
-	if n, merged := p.parent(); p.ShowStack && n != 0 {
-		if merged {
-			plain += fmt.Sprintf(" · %s restack", ui.IconWarn)
-			styled += ui.Dim.Render(" · ") + ui.Yellow.Render(fmt.Sprintf("%s restack", ui.IconWarn))
-		} else {
-			plain += fmt.Sprintf(" · ↳ #%d", n)
-			styled += ui.Dim.Render(fmt.Sprintf(" · ↳ #%d", n))
-		}
 	}
 
 	// Already reviewed by you: tag the metadata and dim the whole row so the
@@ -672,9 +777,10 @@ type reviewListMsg struct {
 type View struct {
 	cfg        config.GitHubConfig
 	list       ui.List[pr]
-	raw        []pr // own PRs
-	reviewRaw  []pr // PRs waiting on the user's review
-	opened     []pr // a PR neither search lists, brought in by a jump
+	raw        []pr          // own PRs
+	reviewRaw  []pr          // PRs waiting on the user's review
+	stackHeads map[string]pr // stackIndex's byHead, from the last applySort
+	opened     []pr          // a PR neither search lists, brought in by a jump
 	held       map[string]heldReview
 	showReview bool // render the review section (toggled with 'w')
 	// reviewsOnly makes this the Reviews tab: the review-requested search is
@@ -3121,12 +3227,22 @@ func (v *View) applySort() {
 	// Labels fill the space a hidden preview frees up, and only when the
 	// list is wide enough that they are not crowding the metadata out.
 	labels := !v.previewShown && v.listW >= labelColMinWidth
+	kids, byHead := v.stackIndex()
+	v.stackHeads = byHead
+	showStack := v.cfg.ShowStacksEnabled()
+	var opened []pr
+	if len(v.opened) > 0 {
+		opened = []pr{v.opened[0]}
+		opened[0].ShowStack = showStack
+		opened[0].StackPos, opened[0].StackTotal = stackPlace(opened[0], kids, byHead)
+	}
 	for _, set := range [][]pr{mine, rev} {
 		for i := range set {
 			set[i].Unread = v.unreadOn && v.unread[set[i].URL]
 			set[i].UnreadGutter = v.unreadOn
 			set[i].ShowLabels = labels
-			set[i].ShowStack = v.cfg.ShowStacksEnabled()
+			set[i].ShowStack = showStack
+			set[i].StackPos, set[i].StackTotal = stackPlace(set[i], kids, byHead)
 		}
 	}
 
@@ -3147,7 +3263,7 @@ func (v *View) applySort() {
 		items = append(items, v.groupSection(rev)...)
 	}
 	if len(v.opened) > 0 {
-		items = append(items, pr{Separator: bandSection("OPENED")}, v.opened[0])
+		items = append(items, pr{Separator: bandSection("OPENED")}, opened[0])
 	}
 	v.list.SetItems(items)
 }
@@ -3548,7 +3664,10 @@ func (v *View) PreviewView() string {
 	if p.BaseRefName != "" && p.HeadRefName != "" {
 		chain := p.BaseRefName + " ← " + p.HeadRefName
 		if parent != 0 {
-			chain = fmt.Sprintf("%s ← #%d ← %s", p.Repository.DefaultBranchRef.Name, parent, p.HeadRefName)
+			chain = stackChain(p, v.stackHeads)
+		}
+		if v.cfg.ShowStacksEnabled() && p.StackTotal > 1 && !parentMerged {
+			chain += fmt.Sprintf("  %s %d/%d", ui.IconStack, p.StackPos, p.StackTotal)
 		}
 		status += ui.Dim.Render("  ·  ") + ui.Faint.Italic(true).Render(chain)
 	}

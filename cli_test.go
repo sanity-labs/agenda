@@ -114,3 +114,15 @@ func TestCompletionScriptsParseWithQuotedSummaries(t *testing.T) {
 		}
 	}
 }
+
+func TestDaemonRejectsExtraArgs(t *testing.T) {
+	if got := daemonArgError(nil); got != "" {
+		t.Errorf("no args: %q", got)
+	}
+	if got, want := daemonArgError([]string{"status"}), `agenda daemon: unexpected argument "status" (did you mean agenda status?)`; got != want {
+		t.Errorf("command name: got %q, want %q", got, want)
+	}
+	if got, want := daemonArgError([]string{"nope"}), `agenda daemon: unexpected argument "nope"`; got != want {
+		t.Errorf("other arg: got %q, want %q", got, want)
+	}
+}

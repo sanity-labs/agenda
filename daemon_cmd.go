@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sanity-labs/agenda/internal/daemon"
@@ -16,6 +17,9 @@ import (
 // staleDaemon is the daemon's version when it is another build. A window
 // paints that build's caches, so a field added since never shows.
 func staleDaemon(c *daemon.Client) string {
+	if cur := versionString(); cur == "" || cur == "dev" || strings.HasPrefix(cur, "devel") {
+		return "" // a source build differs from every daemon, so it would always nag
+	}
 	var st daemon.Status
 	if c.Call(daemon.MethodStatus, nil, &st) != nil || st.Version == versionString() {
 		return ""

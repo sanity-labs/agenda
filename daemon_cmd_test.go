@@ -68,9 +68,11 @@ func TestStaleDaemonNamesAnotherBuild(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("XDG_STATE_HOME", dir)
 	sock, _ := daemon.SocketPath()
-	version := "v0.13.2"
+	defer func() { version = "" }()
+	version = "v0.19.0"
+	daemonVersion := "v0.13.2"
 	s, err := daemon.Listen(sock, func(_ context.Context, req daemon.Request) (any, error) {
-		return daemon.Status{Version: version, Protocol: daemon.Protocol}, nil
+		return daemon.Status{Version: daemonVersion, Protocol: daemon.Protocol}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,8 +88,13 @@ func TestStaleDaemonNamesAnotherBuild(t *testing.T) {
 	if got := staleDaemon(c); got != "v0.13.2" {
 		t.Errorf("another build: staleDaemon = %q, want v0.13.2", got)
 	}
-	version = versionString()
+	daemonVersion = versionString()
 	if got := staleDaemon(c); got != "" {
 		t.Errorf("same build: staleDaemon = %q, want empty", got)
+	}
+	// A source build differs from every daemon; it must not nag.
+	daemonVersion, version = "v0.13.2", ""
+	if got := staleDaemon(c); got != "" {
+		t.Errorf("dev build: staleDaemon = %q, want empty", got)
 	}
 }
