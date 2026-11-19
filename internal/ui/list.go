@@ -807,6 +807,9 @@ func RevMarker(reversed bool) string {
 	return ""
 }
 
+// FuzzyMatch is matchesFuzzy for other packages.
+func FuzzyMatch(s, q string) bool { return matchesFuzzy(s, q) }
+
 // matchesFuzzy reports whether q matches s as a substring or a word-anchored
 // subsequence (see fuzzyIndices).
 func matchesFuzzy(s, q string) bool {

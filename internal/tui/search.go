@@ -42,7 +42,10 @@ func (m *Model) commandRefs() []ui.Ref {
 		return nil
 	}
 	var refs []ui.Ref
-	for _, cmd := range ui.MatchCommands(cmds, m.search.Query) {
+	if mn := m.topMenu(); mn == nil || mn.Match == nil {
+		cmds = ui.MatchCommands(cmds, m.search.Query)
+	}
+	for _, cmd := range cmds {
 		refs = append(refs, ui.Ref{Kind: ui.CommandKind, ID: cmd.ID, Label: cmd.Title, Detail: cmd.Detail})
 	}
 	return refs
@@ -60,6 +63,13 @@ func (m *Model) topMenu() *ui.Menu {
 // the top, a menu's options below it, none for a picker.
 func (m *Model) levelCommands() []ui.Command {
 	if mn := m.topMenu(); mn != nil {
+		if mn.Match != nil {
+			q := strings.TrimSpace(m.search.Query)
+			if rows := mn.Match(q); len(rows) > 0 || q == "" || mn.Fallback == nil {
+				return rows
+			}
+			return mn.Fallback(q)
+		}
 		if q := strings.TrimSpace(m.search.Query); mn.Fallback != nil && q != "" && len(ui.MatchCommands(mn.Options, q)) == 0 {
 			return mn.Fallback(q)
 		}

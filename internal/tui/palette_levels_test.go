@@ -195,3 +195,44 @@ func (l *fallbackView) Commands() []ui.Command {
 		}
 	}}}
 }
+
+type matchView struct{ levelView }
+
+func (l *matchView) Commands() []ui.Command {
+	return []ui.Command{{ID: "who", Title: "Who", Next: func() *ui.Menu {
+		return &ui.Menu{
+			Title: "Who",
+			Match: func(q string) []ui.Command {
+				if q == "" {
+					return []ui.Command{{ID: "a", Title: "first"}, {ID: "b", Title: "second"}}
+				}
+				if q == "zz" { // a hit the substring filter would drop
+					return []ui.Command{{ID: "z", Title: "unrelated title"}}
+				}
+				return nil
+			},
+			Fallback: func(q string) []ui.Command { return []ui.Command{{ID: "f", Title: `Request "` + q + `"`}} },
+		}
+	}}}
+}
+
+func TestPaletteMenuMatchOwnsTheRows(t *testing.T) {
+	lv := &matchView{levelView{searchView: searchView{jumpView: jumpView{fatView: fatView{title: "PRs"}, id: "u1"}}}}
+	m := New(config.Default(), []View{lv})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	m, _ = hit(m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = typeText(m, "who")
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if v := m.search.View(); !strings.Contains(v, "first") || !strings.Contains(v, "second") {
+		t.Fatalf("empty query should list Match(\"\"):\n%s", v)
+	}
+	m = typeText(m, "zz")
+	if v := m.search.View(); !strings.Contains(v, "unrelated title") {
+		t.Fatalf("Match rows are not re-filtered by substring:\n%s", v)
+	}
+	m = typeText(m, "x")
+	if v := m.search.View(); !strings.Contains(v, `Request "zzx"`) {
+		t.Fatalf("no Match rows should fall back:\n%s", v)
+	}
+}

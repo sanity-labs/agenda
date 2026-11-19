@@ -31,6 +31,9 @@ type Menu struct {
 	Search  func(query string, limit int) tea.Cmd
 	Pick    func(Ref) tea.Cmd
 	Text    func(string) tea.Cmd
+	// Match replaces the substring filter over Options: it is asked on every
+	// keystroke (empty query included) for the rows to show, best first.
+	Match func(query string) []Command
 	// Fallback offers rows made from the typed query when no option matches
 	// it (a "Create ..." entry).
 	Fallback func(query string) []Command

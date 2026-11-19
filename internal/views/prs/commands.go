@@ -14,14 +14,17 @@ import (
 // can hide itself when there are none.
 func (v *View) PrepareCommands() tea.Cmd {
 	p := v.list.Selected()
-	if _, started := v.comments[p.URL]; p.URL == "" || started {
+	if p.URL == "" {
 		return nil
+	}
+	if _, started := v.comments[p.URL]; started {
+		return v.prepareReviewers(p)
 	}
 	if v.comments == nil {
 		v.comments = map[string]*commentsState{}
 	}
 	v.comments[p.URL] = &commentsState{}
-	return v.fetchCommentsCmd(p)
+	return tea.Batch(v.fetchCommentsCmd(p), v.prepareReviewers(p))
 }
 
 // Commands implements ui.Commander: what the review popup offers, plus the
@@ -77,10 +80,8 @@ func (v *View) Commands() []ui.Command {
 		v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number, verdict: "close"}
 		return nil
 	}})
-	cmds = append(cmds, ui.Command{ID: "add-reviewer", Title: "Add reviewer", Run: func() tea.Cmd {
-		v.review = &reviewFlow{url: p.URL, repo: p.repo(), num: p.Number, verdict: "add-reviewer"}
-		return nil
-	}})
+	cmds = append(cmds, ui.Command{ID: "add-reviewer", Title: "Add reviewer",
+		Next: func() *ui.Menu { return v.reviewerMenu(p) }})
 	for _, mention := range p.reviewers() {
 		who := mention[1:] // a team stays owner/team, which gh accepts as is
 		cmds = append(cmds, ui.Command{ID: "remove-reviewer-" + who, Title: "Remove reviewer: " + who,
