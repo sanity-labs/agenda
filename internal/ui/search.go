@@ -155,6 +155,9 @@ func (s *SearchBox) View() string {
 	b.WriteString(s.Query + Accent.Render("▏"))
 	b.WriteString("\n\n")
 	switch {
+	case s.Loading && len(s.results) == 0:
+		b.WriteString(Faint.Render("searching…"))
+		b.WriteByte('\n')
 	case s.Query == "" && len(s.results) == 0:
 		hint := "Type a command or search"
 		if s.Hint != "" {
@@ -164,9 +167,6 @@ func (s *SearchBox) View() string {
 		b.WriteByte('\n')
 	case s.err != nil:
 		b.WriteString(Red.Render(Truncate(s.err.Error(), searchWidth)))
-		b.WriteByte('\n')
-	case s.Loading && len(s.results) == 0:
-		b.WriteString(Faint.Render("searching…"))
 		b.WriteByte('\n')
 	case s.Free:
 		b.WriteString(Faint.Render("enter to submit"))

@@ -111,6 +111,7 @@ const (
 	IconSearchProject = "\U000f01a7" // 󰆧 a project in search results
 	IconStar          = "\uf005"     //  star
 	IconBell          = "\uf0f3"     //  bell
+	IconTeam          = "\uf0c0"     //  users
 )
 
 // BlockHeader is a preview section's heading, the same in every view so

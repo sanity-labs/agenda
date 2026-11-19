@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -905,7 +906,12 @@ type View struct {
 	// is an open reply/comment prompt. flash is a transient status-line
 	// result (cleared on the next fetch).
 	review *reviewFlow
-	walk   *threadWalk
+	// candMu guards cands and suggested, which fetch cmds fill off the UI
+	// goroutine: reviewer candidates per repo, GitHub's suggestions per PR URL.
+	candMu    sync.Mutex
+	cands     map[string]*candidates
+	suggested map[string][]string
+	walk      *threadWalk
 	// spinFrame follows the root spinner so the popup's glyph turns with it.
 	spinFrame int
 	input     *threadFlow
@@ -1022,7 +1028,7 @@ type reviewFlow struct {
 // standalone is a verdict opened from cmd+k: esc closes the popup, as there
 // is no picker to go back to.
 func (r *reviewFlow) standalone() bool {
-	return r.verdict == "close" || r.verdict == "add-reviewer" || r.verdict == "rebase"
+	return r.verdict == "close" || r.verdict == "rebase"
 }
 
 // reviewOption is one popup entry: a hotkey, a label, and the gh verdict
@@ -2405,10 +2411,6 @@ func (v *View) updateReview(msg tea.KeyMsg) tea.Cmd {
 		case "close":
 			r.confirm = "close"
 			return nil
-		case "add-reviewer":
-			who := strings.TrimPrefix(strings.TrimSpace(r.body), "@")
-			return v.submitGh("requested "+who+" on "+r.repo+"#"+strconv.Itoa(r.num),
-				"pr", "edit", strconv.Itoa(r.num), "-R", r.repo, "--add-reviewer", who)
 		}
 		return v.submitReview(r.verdict)
 	case "backspace":
@@ -2586,8 +2588,6 @@ func (v *View) Overlay() string {
 		heading = "Merge"
 	} else if r.verdict == "close" {
 		heading = "Close"
-	} else if r.verdict == "add-reviewer" {
-		heading = "Add reviewer"
 	} else if r.verdict == "rebase" {
 		heading = "Rebase"
 	} else if r.action == "gh" {
@@ -2674,8 +2674,6 @@ func (v *View) Overlay() string {
 		switch label {
 		case "request-changes":
 			label = "request changes"
-		case "add-reviewer":
-			label = "reviewer"
 		}
 		b.WriteString(ui.Yellow.Render(label + ": "))
 		b.WriteString(r.body + "█")

@@ -91,22 +91,3 @@ func TestRemoveReviewerCommandPerRequest(t *testing.T) {
 		t.Error("no requests, no remove commands")
 	}
 }
-
-func TestAddReviewerPromptsThenRuns(t *testing.T) {
-	v := mergeView(t, mergeable(7))
-	command(t, v, "add-reviewer")()
-	v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if v.review.submitting {
-		t.Fatal("ran on an empty login")
-	}
-	v.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
-	if cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || !v.review.submitting || v.review.confirm != "" {
-		t.Fatalf("enter should run without a confirm, got %+v", v.review)
-	}
-	v = mergeView(t, mergeable(7))
-	command(t, v, "add-reviewer")()
-	v.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if v.review != nil {
-		t.Error("esc should cancel the popup")
-	}
-}
