@@ -240,3 +240,17 @@ func TestPreviewShowsDeepChain(t *testing.T) {
 		t.Errorf("preview chain: %q", got)
 	}
 }
+
+func TestStackSiblingsShareTotal(t *testing.T) {
+	a := stk(1, "a", "main", "OPEN")
+	b := stk(2, "b", "a", "OPEN")
+	c := stk(3, "c", "a", "OPEN")
+	d := stk(4, "d", "c", "OPEN")
+	v := &View{raw: []pr{a, b, c, d}}
+	kids, byHead := v.stackIndex()
+	for _, p := range []pr{a, b, c, d} {
+		if _, total := stackPlace(p, kids, byHead); total != 3 {
+			t.Errorf("#%d total %d, want 3", p.Number, total)
+		}
+	}
+}

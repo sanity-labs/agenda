@@ -236,12 +236,22 @@ func stackChain(p pr, byHead map[string]pr) string {
 	return out + " ← " + p.HeadRefName
 }
 
-// stackPlace is p's depth in its stack and the stack's length, taking the
-// longest chain of children where it branches.
+// stackPlace is p's depth in its stack and the stack's length. The length is
+// the longest chain from the bottom, so siblings on a branching stack agree.
 func stackPlace(p pr, kids map[string][]pr, byHead map[string]pr) (pos, total int) {
 	nums, _ := ancestors(p, byHead)
 	pos = len(nums) + 1
-	seen := map[int]bool{p.Number: true}
+	bottom, seen := p, map[int]bool{p.Number: true}
+	for bottom.BaseRefName != bottom.Repository.DefaultBranchRef.Name {
+		next, ok := byHead[bottom.repo()+"\x00"+bottom.BaseRefName]
+		if !ok || seen[next.Number] {
+			break
+		}
+		seen[next.Number] = true
+		bottom = next
+	}
+	pos0 := pos - (len(seen) - 1)
+	seen = map[int]bool{bottom.Number: true}
 	var above func(pr) int
 	above = func(q pr) int {
 		best := 0
@@ -254,7 +264,7 @@ func stackPlace(p pr, kids map[string][]pr, byHead map[string]pr) (pos, total in
 		}
 		return best
 	}
-	return pos, pos + above(p)
+	return pos, pos0 + above(bottom)
 }
 
 // stackBadge is GitHub's stack badge, right beside the number: the glyph and
