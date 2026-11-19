@@ -176,9 +176,8 @@ func (p pr) parent() (num int, merged bool) {
 	return 0, false
 }
 
-// stackIndex maps every fetched PR by head, and the open ones by the branch
-// they target, so a row can place itself in its stack and the preview can
-// walk the chain. It reads the raw lists, before any filter hides a PR.
+// stackIndex maps fetched PRs by head and open ones by target branch, from
+// the raw lists, so a PR hidden by a filter still counts in its stack.
 func (v *View) stackIndex() (kids map[string][]pr, byHead map[string]pr) {
 	kids, byHead = map[string][]pr{}, map[string]pr{}
 	seen := map[string]bool{}
@@ -3656,7 +3655,7 @@ func (v *View) PreviewView() string {
 			_, byHead := v.stackIndex()
 			chain = stackChain(p, byHead)
 		}
-		if v.cfg.ShowStacksEnabled() && p.StackTotal > 1 {
+		if v.cfg.ShowStacksEnabled() && p.StackTotal > 1 && !parentMerged {
 			chain += fmt.Sprintf("  %s %d/%d", ui.IconStack, p.StackPos, p.StackTotal)
 		}
 		status += ui.Dim.Render("  ·  ") + ui.Faint.Italic(true).Render(chain)

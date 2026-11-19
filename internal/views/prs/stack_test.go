@@ -89,6 +89,9 @@ func TestStackPreview(t *testing.T) {
 	if !strings.Contains(got, ui.IconWarn+" base #4 merged, restack") {
 		t.Errorf("merged parent not flagged in preview: %q", got)
 	}
+	if strings.Contains(got, "/2") {
+		t.Errorf("a restack shows a stale position, unlike the row: %q", got)
+	}
 	t.Log("\n" + got)
 	off := false
 	if got := status(config.GitHubConfig{ShowStacks: &off}, stacked("feat", "MERGED")); strings.Contains(got, "restack") || strings.Contains(got, "#4") {

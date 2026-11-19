@@ -45,9 +45,8 @@ func lookup(name string) (command, bool) {
 	return command{}, false
 }
 
-// daemonArgError is the complaint about arguments given to `agenda daemon`,
-// which takes none: left alone it would start a second daemon and fail on
-// the socket, whatever the user meant by "status".
+// daemonArgError refuses arguments to `agenda daemon`, which takes none:
+// ignored, "agenda daemon status" would try to start a second daemon.
 func daemonArgError(args []string) string {
 	if len(args) == 0 {
 		return ""
