@@ -228,6 +228,9 @@ func ancestors(p pr, byHead map[string]pr) (nums []int, root string) {
 func stackChain(p pr, byHead map[string]pr) string {
 	nums, root := ancestors(p, byHead)
 	out := root
+	if root != p.Repository.DefaultBranchRef.Name {
+		out = "… ← " + root
+	}
 	for _, n := range nums {
 		out += fmt.Sprintf(" ← #%d", n)
 	}

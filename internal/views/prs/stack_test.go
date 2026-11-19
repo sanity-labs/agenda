@@ -204,11 +204,11 @@ func TestStackChainWalksDeepStacks(t *testing.T) {
 	if got, want := stackChain(c, idx(a, b, c)), "main ← #808 ← #809 ← feat/c"; got != want {
 		t.Errorf("deep chain: %q, want %q", got, want)
 	}
-	if got, want := stackChain(c, idx(b, c)), "feat/a ← #809 ← feat/c"; got != want {
+	if got, want := stackChain(c, idx(b, c)), "… ← feat/a ← #809 ← feat/c"; got != want {
 		t.Errorf("missing link: %q, want %q", got, want)
 	}
 	loop := stk(808, "feat/a", "feat/c", "OPEN")
-	if got, want := stackChain(c, idx(loop, b, c)), "feat/c ← #808 ← #809 ← feat/c"; got != want {
+	if got, want := stackChain(c, idx(loop, b, c)), "… ← feat/c ← #808 ← #809 ← feat/c"; got != want {
 		t.Errorf("cycle: %q, want %q", got, want)
 	}
 	child := stk(9, "child", "feat", "OPEN")
