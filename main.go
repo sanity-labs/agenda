@@ -35,6 +35,9 @@ func main() {
 			os.Exit(runHelp(os.Stdout, nil))
 		}
 		if os.Args[1] == "daemon" {
+			if len(os.Args) > 2 && (os.Args[2] == "--help" || os.Args[2] == "-h") {
+				os.Exit(runHelp(os.Stdout, []string{"daemon"}))
+			}
 			if msg := daemonArgError(os.Args[2:]); msg != "" {
 				fmt.Fprintln(os.Stderr, msg)
 				os.Exit(2)

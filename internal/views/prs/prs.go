@@ -767,9 +767,10 @@ type reviewListMsg struct {
 type View struct {
 	cfg        config.GitHubConfig
 	list       ui.List[pr]
-	raw        []pr // own PRs
-	reviewRaw  []pr // PRs waiting on the user's review
-	opened     []pr // a PR neither search lists, brought in by a jump
+	raw        []pr          // own PRs
+	reviewRaw  []pr          // PRs waiting on the user's review
+	stackHeads map[string]pr // stackIndex's byHead, from the last applySort
+	opened     []pr          // a PR neither search lists, brought in by a jump
 	held       map[string]heldReview
 	showReview bool // render the review section (toggled with 'w')
 	// reviewsOnly makes this the Reviews tab: the review-requested search is
@@ -3217,6 +3218,7 @@ func (v *View) applySort() {
 	// list is wide enough that they are not crowding the metadata out.
 	labels := !v.previewShown && v.listW >= labelColMinWidth
 	kids, byHead := v.stackIndex()
+	v.stackHeads = byHead
 	showStack := v.cfg.ShowStacksEnabled()
 	var opened []pr
 	if len(v.opened) > 0 {
@@ -3652,8 +3654,7 @@ func (v *View) PreviewView() string {
 	if p.BaseRefName != "" && p.HeadRefName != "" {
 		chain := p.BaseRefName + " ← " + p.HeadRefName
 		if parent != 0 {
-			_, byHead := v.stackIndex()
-			chain = stackChain(p, byHead)
+			chain = stackChain(p, v.stackHeads)
 		}
 		if v.cfg.ShowStacksEnabled() && p.StackTotal > 1 && !parentMerged {
 			chain += fmt.Sprintf("  %s %d/%d", ui.IconStack, p.StackPos, p.StackTotal)
