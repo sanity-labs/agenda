@@ -34,6 +34,12 @@ func main() {
 		case "--help", "-h":
 			os.Exit(runHelp(os.Stdout, nil))
 		}
+		if os.Args[1] == "daemon" {
+			if msg := daemonArgError(os.Args[2:]); msg != "" {
+				fmt.Fprintln(os.Stderr, msg)
+				os.Exit(2)
+			}
+		}
 		if c, ok := lookup(os.Args[1]); ok && c.run != nil {
 			os.Exit(c.run(os.Stdout, os.Args[2:]))
 		}
@@ -135,8 +141,9 @@ func main() {
 		} else {
 			m = m.WithDaemon(c, exe)
 			if v := staleDaemon(c); v != "" {
-				m = m.WithStartupStatus(ui.Status(ui.SeverityWarn, "daemon",
-					"daemon is "+v+", this is "+versionString()+": run agenda restart", ""))
+				msg := "daemon " + v + " differs from this client (" + versionString() + "): run `agenda restart`"
+				m = m.WithStartupStatus(ui.Status(ui.SeverityWarn, "daemon", msg, ""))
+				m = m.WithStartupToast(ui.ToastMsg{Title: "Stale daemon", Body: msg})
 			}
 		}
 	}
