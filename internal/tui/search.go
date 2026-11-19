@@ -107,7 +107,8 @@ func (m *Model) showCommands() {
 	}
 	m.search.SetResults(ui.SearchResultsMsg{Query: m.search.Query, Scope: m.search.Scope, Results: refs}, labels)
 	mn := m.topMenu()
-	m.search.Loading = m.search.Query != "" && (mn == nil || mn.Search != nil)
+	m.search.Loading = m.search.Query != "" && (mn == nil || mn.Search != nil) ||
+		mn != nil && mn.Pending != nil && mn.Pending()
 }
 
 // runCommand runs the chosen command, or opens its next level and keeps

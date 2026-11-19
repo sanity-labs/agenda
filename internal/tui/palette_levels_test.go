@@ -236,3 +236,37 @@ func TestPaletteMenuMatchOwnsTheRows(t *testing.T) {
 		t.Fatalf("no Match rows should fall back:\n%s", v)
 	}
 }
+
+type pendingView struct {
+	levelView
+	pending bool
+}
+
+func (l *pendingView) Commands() []ui.Command {
+	return []ui.Command{{ID: "who", Title: "Who", Next: func() *ui.Menu {
+		return &ui.Menu{
+			Title:   "Who",
+			Match:   func(string) []ui.Command { return nil },
+			Pending: func() bool { return l.pending },
+		}
+	}}}
+}
+
+func TestPaletteMenuPendingShowsSearching(t *testing.T) {
+	lv := &pendingView{levelView: levelView{searchView: searchView{jumpView: jumpView{fatView: fatView{title: "PRs"}, id: "u1"}}}, pending: true}
+	m := New(config.Default(), []View{lv})
+	m.width, m.height, m.ready = 100, 40, true
+	m.layout()
+	m, _ = hit(m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	m = typeText(m, "who")
+	m, _ = hit(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if v := m.search.View(); !strings.Contains(v, "searching…") {
+		t.Fatalf("a pending menu should say so:\n%s", v)
+	}
+	lv.pending = false
+	got, _ := m.Update(ui.CommandsChangedMsg{})
+	m = got.(Model)
+	if v := m.search.View(); strings.Contains(v, "searching…") {
+		t.Fatalf("still searching once loaded:\n%s", v)
+	}
+}

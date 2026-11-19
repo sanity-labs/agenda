@@ -25,7 +25,10 @@ type candidate struct {
 // candidates are a repo's requestable reviewers, fetched whole once: the
 // largest org repo is a few hundred users, three GraphQL pages, so matching
 // locally beats a query per keystroke.
-type candidates struct{ users, teams []candidate }
+type candidates struct {
+	users, teams []candidate
+	loading      bool
+}
 
 const assignableQuery = `query($o: String!, $n: String!, $after: String) {
   repository(owner: $o, name: $n) {
@@ -37,10 +40,12 @@ const suggestedQuery = `query($o: String!, $n: String!, $num: Int!) {
   repository(owner: $o, name: $n) { pullRequest(number: $num) { suggestedReviewers { reviewer { login } } } }
 }`
 
-func fetchUsers(owner, name string) ([]candidate, error) {
-	var all []candidate
+const maxUserPages = 10
+
+// fetchUsers reports more when it stopped at maxUserPages with users left.
+func fetchUsers(owner, name string) (all []candidate, more bool, err error) {
 	after := ""
-	for range 10 {
+	for range maxUserPages {
 		args := []string{"api", "graphql", "-f", "query=" + assignableQuery, "-f", "o=" + owner, "-f", "n=" + name}
 		if after != "" {
 			args = append(args, "-f", "after="+after)
@@ -59,18 +64,18 @@ func fetchUsers(owner, name string) ([]candidate, error) {
 			}
 		}
 		if err := ghGraphQL(args, &out); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		page := out.Data.Repository.AssignableUsers
 		for _, u := range page.Nodes {
 			all = append(all, candidate{login: u.Login, name: u.Name})
 		}
 		if !page.PageInfo.HasNextPage {
-			break
+			return all, false, nil
 		}
 		after = page.PageInfo.EndCursor
 	}
-	return all, nil
+	return all, true, nil
 }
 
 // fetchTeams lists the teams with access, as org/slug. It needs more than
@@ -111,9 +116,9 @@ func (v *View) prepareReviewers(p pr) tea.Cmd {
 	var cmds []tea.Cmd
 	changed := func() tea.Msg { return ui.CommandsChangedMsg{} }
 	if _, have := v.cands[repo]; !have {
-		v.cands[repo] = &candidates{}
+		v.cands[repo] = &candidates{loading: true}
 		cmds = append(cmds, func() tea.Msg {
-			users, err := fetchUsers(owner, name)
+			users, more, err := fetchUsers(owner, name)
 			if err != nil {
 				v.candMu.Lock()
 				delete(v.cands, repo)
@@ -124,12 +129,18 @@ func (v *View) prepareReviewers(p pr) tea.Cmd {
 			v.candMu.Lock()
 			v.cands[repo] = &candidates{users: users, teams: teams}
 			v.candMu.Unlock()
-			if terr != nil {
-				return tea.BatchMsg{changed, func() tea.Msg {
-					return ui.Status(ui.SeverityWarn, "GitHub", "teams of "+repo+" not listed, offering users only", terr.Error())
-				}}
+			out := tea.BatchMsg{changed}
+			if more {
+				out = append(out, func() tea.Msg {
+					return ui.Status(ui.SeverityWarn, "GitHub", "only the first "+strconv.Itoa(maxUserPages*100)+" reviewers of "+repo+" listed", "type an exact login to request anyone else")
+				})
 			}
-			return changed()
+			if terr != nil {
+				out = append(out, func() tea.Msg {
+					return ui.Status(ui.SeverityWarn, "GitHub", "teams of "+repo+" not listed, offering users only", terr.Error())
+				})
+			}
+			return out
 		})
 	}
 	if _, have := v.suggested[p.URL]; !have {
@@ -221,6 +232,12 @@ func (v *View) reviewerMenu(p pr) *ui.Menu {
 	return &ui.Menu{
 		Title: "Add reviewer", Hint: "Type a login, name or team",
 		Match: func(q string) []ui.Command { return v.reviewerRows(p, q, add) },
+		Pending: func() bool {
+			v.candMu.Lock()
+			defer v.candMu.Unlock()
+			c := v.cands[p.repo()]
+			return c != nil && c.loading
+		},
 		Fallback: func(q string) []ui.Command {
 			who := strings.TrimPrefix(strings.TrimSpace(q), "@")
 			return []ui.Command{{ID: "reviewer:" + who, Title: `Request "` + who + `"`, Run: func() tea.Cmd { return add(who) }}}

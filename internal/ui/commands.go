@@ -37,6 +37,8 @@ type Menu struct {
 	// Fallback offers rows made from the typed query when no option matches
 	// it (a "Create ..." entry).
 	Fallback func(query string) []Command
+	// Pending shows "searching…" over an empty Match while it reports true.
+	Pending func() bool
 }
 
 // Commander is a view that offers commands on its selected item. Commands
