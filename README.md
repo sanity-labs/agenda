@@ -173,7 +173,8 @@ commands:
     view: prs
     description: open locally
     prompt: { title: Open which branch?, options: [pr, main] }
-    run: ~/bin/open-pr "$AGENDA_REPO" "$AGENDA_NUMBER" "$AGENDA_CHOICE"
+    args: [repo, number, choice]
+    run: ~/bin/open-pr "$1" "$2" "$3"
 ```
 
 | view | variables |
@@ -182,7 +183,9 @@ commands:
 | `linear` | `AGENDA_ID`, `URL`, `BRANCH`, `TITLE` |
 | `sessions` | `AGENDA_PATH`, `CWD`, `TOOL`, `SESSION_ID`, `TITLE` |
 
-`prompt` asks first and passes the answer as `AGENDA_CHOICE`. A command
+`args` lists fields (lowercase, without the `AGENDA_` prefix, and `choice`
+after a prompt) that arrive as `$1`, `$2`, ...; an unknown name refuses the
+command. `prompt` asks first and passes the answer as `AGENDA_CHOICE`. A command
 runs in the background and toasts its last line of output; `mode:
 foreground` hands it the terminal instead, for an editor or a pager. A key
 that is reserved or already bound in that view is refused, and the message

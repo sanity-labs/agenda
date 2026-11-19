@@ -75,3 +75,37 @@ func TestCommandGetsFieldsAndChoice(t *testing.T) {
 		t.Error("branch name was run as shell")
 	}
 }
+
+func TestCommandArgsArePositional(t *testing.T) {
+	cfg := config.Default()
+	cfg.Commands = []config.Command{{
+		Key: "O", View: "prs", Args: []string{"number", "choice"},
+		Run: `printf '%s %s' "$1" "$2"`,
+	}}
+	cfg.Commands[0].Prompt = &struct {
+		Title   string   `yaml:"title"`
+		Options []string `yaml:"options"`
+	}{Options: []string{"pr", "main"}}
+	m := escModel(t, true, &fieldsView{fatView: fatView{title: "PRs"}, fields: map[string]string{"number": "42"}})
+	m.cfg, m.commands = cfg, cfg.Commands
+
+	got, _ := m.Update(press('O'))
+	_, cmd := got.(Model).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if msg, ok := cmd().(ui.ToastMsg); !ok || msg.Body != "42 pr" {
+		t.Fatalf("toast = %+v, want body %q", msg, "42 pr")
+	}
+}
+
+func TestValidCommandsRefusesUnknownArg(t *testing.T) {
+	cfg := config.Default()
+	cfg.Commands = []config.Command{
+		{Key: "O", View: "prs", Run: "true", Args: []string{"number", "nope"}},
+		{Key: "P", View: "prs", Run: "true", Args: []string{"choice"}}, // no prompt
+		{Key: "Q", View: "linear", Run: "true", Args: []string{"number"}},
+		{Key: "R", View: "linear", Run: "true", Args: []string{"id"}},
+	}
+	ok, warn := validCommands(cfg)
+	if len(ok) != 1 || len(warn) != 3 {
+		t.Fatalf("kept %d, warned %d (%v); want 1 and 3", len(ok), len(warn), warn)
+	}
+}

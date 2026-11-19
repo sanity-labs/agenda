@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -21,8 +23,20 @@ type commandFielder interface {
 // pendingCommand is a command waiting on its prompt's answer.
 type pendingCommand struct {
 	cmd    config.Command
-	env    []string
+	fields map[string]string
 	picker ui.Picker
+}
+
+// badArg returns the first arg that is not a field of the command's view
+// (or choice, when it has a prompt).
+func badArg(c config.Command) string {
+	for _, a := range c.Args {
+		if slices.Contains(config.CommandFields[c.View], a) || (a == "choice" && c.Prompt != nil) {
+			continue
+		}
+		return a
+	}
+	return ""
 }
 
 // validCommands keeps the commands that can fire, and says why each other
@@ -40,6 +54,8 @@ func validCommands(cfg config.Config) ([]config.Command, []string) {
 			warn = append(warn, name+": view must be prs, linear or sessions")
 		case c.Prompt != nil && len(c.Prompt.Options) == 0:
 			warn = append(warn, name+": prompt needs options")
+		case badArg(c) != "":
+			warn = append(warn, name+": unknown arg "+badArg(c))
 		default:
 			if why, reserved := config.Reserved(c.Key); reserved {
 				warn = append(warn, name+": key is reserved ("+why+")")
@@ -76,12 +92,8 @@ func (m *Model) startCommand(key string) (tea.Cmd, bool) {
 	if c == nil || fields == nil {
 		return nil, false
 	}
-	env := make([]string, 0, len(fields)+1)
-	for k, v := range fields {
-		env = append(env, "AGENDA_"+strings.ToUpper(k)+"="+v)
-	}
 	if c.Prompt == nil {
-		return runCommand(*c, env), true
+		return runCommand(*c, fields), true
 	}
 	items := make([]ui.PickerItem, len(c.Prompt.Options))
 	for i, o := range c.Prompt.Options {
@@ -91,7 +103,7 @@ func (m *Model) startCommand(key string) (tea.Cmd, bool) {
 	if title == "" {
 		title = c.Description
 	}
-	m.pending = &pendingCommand{cmd: *c, env: env, picker: ui.NewPicker(title, items)}
+	m.pending = &pendingCommand{cmd: *c, fields: fields, picker: ui.NewPicker(title, items)}
 	return nil, true
 }
 
@@ -104,14 +116,23 @@ func (m *Model) updatePending(msg tea.KeyMsg) tea.Cmd {
 	case ui.PickerConfirm:
 		m.pending = nil
 		choice := p.cmd.Prompt.Options[p.picker.Index()]
-		return runCommand(p.cmd, append(p.env, "AGENDA_CHOICE="+choice))
+		fields := maps.Clone(p.fields)
+		fields["choice"] = choice
+		return runCommand(p.cmd, fields)
 	}
 	return nil
 }
 
-func runCommand(c config.Command, env []string) tea.Cmd {
-	cmd := exec.Command("sh", "-c", c.Run)
-	cmd.Env = append(os.Environ(), env...)
+func runCommand(c config.Command, fields map[string]string) tea.Cmd {
+	args := []string{"-c", c.Run, "agenda"}
+	for _, a := range c.Args {
+		args = append(args, fields[a])
+	}
+	cmd := exec.Command("sh", args...)
+	cmd.Env = os.Environ()
+	for k, v := range fields {
+		cmd.Env = append(cmd.Env, "AGENDA_"+strings.ToUpper(k)+"="+v)
+	}
 	name := c.Description
 	if name == "" {
 		name = c.Run

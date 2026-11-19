@@ -340,5 +340,6 @@ sessions:
 #     view: prs            # prs, linear or sessions
 #     description: open locally
 #     prompt: { title: Open which branch?, options: [pr, main] }  # -> AGENDA_CHOICE
-#     run: ~/bin/open-pr "$AGENDA_REPO" "$AGENDA_NUMBER" "$AGENDA_CHOICE"
+#     args: [repo, number, choice]  # fields passed as $1 $2 $3
+#     run: ~/bin/open-pr "$1" "$2" "$3"
 #     mode: background     # or foreground, to hand it the terminal
