@@ -109,3 +109,16 @@ func TestValidCommandsRefusesUnknownArg(t *testing.T) {
 		t.Fatalf("kept %d, warned %d (%v); want 1 and 3", len(ok), len(warn), warn)
 	}
 }
+
+func TestValidCommandsRefusesUnknownMode(t *testing.T) {
+	cfg := config.Default()
+	cfg.Commands = []config.Command{
+		{Key: "O", View: "prs", Run: "true", Mode: "foregound"},
+		{Key: "P", View: "prs", Run: "true", Mode: "foreground"},
+		{Key: "Q", View: "prs", Run: "true"},
+	}
+	ok, warn := validCommands(cfg)
+	if len(ok) != 2 || len(warn) != 1 || !strings.Contains(warn[0], "mode") {
+		t.Fatalf("kept %d, warned %v; want 2 kept and a mode warning", len(ok), warn)
+	}
+}

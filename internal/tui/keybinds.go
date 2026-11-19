@@ -149,7 +149,7 @@ type keybindChange struct {
 
 // Update handles one key. Returns a committed change (nil for navigation)
 // and whether the editor closed.
-func (o *keybindEditor) Update(msg tea.KeyMsg, km config.Keymap) (*keybindChange, bool) {
+func (o *keybindEditor) Update(msg tea.KeyMsg, km config.Keymap, cmds []config.Command) (*keybindChange, bool) {
 	e := o.rows[o.cursor]
 
 	if o.capturing {
@@ -161,6 +161,12 @@ func (o *keybindEditor) Update(msg tea.KeyMsg, km config.Keymap) (*keybindChange
 		if other, clash := findCollision(km, e, k); clash {
 			o.errMsg = fmt.Sprintf("%q is already %s (%s)", k, other.label, other.scope)
 			return nil, false
+		}
+		for _, c := range cmds {
+			if c.Key == k && scopesCollide(e.scope, c.View) {
+				o.errMsg = fmt.Sprintf("%q is already a user command (%s)", k, c.View)
+				return nil, false
+			}
 		}
 		o.errMsg, o.flash = "", fmt.Sprintf("%s → %s", e.label, k)
 		return &keybindChange{entry: e, keys: []string{k}}, false

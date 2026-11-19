@@ -54,6 +54,8 @@ func validCommands(cfg config.Config) ([]config.Command, []string) {
 			warn = append(warn, name+": view must be prs, linear or sessions")
 		case c.Prompt != nil && len(c.Prompt.Options) == 0:
 			warn = append(warn, name+": prompt needs options")
+		case c.Mode != "" && c.Mode != "background" && c.Mode != "foreground":
+			warn = append(warn, name+": mode must be background or foreground")
 		case badArg(c) != "":
 			warn = append(warn, name+": unknown arg "+badArg(c))
 		default:

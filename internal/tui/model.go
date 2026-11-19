@@ -475,7 +475,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// While the keybind editor is open it captures all keys (including,
 		// during capture, keys that are normally global).
 		if m.keysEd != nil {
-			change, closed := m.keysEd.Update(msg, m.cfg.Keys)
+			change, closed := m.keysEd.Update(msg, m.cfg.Keys, m.commands)
 			if closed {
 				m.keysEd = nil
 				m.settings = newConfigOverlay() // back to the config overlay
