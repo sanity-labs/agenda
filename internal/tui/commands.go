@@ -89,6 +89,11 @@ func (m *Model) startCommand(key string) (tea.Cmd, bool) {
 	if !ok {
 		return nil, false
 	}
+	// A focused pane reads keys outside the keymap (h to step back, n/p in a
+	// thread), which a command bound to them would otherwise shadow.
+	if p, ok := m.views[m.current].(paneFocuser); ok && p.PaneFocused() {
+		return nil, false
+	}
 	scope, fields := f.CommandFields()
 	c := commandFor(m.commands, scope, key)
 	if c == nil || fields == nil {
