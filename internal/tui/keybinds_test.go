@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -76,34 +77,34 @@ func TestKeybindEditorFlow(t *testing.T) {
 	km := config.Keymap{}
 
 	// Rebind the first row (global next_view) to a free key.
-	change, closed := o.Update(tea.KeyPressMsg{Code: tea.KeyEnter}, km)
+	change, closed := o.Update(tea.KeyPressMsg{Code: tea.KeyEnter}, km, nil)
 	if change != nil || closed || !o.capturing {
 		t.Fatal("enter should start capture")
 	}
-	change, _ = o.Update(tea.KeyPressMsg{Code: 'n', Text: "n"}, km)
+	change, _ = o.Update(tea.KeyPressMsg{Code: 'n', Text: "n"}, km, nil)
 	if change == nil || len(change.keys) != 1 || change.keys[0] != "n" {
 		t.Fatalf("capture produced %+v, want [n]", change)
 	}
 
 	// Capturing a colliding key refuses and reports where it's bound.
-	o.Update(tea.KeyPressMsg{Code: tea.KeyEnter}, km)
-	change, _ = o.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}, km)
+	o.Update(tea.KeyPressMsg{Code: tea.KeyEnter}, km, nil)
+	change, _ = o.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}, km, nil)
 	if change != nil || o.errMsg == "" {
 		t.Fatalf("colliding key accepted: %+v (err %q)", change, o.errMsg)
 	}
 
 	// x disables, r resets to default.
-	change, _ = o.Update(tea.KeyPressMsg{Code: 'x', Text: "x"}, km)
+	change, _ = o.Update(tea.KeyPressMsg{Code: 'x', Text: "x"}, km, nil)
 	if change == nil || len(change.keys) != 0 {
 		t.Fatalf("x should disable, got %+v", change)
 	}
-	change, _ = o.Update(tea.KeyPressMsg{Code: 'r', Text: "r"}, km)
+	change, _ = o.Update(tea.KeyPressMsg{Code: 'r', Text: "r"}, km, nil)
 	if change == nil || len(change.keys) != 2 || change.keys[0] != "tab" {
 		t.Fatalf("r should reset next_view to [tab L], got %+v", change)
 	}
 
 	// esc closes.
-	if _, closed := o.Update(tea.KeyPressMsg{Code: tea.KeyEscape}, km); !closed {
+	if _, closed := o.Update(tea.KeyPressMsg{Code: tea.KeyEscape}, km, nil); !closed {
 		t.Error("esc should close the editor")
 	}
 }
@@ -147,5 +148,15 @@ func TestEveryViewActionIsRegistered(t *testing.T) {
 			t.Errorf("%s binds %q but it is not in keyRegistry, so it cannot"+
 				" be remapped", scope, action)
 		}
+	}
+}
+
+func TestKeybindEditorRefusesAUserCommandKey(t *testing.T) {
+	o := newKeybindEditor()
+	cmds := []config.Command{{Key: "N", View: "prs", Run: "true"}}
+	o.Update(tea.KeyPressMsg{Code: tea.KeyEnter}, config.Keymap{}, cmds)
+	change, _ := o.Update(tea.KeyPressMsg{Code: 'N', Text: "N"}, config.Keymap{}, cmds)
+	if change != nil || !strings.Contains(o.errMsg, "user command") {
+		t.Fatalf("rebinding onto a user command's key accepted: %+v (err %q)", change, o.errMsg)
 	}
 }

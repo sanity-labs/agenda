@@ -1,6 +1,9 @@
 package linear
 
 import (
+	"maps"
+	"slices"
+
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,5 +172,18 @@ func TestPriorityCommandSetsPriority(t *testing.T) {
 	}
 	if got := v.list.Selected().Priority; got != 1 {
 		t.Errorf("row priority = %d, want 1", got)
+	}
+}
+
+func TestCommandFieldsMatchConfig(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.LinearConfig{Token: "t"}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	v.Update(loadedMsg{issues: []issue{{Identifier: "SRE-1", Title: "x"}}})
+	scope, fields := v.CommandFields()
+	got := slices.Sorted(maps.Keys(fields))
+	want := slices.Sorted(slices.Values(config.CommandFields[scope]))
+	if !slices.Equal(got, want) {
+		t.Errorf("%s CommandFields keys %v, config.CommandFields %v", scope, got, want)
 	}
 }

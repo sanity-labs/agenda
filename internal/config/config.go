@@ -112,6 +112,38 @@ type Config struct {
 	GitHub   GitHubConfig   `yaml:"github"`
 	Linear   LinearConfig   `yaml:"linear"`
 	Sessions SessionsConfig `yaml:"sessions"`
+
+	// Commands bind keys to shell commands run against the selected row.
+	Commands []Command `yaml:"commands"`
+}
+
+// Command runs Run through sh with the selected row's fields in the
+// environment as AGENDA_<FIELD>, never spliced into the command text.
+type Command struct {
+	Key         string `yaml:"key"`
+	View        string `yaml:"view"` // prs, linear or sessions
+	Description string `yaml:"description"`
+	// Prompt, when set, asks for one of Options first; the answer is
+	// AGENDA_CHOICE.
+	Prompt *struct {
+		Title   string   `yaml:"title"`
+		Options []string `yaml:"options"`
+	} `yaml:"prompt"`
+	Run string `yaml:"run"`
+	// Args are field names (as in the env vars, lowercase) passed to Run as
+	// $1, $2, ...
+	Args []string `yaml:"args"`
+	// Mode "foreground" hands the terminal to the command (an editor, a
+	// pager); the default runs it in the background and toasts the result.
+	Mode string `yaml:"mode"`
+}
+
+// CommandFields lists the field names each view offers a command, as its
+// CommandFields returns them (a test per view keeps the two in step).
+var CommandFields = map[string][]string{
+	"prs":      {"repo", "number", "branch", "base", "url", "title", "author"},
+	"linear":   {"id", "url", "branch", "title"},
+	"sessions": {"path", "cwd", "tool", "session_id", "title"},
 }
 
 type ThemeConfig struct {

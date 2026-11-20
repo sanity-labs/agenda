@@ -1,6 +1,11 @@
 package prs
 
 import (
+	"maps"
+	"slices"
+
+	"github.com/sanity-labs/agenda/internal/config"
+
 	"encoding/json"
 	"strings"
 	"testing"
@@ -89,5 +94,15 @@ func TestRemoveReviewerCommandPerRequest(t *testing.T) {
 	}
 	if strings.Contains(titles(mergeView(t, mergeable(8))), "Remove reviewer") {
 		t.Error("no requests, no remove commands")
+	}
+}
+
+func TestCommandFieldsMatchConfig(t *testing.T) {
+	v := mergeView(t, mergeable(7))
+	scope, fields := v.CommandFields()
+	got := slices.Sorted(maps.Keys(fields))
+	want := slices.Sorted(slices.Values(config.CommandFields[scope]))
+	if !slices.Equal(got, want) {
+		t.Errorf("%s CommandFields keys %v, config.CommandFields %v", scope, got, want)
 	}
 }

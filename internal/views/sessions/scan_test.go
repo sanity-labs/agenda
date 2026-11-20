@@ -1,6 +1,9 @@
 package sessions
 
 import (
+	"maps"
+	"slices"
+
 	"encoding/json"
 	"fmt"
 	"math"
@@ -506,5 +509,16 @@ func TestSortSessionsReversed(t *testing.T) {
 	byCwd := sortSessions(in, sortCwd, true)
 	if byCwd[0].Cwd != "/c" || byCwd[2].Cwd != "/a" {
 		t.Errorf("reversed sortCwd order = %q..%q, want /c../a", byCwd[0].Cwd, byCwd[2].Cwd)
+	}
+}
+
+func TestCommandFieldsMatchConfig(t *testing.T) {
+	v := New(config.SessionsConfig{}, nil, nil)
+	v.list.SetItems([]session{{Tool: toolClaude, Path: "/x.jsonl"}})
+	scope, fields := v.CommandFields()
+	got := slices.Sorted(maps.Keys(fields))
+	want := slices.Sorted(slices.Values(config.CommandFields[scope]))
+	if !slices.Equal(got, want) {
+		t.Errorf("%s CommandFields keys %v, config.CommandFields %v", scope, got, want)
 	}
 }
