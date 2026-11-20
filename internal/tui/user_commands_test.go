@@ -122,3 +122,27 @@ func TestValidCommandsRefusesUnknownMode(t *testing.T) {
 		t.Fatalf("kept %d, warned %v; want 2 kept and a mode warning", len(ok), warn)
 	}
 }
+
+type paneFieldsView struct {
+	fieldsView
+	pane bool
+}
+
+func (p *paneFieldsView) PaneFocused() bool   { return p.pane }
+func (p *paneFieldsView) FocusPane(bool) bool { return false }
+func (p *paneFieldsView) PaneScrolls() bool   { return false }
+
+func TestCommandWaitsForTheList(t *testing.T) {
+	cfg := config.Default()
+	cfg.Commands = []config.Command{{Key: "h", View: "prs", Run: "true"}}
+	v := &paneFieldsView{fieldsView: fieldsView{fatView: fatView{title: "PRs"}, fields: map[string]string{"number": "42"}}, pane: true}
+	m := escModel(t, true, v)
+	m.cfg, m.commands = cfg, cfg.Commands
+	if _, ok := m.startCommand("h"); ok {
+		t.Error("a command took h from a focused pane")
+	}
+	v.pane = false
+	if _, ok := m.startCommand("h"); !ok {
+		t.Error("the command did not run from the list")
+	}
+}
