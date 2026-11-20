@@ -189,7 +189,8 @@ command. `prompt` asks first and passes the answer as `AGENDA_CHOICE`. A command
 runs in the background and toasts its last line of output; `mode:
 foreground` hands it the terminal instead, for an editor or a pager. A key
 that is reserved or already bound in that view is refused, and the message
-log (`!`) says why.
+log (`!`) says why. Commands fire from the list; while a pane has the keys,
+they go to the pane.
 
 ## Views
 

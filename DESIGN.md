@@ -37,6 +37,26 @@ Every other key is rebindable, including the named actions (`d`, `c`,
 in the keybind editor — a test reads the `bind()` calls out of the view
 sources to enforce this.
 
+## User commands
+
+`commands:` adds a key layer between the built-ins and the view: a key
+that no modal, input box or built-in binding takes runs the command bound
+to it in the current view, and only then does the view see it. Three
+rules keep that layer from breaking anything above:
+
+- **Built-ins win at load, not at runtime.** A command on a reserved key
+  or one already bound in its view is refused when the config loads, and
+  the keybind editor refuses to move a built-in onto a command's key. A
+  command never silently shadows a built-in, nor a built-in a command.
+- **Commands fire from the list only.** A focused pane or float reads
+  keys outside the keymap (`h` to step back, `n`/`p` in a thread walk),
+  so while one has the keys, they go to it.
+- **A prompt is a modal.** It is a picker that takes every key until an option is chosen or
+  `esc` closes it, like any other overlay.
+
+Row values reach the command as `AGENDA_<FIELD>` and positional `$1…`,
+never spliced into the command text.
+
 ## Focus
 
 The preview pane can take the keys. While it has them the list **dims and
