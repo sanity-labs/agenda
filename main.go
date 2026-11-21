@@ -100,8 +100,11 @@ func main() {
 	}
 
 	for _, v := range views {
-		if lv, ok := v.(*linear.View); ok {
-			lv.RestoreSource()
+		switch tv := v.(type) {
+		case *linear.View:
+			tv.RestoreSource()
+		case *prs.View:
+			tv.RestoreSort()
 		}
 	}
 

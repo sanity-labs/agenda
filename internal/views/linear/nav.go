@@ -273,6 +273,7 @@ func (v *View) useSource(src navSource) tea.Cmd {
 	}
 	v.source = src
 	_ = cache.Save(sourceCacheName, v.source)
+	v.restoreSort()
 	v.loading = true
 	return v.fetch()
 }

@@ -1305,6 +1305,28 @@ func (v *View) Title() string {
 	return "PRs"
 }
 
+func (v *View) sortCacheName() string {
+	if v.reviewsOnly {
+		return "reviews-sort"
+	}
+	return "prs-sort"
+}
+
+// RestoreSort puts back the sort the last run ended on. Not done in New:
+// the daemon builds the same view.
+func (v *View) RestoreSort() {
+	if p, ok := cache.Load[ui.SortPref](v.sortCacheName()); ok {
+		if mode, ok := sortByName(p.Name); ok {
+			v.sort, v.rev = mode, p.Rev
+			v.applySort()
+		}
+	}
+}
+
+func (v *View) saveSort() {
+	_ = cache.Save(v.sortCacheName(), ui.SortPref{Name: sortName[v.sort], Rev: v.rev})
+}
+
 func (v *View) Init() tea.Cmd {
 	if notice := pausedNotice(); notice != nil {
 		return notice
@@ -2136,10 +2158,12 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		case key.Matches(msg, v.keys.Sort):
 			v.sort = sortOrder[(int(v.sort)+1)%len(sortOrder)]
+			v.saveSort()
 			v.applySort()
 			return nil
 		case key.Matches(msg, v.keys.Rev):
 			v.rev = !v.rev
+			v.saveSort()
 			v.applySort()
 			return nil
 		case key.Matches(msg, v.keys.Review) && (v.reviewsOnly || v.reviewsElsewhere):
