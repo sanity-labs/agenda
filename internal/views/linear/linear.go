@@ -848,6 +848,11 @@ func (v *View) RestoreSource() {
 	if v.token == "" {
 		return
 	}
+	// Last run's favourites paint the tree at once; the fetch on first show refreshes them.
+	if favs, ok := cache.Load[[]navProject](favsCacheName); ok {
+		v.favs = favs
+		v.rebuildNav()
+	}
 	if src, ok := cache.Load[navSource](sourceCacheName); ok {
 		if i := v.navIndex(src); i >= 0 {
 			v.navSel, v.source = i, v.navItems[i].source
@@ -1428,6 +1433,9 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 	case favsMsg:
 		v.navErr = msg.err
 		v.favs = msg.projects
+		if msg.err == nil {
+			_ = cache.Save(favsCacheName, msg.projects)
+		}
 		v.rebuildNav()
 		if v.restoring {
 			v.restoring = false

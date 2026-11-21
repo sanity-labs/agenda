@@ -37,3 +37,21 @@ func TestSortIsRememberedPerSource(t *testing.T) {
 		t.Errorf("inbox restored %v rev=%v, want date", second.sort, second.rev)
 	}
 }
+
+func TestFavouritesPaintFromCache(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cfg := config.LinearConfig{Token: "t"}
+
+	first := New(cfg, nil, nil, nil)
+	first.Update(favsMsg{projects: []navProject{{ID: "p1", Name: "Infra", Kind: "project"}}})
+	first.useSource(navSource{Kind: "project", ProjectID: "p1", Label: "Infra"})
+
+	second := New(cfg, nil, nil, nil)
+	second.RestoreSource()
+	if len(second.favs) != 1 || second.favs[0].Kind != "project" {
+		t.Fatalf("favs = %+v, want the cached project", second.favs)
+	}
+	if second.restoring || second.source.ProjectID != "p1" {
+		t.Errorf("restoring=%v source=%+v, want the project source resolved from cache", second.restoring, second.source)
+	}
+}
