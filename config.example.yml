@@ -343,3 +343,4 @@ sessions:
 #     args: [repo, number, choice]  # fields passed as $1 $2 $3
 #     run: ~/bin/open-pr "$1" "$2" "$3"
 #     mode: background     # or foreground, to hand it the terminal
+#     quit: true           # quit agenda once the command exits 0
