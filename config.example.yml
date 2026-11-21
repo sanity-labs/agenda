@@ -213,9 +213,8 @@ github:
   # every fetch; the in-app filter ('/') narrows what they returned, and
   # takes qualified terms too (-label:deps, is:draft, review:approved,
   # checks:failing) matched locally against the loaded rows.
-  # The sort the PR list opens on: date, review, checks, repo, size or
-  # author. Omit (or leave empty) for the view's default, date. 's' still
-  # cycles sorts at runtime; this is only the starting point.
+  # The default PR sort: date, review, checks, repo, size or author. Omit
+  # (or leave empty) for date. A sort picked with 's' is remembered over it.
   sort: ""
   # Start with that sort reversed, as if you had pressed 'S'.
   reverse: false
@@ -289,8 +288,8 @@ linear:
   #   linear.app -> Settings -> Security & access -> API keys
   # Without it, the Linear view shows a setup hint instead of issues.
   token: ""
-  # The sort the issue list opens on: date, status, project or priority.
-  # Omit for the view's default, date.
+  # The default issue sort: date, status, project or priority. Omit for
+  # date. A sort picked with 's' is remembered over it, per source.
   sort: ""
   reverse: false
   # Which issues to fetch (server-side). The default is your assigned issues
