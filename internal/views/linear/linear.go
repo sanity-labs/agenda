@@ -625,6 +625,8 @@ type View struct {
 	raw         []issue
 	sort        sortMode
 	rev         bool // sort order reversed
+	defSort     sortMode
+	defRev      bool
 	inactive    bool // not the tab on screen; zero value means active
 	grouping    bool // swimlanes derived from the active sort
 	store       *store.Store
@@ -764,6 +766,7 @@ func New(cfg config.LinearConfig, km config.Keymap, n notify.Notifier, st *store
 		v.sort = mode
 	}
 	v.rev = cfg.Reverse
+	v.defSort, v.defRev = v.sort, v.rev
 
 	// Paint last run's issues immediately; the live fetch refreshes them.
 	if v.token != "" {
@@ -842,21 +845,54 @@ const sourceCacheName = "linear-source"
 // Not done in New: the daemon builds the same view and must keep fetching
 // the default source its cache holds.
 func (v *View) RestoreSource() {
-	src, ok := cache.Load[navSource](sourceCacheName)
-	if v.token == "" || !ok {
+	if v.token == "" {
 		return
 	}
-	if i := v.navIndex(src); i >= 0 {
-		v.navSel, v.source = i, v.navItems[i].source
-	} else if src.scoped() {
-		v.source, v.restoring = src, true // favourites are not loaded yet
+	// Last run's favourites paint the tree at once; the fetch on first show refreshes them.
+	if favs, ok := cache.Load[[]navProject](favsCacheName); ok {
+		v.favs = favs
+		v.rebuildNav()
 	}
+	if src, ok := cache.Load[navSource](sourceCacheName); ok {
+		if i := v.navIndex(src); i >= 0 {
+			v.navSel, v.source = i, v.navItems[i].source
+		} else if src.scoped() {
+			v.source, v.restoring = src, true // favourites are not loaded yet
+		}
+	}
+	v.restoreSort()
 	if v.source == v.defaultSource {
+		v.applySort()
 		return
 	}
 	// What New painted is the default source's.
 	v.raw, v.lastLoaded, v.seeded, v.loading = nil, navSource{}, false, true
 	v.applySort()
+}
+
+const sortCacheName = "linear-sort"
+
+func (v *View) sortKey() string { return v.source.Kind + "/" + v.source.ProjectID }
+
+// restoreSort puts the current source's remembered sort back, or the
+// configured one when the user never changed it there.
+func (v *View) restoreSort() {
+	v.sort, v.rev = v.defSort, v.defRev
+	prefs, _ := cache.Load[map[string]ui.SortPref](sortCacheName)
+	if p, ok := prefs[v.sortKey()]; ok {
+		if mode, ok := sortByName(p.Name); ok {
+			v.sort, v.rev = mode, p.Rev
+		}
+	}
+}
+
+func (v *View) saveSort() {
+	prefs, _ := cache.Load[map[string]ui.SortPref](sortCacheName)
+	if prefs == nil {
+		prefs = map[string]ui.SortPref{}
+	}
+	prefs[v.sortKey()] = ui.SortPref{Name: sortName[v.sort], Rev: v.rev}
+	_ = cache.Save(sortCacheName, prefs)
 }
 
 // FetchesLocally: a source other than the default has no daemon cache, so a
@@ -1397,6 +1433,9 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 	case favsMsg:
 		v.navErr = msg.err
 		v.favs = msg.projects
+		if msg.err == nil {
+			_ = cache.Save(favsCacheName, msg.projects)
+		}
 		v.rebuildNav()
 		if v.restoring {
 			v.restoring = false
@@ -1406,6 +1445,7 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 				v.source = v.defaultSource
 				v.navSel = v.navIndex(v.source)
 			}
+			v.restoreSort()
 			return v.fetch()
 		}
 		return nil
@@ -1566,10 +1606,12 @@ func (v *View) update(msg tea.Msg) tea.Cmd {
 			return v.fetch()
 		case key.Matches(msg, v.keys.Sort):
 			v.sort = sortOrder[(int(v.sort)+1)%len(sortOrder)]
+			v.saveSort()
 			v.applySort()
 			return nil
 		case key.Matches(msg, v.keys.Rev):
 			v.rev = !v.rev
+			v.saveSort()
 			v.applySort()
 			return nil
 		}

@@ -107,7 +107,7 @@ own PRs only and `w` says so.
 | `mouse` | capture clicks and the wheel (on); off hands the mouse to the terminal so dragging selects and copies text, say from a CI log |
 | `daemon` | keep a background agenda fetching and notifying with no window open; the TUI starts one and paints from its cache (see [Daemon](#daemon)) |
 | `github.merge` | `m`/`M` in the review popup merge or enable auto-merge, after confirming |
-| `github.sort`, `linear.sort`, `sessions.sort` | the sort each view opens on |
+| `github.sort`, `linear.sort`, `sessions.sort` | the default sort of each view. PRs and Linear remember the last one you picked (Linear per source, `ctrl+p`) and open on that |
 | `theme.name` | `catppuccin-mocha`, `tokyonight`, `gruvbox`, `dracula`, `nord`, `rose-pine`, … |
 | `toggles: persist` | keep `d`/`c`/`t` and an expanded description across rows instead of per row, and keep a `ctrl+p` tree up after leaving it |
 | `footer: false` | hide the hotkey bar |

@@ -19,3 +19,9 @@ func SortNames[M comparable](order []M, names map[M]string) []string {
 	}
 	return out
 }
+
+// SortPref is a sort the user picked, as saved between runs.
+type SortPref struct {
+	Name string
+	Rev  bool
+}

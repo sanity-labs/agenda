@@ -62,7 +62,7 @@ type navItem struct {
 type navProject struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-	Kind string `json:"-"`
+	Kind string `json:"kind"`
 }
 
 type favNode struct {
@@ -88,6 +88,8 @@ func parseFavs(nodes []favNode) []navProject {
 	}
 	return out
 }
+
+const favsCacheName = "linear-favs"
 
 type favsMsg struct {
 	projects []navProject
@@ -273,6 +275,7 @@ func (v *View) useSource(src navSource) tea.Cmd {
 	}
 	v.source = src
 	_ = cache.Save(sourceCacheName, v.source)
+	v.restoreSort()
 	v.loading = true
 	return v.fetch()
 }
