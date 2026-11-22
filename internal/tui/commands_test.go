@@ -59,3 +59,25 @@ func TestPaletteEnterRunsCommandOnTheView(t *testing.T) {
 		t.Errorf("ran=%q, box open=%v; want close run and box closed", cv.ran, m.search != nil)
 	}
 }
+
+func TestQuitCommandQuitsOnlyOnSuccess(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		c    config.Command
+		quit bool
+	}{
+		{"success", config.Command{Run: "true", Quit: true}, true},
+		{"failure", config.Command{Run: "false", Quit: true}, false},
+		{"no quit", config.Command{Run: "true"}, false},
+	} {
+		m := New(config.Default(), nil)
+		_, cmd := m.Update(runCommand(tc.c, map[string]string{})())
+		quit := false
+		if cmd != nil {
+			_, quit = cmd().(tea.QuitMsg)
+		}
+		if quit != tc.quit {
+			t.Errorf("%s: quit = %v, want %v", tc.name, quit, tc.quit)
+		}
+	}
+}

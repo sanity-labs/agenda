@@ -187,7 +187,8 @@ commands:
 after a prompt) that arrive as `$1`, `$2`, ...; an unknown name refuses the
 command. `prompt` asks first and passes the answer as `AGENDA_CHOICE`. A command
 runs in the background and toasts its last line of output; `mode:
-foreground` hands it the terminal instead, for an editor or a pager. A key
+foreground` hands it the terminal instead, for an editor or a pager. `quit: true`
+closes agenda once the command exits 0; a failure keeps it open. A key
 that is reserved or already bound in that view is refused, and the message
 log (`!`) says why. Commands fire from the list; while a pane has the keys,
 they go to the pane.

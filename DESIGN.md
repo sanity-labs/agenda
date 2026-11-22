@@ -54,6 +54,8 @@ rules keep that layer from breaking anything above:
 - **A prompt is a modal.** It is a picker that takes every key until an option is chosen or
   `esc` closes it, like any other overlay.
 
+`quit: true` closes agenda as `q` does, but only after the command exits 0.
+
 Row values reach the command as `AGENDA_<FIELD>` and positional `$1…`,
 never spliced into the command text.
 

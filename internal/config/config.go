@@ -136,6 +136,8 @@ type Command struct {
 	// Mode "foreground" hands the terminal to the command (an editor, a
 	// pager); the default runs it in the background and toasts the result.
 	Mode string `yaml:"mode"`
+	// Quit closes agenda once the command exits 0.
+	Quit bool `yaml:"quit"`
 }
 
 // CommandFields lists the field names each view offers a command, as its

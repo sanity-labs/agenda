@@ -130,6 +130,9 @@ func (m *Model) updatePending(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
+// commandQuitMsg asks the model to quit as q does, after a quit command succeeded.
+type commandQuitMsg struct{}
+
 func runCommand(c config.Command, fields map[string]string) tea.Cmd {
 	args := []string{"-c", c.Run, "agenda"}
 	for _, a := range c.Args {
@@ -149,6 +152,9 @@ func runCommand(c config.Command, fields map[string]string) tea.Cmd {
 			if err != nil {
 				return ui.ToastMsg{Title: name + " failed", Body: err.Error()}
 			}
+			if c.Quit {
+				return commandQuitMsg{}
+			}
 			return nil
 		})
 	}
@@ -160,6 +166,9 @@ func runCommand(c config.Command, fields map[string]string) tea.Cmd {
 				last = err.Error()
 			}
 			return ui.ToastMsg{Title: name + " failed", Body: last}
+		}
+		if c.Quit {
+			return commandQuitMsg{}
 		}
 		return ui.ToastMsg{Title: name, Body: last, Success: true}
 	}

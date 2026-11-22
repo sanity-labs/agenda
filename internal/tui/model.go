@@ -418,6 +418,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(written, m.restartDaemon("the new "+msg.Path))
 		}
 		return m, written
+	case commandQuitMsg:
+		if m.cfg.RememberOnQuit {
+			m.saveSnapshot()
+		}
+		return m, tea.Quit
 	case ui.ToastMsg:
 		m.toast = &msg
 		m.toastGen++
