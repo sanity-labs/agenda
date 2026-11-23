@@ -29,12 +29,15 @@ func TestParseOpen(t *testing.T) {
 		{"prs", []string{"--repo", "agenda", "--pr", "x"}, nil, "bad --pr"},
 		{"prs", []string{"--repo", "agenda", "--pr", "0"}, nil, "bad --pr"},
 		{"prs", []string{"--repo", "a/b/c"}, nil, "bad --repo"},
-		{"prs", []string{"--repo"}, nil, "needs a value"},
-		{"prs", []string{"--nope"}, nil, "unexpected"},
+		{"prs", []string{"--repo"}, nil, "needs an argument"},
+		{"prs", []string{"--nope"}, nil, "not defined"},
+		{"prs", []string{"--pr", "5", "--repo", "x"}, pr("https://github.com/sanity-io/x/pull/5"), ""},
+		{"prs", []string{"stray"}, nil, "unexpected"},
 		{"sessions", []string{"whatever"}, nil, ""},
 	}
 	for _, c := range cases {
-		got, err := parseOpen(c.view, c.args)
+		cmd, _ := lookup(c.view)
+		got, _, err := parseArgs(cmd, c.args)
 		if (err != nil) != (c.err != "") || err != nil && !strings.Contains(err.Error(), c.err) {
 			t.Errorf("%s %v: err = %v, want %q", c.view, c.args, err, c.err)
 			continue

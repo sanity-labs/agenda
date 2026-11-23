@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"flag"
 	"os/exec"
 	"strings"
 	"testing"
@@ -125,4 +127,54 @@ func TestDaemonRejectsExtraArgs(t *testing.T) {
 	if got, want := daemonArgError([]string{"nope"}), `agenda daemon: unexpected argument "nope"`; got != want {
 		t.Errorf("other arg: got %q, want %q", got, want)
 	}
+}
+
+func helpOf(t *testing.T, args ...string) string {
+	t.Helper()
+	c, ok := lookup(args[0])
+	if !ok {
+		t.Fatalf("no command %q", args[0])
+	}
+	_, _, err := parseArgs(c, args[1:])
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("%v: err = %v, want flag.ErrHelp", args, err)
+	}
+	var b bytes.Buffer
+	printUsage(&b, c)
+	return b.String()
+}
+
+func TestCommandHelpListsFlags(t *testing.T) {
+	out := helpOf(t, "prs", "--help")
+	for _, want := range []string{"Usage: agenda prs", "-repo", "-pr", c("prs").summary} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prs help missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestFlaglessCommandHelp(t *testing.T) {
+	out := helpOf(t, "status", "-h")
+	if !strings.Contains(out, "Usage: agenda status") || !strings.Contains(out, c("status").summary) || strings.Contains(out, "Flags:") {
+		t.Errorf("status help:\n%s", out)
+	}
+}
+
+func TestHelpAfterPositionalIsHelp(t *testing.T) {
+	helpOf(t, "linear", "SRE-1", "--help")
+}
+
+func TestHelpCommandMatchesDashHelp(t *testing.T) {
+	for _, name := range []string{"prs", "linear", "status", "daemon"} {
+		var b bytes.Buffer
+		runHelp(&b, []string{name})
+		if want := helpOf(t, name, "--help"); b.String() != want {
+			t.Errorf("help %s differs from %s --help:\n%s\n---\n%s", name, name, b.String(), want)
+		}
+	}
+}
+
+func c(name string) command {
+	cmd, _ := lookup(name)
+	return cmd
 }

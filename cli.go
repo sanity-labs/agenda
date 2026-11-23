@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +19,9 @@ import (
 type command struct {
 	name, args, summary string
 	run                 func(w io.Writer, args []string) int
+	// define registers the command's flags on fs and returns a func that
+	// turns the parsed result into the view to open.
+	define func(fs *flag.FlagSet) func() (*tui.Open, error)
 }
 
 // extraCommands is appended by tests to exercise the generators.
@@ -24,11 +29,11 @@ var extraCommands []command
 
 func commands() []command {
 	return append([]command{
-		{name: "prs", args: "[--repo [org/]repo [--pr N]]", summary: "open the TUI on the PRs view, on one PR, or on a repo's open PRs (org defaults to sanity-io)"},
+		{name: "prs", args: "[--repo [org/]repo [--pr N]]", summary: "open the TUI on the PRs view, on one PR, or on a repo's open PRs (org defaults to sanity-io)", define: definePRs},
 		{name: "reviews", summary: "open the TUI on the Reviews view (when listed in views)"},
 		{name: "sessions", summary: "open the TUI on the Sessions view"},
-		{name: "linear", args: "[ISSUE-ID]", summary: "open the TUI on the Linear view, on one issue when given"},
-		{name: "daemon", summary: "run the background daemon in the foreground (the TUI starts one when daemon: true)"},
+		{name: "linear", args: "[ISSUE-ID]", summary: "open the TUI on the Linear view, on one issue when given", define: defineLinear},
+		{name: "daemon", summary: "run the background daemon in the foreground (the TUI starts one when daemon: true)", define: defineDaemon},
 		{name: "status", summary: "show whether the daemon is running", run: runStatus},
 		{name: "stop", summary: "stop the daemon", run: runStop},
 		{name: "restart", summary: "stop the daemon and start a fresh one", run: runRestart},
@@ -63,64 +68,122 @@ func daemonArgError(args []string) string {
 	return msg
 }
 
+func defineDaemon(fs *flag.FlagSet) func() (*tui.Open, error) {
+	return func() (*tui.Open, error) {
+		if msg := daemonArgError(fs.Args()); msg != "" {
+			return nil, errors.New(msg)
+		}
+		return nil, nil
+	}
+}
+
 var issueID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*-[0-9]+$`)
 
-// parseOpen reads the arguments after `agenda linear` or `agenda prs`. A nil
-// result with no error means open the view as is.
-func parseOpen(view string, args []string) (*tui.Open, error) {
-	switch view {
-	case "linear":
+func defineLinear(fs *flag.FlagSet) func() (*tui.Open, error) {
+	return func() (*tui.Open, error) {
+		args := fs.Args()
 		switch {
 		case len(args) == 0:
 			return nil, nil
 		case len(args) > 1 || !issueID.MatchString(args[0]):
 			return nil, fmt.Errorf("agenda linear: want an issue id like SRE-1234, got %q", strings.Join(args, " "))
 		}
-		id := strings.ToUpper(args[0])
-		return &tui.Open{Ref: ui.Ref{Kind: "linear", ID: id}}, nil
-	case "prs":
-		var repo, pr string
-		for i := 0; i < len(args); i++ {
-			name, val, hasVal := strings.Cut(args[i], "=")
-			if name != "--repo" && name != "--pr" {
-				return nil, fmt.Errorf("agenda prs: unexpected argument %q", args[i])
-			}
-			if !hasVal {
-				if i+1 == len(args) {
-					return nil, fmt.Errorf("agenda prs: %s needs a value", name)
-				}
-				i++
-				val = args[i]
-			}
-			if name == "--repo" {
-				repo = val
-			} else {
-				pr = val
-			}
+		return &tui.Open{Ref: ui.Ref{Kind: "linear", ID: strings.ToUpper(args[0])}}, nil
+	}
+}
+
+func definePRs(fs *flag.FlagSet) func() (*tui.Open, error) {
+	repo := fs.String("repo", "", "open this repo's PRs, as org/repo or a bare name (org defaults to sanity-io)")
+	pr := fs.String("pr", "", "open this PR number zoomed (needs --repo)")
+	return func() (*tui.Open, error) {
+		if fs.NArg() > 0 {
+			return nil, fmt.Errorf("agenda prs: unexpected argument %q", fs.Arg(0))
 		}
-		if repo == "" {
-			if pr != "" {
+		if *repo == "" {
+			if *pr != "" {
 				return nil, fmt.Errorf("agenda prs: --pr needs --repo")
 			}
 			return nil, nil
 		}
-		if !strings.Contains(repo, "/") {
-			repo = "sanity-io/" + repo
+		r := *repo
+		if !strings.Contains(r, "/") {
+			r = "sanity-io/" + r
 		}
-		if owner, name, _ := strings.Cut(repo, "/"); owner == "" || name == "" || strings.Contains(name, "/") {
-			return nil, fmt.Errorf("agenda prs: bad --repo %q, want [org/]repo", repo)
+		if owner, name, _ := strings.Cut(r, "/"); owner == "" || name == "" || strings.Contains(name, "/") {
+			return nil, fmt.Errorf("agenda prs: bad --repo %q, want [org/]repo", r)
 		}
-		if pr == "" {
-			return &tui.Open{Repo: repo}, nil
+		if *pr == "" {
+			return &tui.Open{Repo: r}, nil
 		}
-		n, err := strconv.Atoi(pr)
+		n, err := strconv.Atoi(*pr)
 		if err != nil || n < 1 {
-			return nil, fmt.Errorf("agenda prs: bad --pr %q, want a number", pr)
+			return nil, fmt.Errorf("agenda prs: bad --pr %q, want a number", *pr)
 		}
-		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, n)
+		url := fmt.Sprintf("https://github.com/%s/pull/%d", r, n)
 		return &tui.Open{Ref: ui.Ref{Kind: "pr", ID: url, URL: url}}, nil
 	}
-	return nil, nil
+}
+
+// newFlagSet builds c's flag set. Its Usage is the single source of the
+// command's help text, used by `<cmd> --help` and `agenda help <cmd>` alike.
+func newFlagSet(c command, out io.Writer) (*flag.FlagSet, func() (*tui.Open, error)) {
+	fs := flag.NewFlagSet("agenda "+c.name, flag.ContinueOnError)
+	fs.SetOutput(out)
+	var finish func() (*tui.Open, error)
+	if c.define != nil {
+		finish = c.define(fs)
+	}
+	fs.Usage = func() {
+		fmt.Fprintf(out, "Usage: agenda %s\n\n%s\n", strings.TrimSpace(c.name+" "+c.args), c.summary)
+		n := 0
+		fs.VisitAll(func(*flag.Flag) { n++ })
+		if n > 0 {
+			fmt.Fprint(out, "\nFlags:\n")
+			fs.PrintDefaults()
+		}
+	}
+	return fs, finish
+}
+
+func printUsage(w io.Writer, c command) {
+	fs, _ := newFlagSet(c, w)
+	fs.Usage()
+}
+
+// parseArgs parses the arguments after `agenda <c.name>`. It returns the
+// view to open (nil to open as is) and the positional arguments left over.
+// A -h or --help anywhere, even after a positional, yields flag.ErrHelp.
+func parseArgs(c command, args []string) (*tui.Open, []string, error) {
+	fs, finish := newFlagSet(c, io.Discard)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("agenda %s: %w", c.name, err)
+	}
+	for _, a := range fs.Args() {
+		if a == "-h" || a == "--help" {
+			return nil, nil, flag.ErrHelp
+		}
+	}
+	if finish == nil {
+		return nil, fs.Args(), nil
+	}
+	open, err := finish()
+	return open, fs.Args(), err
+}
+
+// argFailure reports a parseArgs error and returns the exit code: help goes
+// to stdout and succeeds, anything else prints the error and usage to stderr.
+func argFailure(c command, err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		printUsage(os.Stdout, c)
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, err)
+	fmt.Fprintln(os.Stderr)
+	printUsage(os.Stderr, c)
+	return 2
 }
 
 func runVersion(w io.Writer, _ []string) int {
@@ -135,7 +198,7 @@ func runHelp(w io.Writer, args []string) int {
 			fmt.Fprintf(w, "agenda: unknown command %q\n", args[0])
 			return 1
 		}
-		fmt.Fprintf(w, "agenda %s %s\n    %s\n", c.name, c.args, c.summary)
+		printUsage(w, c)
 		return 0
 	}
 

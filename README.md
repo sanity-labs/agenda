@@ -33,7 +33,7 @@ go install github.com/sanity-labs/agenda@latest
 
 `agenda` opens on the first tab; `agenda prs`, `agenda reviews`,
 `agenda sessions`, `agenda linear` open on that view. `agenda help` lists the
-commands, `agenda version` prints the build, `agenda update` says whether a
+commands (`agenda help prs` or `agenda prs --help` shows one command and its flags), `agenda version` prints the build, `agenda update` says whether a
 newer release exists and how to get it for this install (it never replaces
 the binary itself). The same check runs once at startup and shows in the tab
 bar; `update_check: false` turns it off.

@@ -46,22 +46,15 @@ func main() {
 		case "--help", "-h":
 			os.Exit(runHelp(os.Stdout, nil))
 		}
-		if args[0] == "daemon" {
-			if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
-				os.Exit(runHelp(os.Stdout, []string{"daemon"}))
+		if c, ok := lookup(strings.ToLower(args[0])); ok {
+			o, rest, err := parseArgs(c, args[1:])
+			if err != nil {
+				os.Exit(argFailure(c, err))
 			}
-			if msg := daemonArgError(args[1:]); msg != "" {
-				fmt.Fprintln(os.Stderr, msg)
-				os.Exit(2)
+			open = o
+			if c.run != nil {
+				os.Exit(c.run(os.Stdout, rest))
 			}
-		}
-		var err error
-		if open, err = parseOpen(strings.ToLower(args[0]), args[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
-		}
-		if c, ok := lookup(args[0]); ok && c.run != nil {
-			os.Exit(c.run(os.Stdout, args[1:]))
 		}
 	}
 	if herdrMode && os.Getenv("HERDR_ENV") != "1" {
