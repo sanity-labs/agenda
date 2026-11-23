@@ -167,10 +167,13 @@ job log → jobs/file-list focus → pane focus → the pane → zoom → filter
 
 The filter is the floor: with nothing open over the list, `esc` clears the
 query that narrowed it (from `/` or `f` alike), so the list is whole again.
+Below the filter sits the temporary repo list of `agenda prs --repo`: `esc`
+on the bare, unfiltered list drops it and brings your own PRs back.
 
 Herdr mode is the one exception to "never closes agenda". There agenda is a
-popup, and `esc` is how every popup is dismissed, so once the layers above
-and the filter are gone, `esc` on the bare list quits.
+popup, and `esc` is how every popup is dismissed, so once the layers above,
+the filter and any repo list are gone, `esc` on the bare list quits. A repo
+list is left first: the first `esc` brings your own PRs back, the next closes.
 
 Floated, `esc` does not step: it closes the whole float from any level.
 The arrows are what walk back a level at a time (see Focus), so `esc`

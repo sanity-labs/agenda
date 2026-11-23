@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/sanity-labs/agenda/internal/tui"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 // command is one `agenda <name>` subcommand. run returns the process exit
@@ -19,10 +24,10 @@ var extraCommands []command
 
 func commands() []command {
 	return append([]command{
-		{name: "prs", summary: "open the TUI on the PRs view"},
+		{name: "prs", args: "[--repo [org/]repo [--pr N]]", summary: "open the TUI on the PRs view, on one PR, or on a repo's open PRs (org defaults to sanity-io)"},
 		{name: "reviews", summary: "open the TUI on the Reviews view (when listed in views)"},
 		{name: "sessions", summary: "open the TUI on the Sessions view"},
-		{name: "linear", summary: "open the TUI on the Linear view"},
+		{name: "linear", args: "[ISSUE-ID]", summary: "open the TUI on the Linear view, on one issue when given"},
 		{name: "daemon", summary: "run the background daemon in the foreground (the TUI starts one when daemon: true)"},
 		{name: "status", summary: "show whether the daemon is running", run: runStatus},
 		{name: "stop", summary: "stop the daemon", run: runStop},
@@ -56,6 +61,66 @@ func daemonArgError(args []string) string {
 		msg += fmt.Sprintf(" (did you mean agenda %s?)", args[0])
 	}
 	return msg
+}
+
+var issueID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*-[0-9]+$`)
+
+// parseOpen reads the arguments after `agenda linear` or `agenda prs`. A nil
+// result with no error means open the view as is.
+func parseOpen(view string, args []string) (*tui.Open, error) {
+	switch view {
+	case "linear":
+		switch {
+		case len(args) == 0:
+			return nil, nil
+		case len(args) > 1 || !issueID.MatchString(args[0]):
+			return nil, fmt.Errorf("agenda linear: want an issue id like SRE-1234, got %q", strings.Join(args, " "))
+		}
+		id := strings.ToUpper(args[0])
+		return &tui.Open{Ref: ui.Ref{Kind: "linear", ID: id}}, nil
+	case "prs":
+		var repo, pr string
+		for i := 0; i < len(args); i++ {
+			name, val, hasVal := strings.Cut(args[i], "=")
+			if name != "--repo" && name != "--pr" {
+				return nil, fmt.Errorf("agenda prs: unexpected argument %q", args[i])
+			}
+			if !hasVal {
+				if i+1 == len(args) {
+					return nil, fmt.Errorf("agenda prs: %s needs a value", name)
+				}
+				i++
+				val = args[i]
+			}
+			if name == "--repo" {
+				repo = val
+			} else {
+				pr = val
+			}
+		}
+		if repo == "" {
+			if pr != "" {
+				return nil, fmt.Errorf("agenda prs: --pr needs --repo")
+			}
+			return nil, nil
+		}
+		if !strings.Contains(repo, "/") {
+			repo = "sanity-io/" + repo
+		}
+		if owner, name, _ := strings.Cut(repo, "/"); owner == "" || name == "" || strings.Contains(name, "/") {
+			return nil, fmt.Errorf("agenda prs: bad --repo %q, want [org/]repo", repo)
+		}
+		if pr == "" {
+			return &tui.Open{Repo: repo}, nil
+		}
+		n, err := strconv.Atoi(pr)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("agenda prs: bad --pr %q, want a number", pr)
+		}
+		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, n)
+		return &tui.Open{Ref: ui.Ref{Kind: "pr", ID: url, URL: url}}, nil
+	}
+	return nil, nil
 }
 
 func runVersion(w io.Writer, _ []string) int {

@@ -38,6 +38,7 @@ func main() {
 
 	// Subcommands run before config load, so a broken config never blocks
 	// `agenda version` or `agenda help`.
+	var open *tui.Open
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "-v":
@@ -53,6 +54,11 @@ func main() {
 				fmt.Fprintln(os.Stderr, msg)
 				os.Exit(2)
 			}
+		}
+		var err error
+		if open, err = parseOpen(strings.ToLower(args[0]), args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
 		}
 		if c, ok := lookup(args[0]); ok && c.run != nil {
 			os.Exit(c.run(os.Stdout, args[1:]))
@@ -146,6 +152,9 @@ func main() {
 	reloaded := os.Getenv(reloadEnv)
 	os.Unsetenv(reloadEnv)
 	m := tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithReloaded(reloaded)
+	if open != nil && reloaded == "" {
+		m = m.WithOpen(*open)
+	}
 	if reloaded == "" {
 		m = m.WithSnapshot(len(args) > 0)
 	}

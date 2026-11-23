@@ -783,6 +783,9 @@ type View struct {
 	reviewRaw  []pr          // PRs waiting on the user's review
 	stackHeads map[string]pr // stackIndex's byHead, from the last applySort
 	opened     []pr          // a PR neither search lists, brought in by a jump
+	repoName   string        // set while a repo's open PRs replace the list (agenda prs --repo)
+	repoSet    []pr
+	repoTotal  int
 	held       map[string]heldReview
 	showReview bool // render the review section (toggled with 'w')
 	// reviewsOnly makes this the Reviews tab: the review-requested search is
@@ -1599,7 +1602,7 @@ func (v *View) pageSize() int {
 // driven by the cursor reaching the end of the list, so it must be cheap to
 // call repeatedly and do nothing when there is nothing left.
 func (v *View) fetchMore() tea.Cmd {
-	if !v.cfg.LazyPagingEnabled() {
+	if !v.cfg.LazyPagingEnabled() || v.repoName != "" {
 		return nil
 	}
 	size := v.pageSize()
@@ -1632,6 +1635,16 @@ func (v *View) fetchMore() tea.Cmd {
 
 func (v *View) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
+	case repoMsg:
+		if v.foreign(msg.from) {
+			return nil
+		}
+		if msg.err != nil {
+			return statusCmd(ui.SeverityWarn, msg.err)
+		}
+		v.repoName, v.repoSet, v.repoTotal = msg.repo, msg.page.prs, msg.page.total
+		v.applySort()
+		return v.scheduleSettle()
 	case prFetchedMsg:
 		if v.foreign(msg.from) {
 			return nil
@@ -3231,6 +3244,9 @@ func (v *View) applySort() {
 		mine = nil // the review search is the whole list, whatever raw holds
 	}
 	rev := sortPRs(v.reviewRaw, v.sort, v.rev)
+	if v.repoName != "" {
+		mine, rev = sortPRs(v.repoSet, v.sort, v.rev), nil
+	}
 	// An approved PR is waiting on its author, so hide it by default and
 	// let the toggle bring it back: an approval from someone else does not
 	// mean you are done with it, you may still want to comment.
@@ -3284,13 +3300,16 @@ func (v *View) applySort() {
 	// and which search produced it, and a header that comes and goes with
 	// the toggle leaves a bare list to be puzzled out.
 	var items []pr
-	if !v.reviewsOnly {
+	if v.repoName != "" {
+		items = append(items, pr{Separator: sectionLabel("OPEN IN "+v.repoName, len(mine), 0, v.repoTotal)})
+		items = append(items, v.groupSection(mine)...)
+	} else if !v.reviewsOnly {
 		items = append(items, pr{Separator: v.bandWithQuery(
 			sectionLabel("MY PULL REQUESTS", len(mine), 0, v.minePage.total),
 			v.cfg.Filter)})
 		items = append(items, v.groupSection(mine)...)
 	}
-	if v.showReview {
+	if v.showReview && v.repoName == "" {
 		items = append(items, pr{Separator: v.bandWithQuery(
 			v.reviewLabel(rev), v.cfg.ReviewQuery())})
 		items = append(items, v.groupSection(rev)...)
@@ -3684,6 +3703,8 @@ func (v *View) statusText() string {
 		return "Error (ctrl+r to retry)"
 	case v.flash != "":
 		return v.flash
+	case v.repoName != "":
+		return fmt.Sprintf("%d open in %s · sort: %s%s", len(v.repoSet), v.repoName, sortName[v.sort], ui.RevMarker(v.rev))
 	case v.reviewsOnly:
 		if v.reviewLoading && len(v.reviewRaw) == 0 {
 			return "Loading review requests…"

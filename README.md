@@ -38,6 +38,13 @@ newer release exists and how to get it for this install (it never replaces
 the binary itself). The same check runs once at startup and shows in the tab
 bar; `update_check: false` turns it off.
 
+Two views take a target. `agenda linear SRE-1234` opens that issue zoomed,
+fetching it in when the source does not list it. `agenda prs --repo agenda
+--pr 88` does the same for a PR; `--repo` takes `org/repo`, and a bare name
+means `sanity-io/<name>`. `agenda prs --repo agenda` alone lists every open PR
+of that repo instead of your own, for this run only: nothing is saved, and
+`esc` on the bare list brings your list back.
+
 Shell completion, once per shell:
 
 ```sh
@@ -302,7 +309,8 @@ height = "85%"
 
 In the popup, `enter` (or a double-click) jumps to the selection and closes the
 popup; `O` still opens PRs and issues in the browser. `esc` steps back out of
-whatever is open as usual, then closes the popup from the bare list.
+whatever is open as usual (a `--repo` list included), then closes the popup
+from the bare list.
 
 **How work maps onto Herdr.** A workspace *claims* part of Linear's tree: one
 issue, a parent issue with its sub-issues, or a whole project. An issue opens

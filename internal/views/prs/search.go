@@ -362,6 +362,35 @@ func (v *View) FetchRef(id, url string) tea.Cmd {
 	}
 }
 
+type repoMsg struct {
+	from *View
+	repo string
+	page searchPage
+	err  error
+}
+
+// ShowRepo replaces the list with the repo's open PRs until LeaveRepo.
+// ponytail: first 100, no paging.
+func (v *View) ShowRepo(repo string) tea.Cmd {
+	return func() tea.Msg {
+		page, err, hidden := searchPRs("repo:"+repo+" is:pr is:open", 100, "")
+		if err == nil {
+			err = hidden
+		}
+		return repoMsg{from: v, repo: repo, page: page, err: err}
+	}
+}
+
+// LeaveRepo drops the temporary set, reporting whether there was one.
+func (v *View) LeaveRepo() bool {
+	if v.repoName == "" {
+		return false
+	}
+	v.repoName, v.repoSet = "", nil
+	v.applySort()
+	return true
+}
+
 func (v *View) takeFetched(msg prFetchedMsg) tea.Cmd {
 	if msg.err != nil || msg.pr.URL == "" {
 		return ui.OpenURL(msg.url)
