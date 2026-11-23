@@ -254,3 +254,21 @@ func TestStackSiblingsShareTotal(t *testing.T) {
 		}
 	}
 }
+
+func TestStackAgreesWhenBottomIsNotFetched(t *testing.T) {
+	mid := stk(2865, "b", "a", "OPEN")
+	top := stk(2866, "c", "b", "OPEN")
+	mid.BaseRef.Open.Nodes = append(mid.BaseRef.Open.Nodes, struct {
+		Number int `json:"number"`
+	}{2853})
+	v := &View{reviewRaw: []pr{mid, top}}
+	kids, byHead := v.stackIndex()
+	for _, c := range []struct {
+		p   pr
+		pos int
+	}{{mid, 2}, {top, 3}} {
+		if pos, total := stackPlace(c.p, kids, byHead); pos != c.pos || total != 3 {
+			t.Errorf("#%d got %d/%d, want %d/3", c.p.Number, pos, total, c.pos)
+		}
+	}
+}

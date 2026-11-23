@@ -208,9 +208,9 @@ func ancestors(p pr, byHead map[string]pr) (nums []int, root string) {
 	cur := p
 	for cur.BaseRefName != "" && cur.BaseRefName != cur.Repository.DefaultBranchRef.Name {
 		next, ok := byHead[cur.repo()+"\x00"+cur.BaseRefName]
-		if !ok && cur.Number == p.Number {
-			if n, _ := p.parent(); n != 0 {
-				return append(nums, n), root
+		if !ok {
+			if n, _ := cur.parent(); n != 0 {
+				return append([]int{n}, nums...), root
 			}
 		}
 		if !ok || seen[next.Number] {
