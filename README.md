@@ -41,7 +41,7 @@ bar; `update_check: false` turns it off.
 Two views take a target. `agenda linear SRE-1234` opens that issue zoomed,
 fetching it in when the source does not list it. `agenda prs --repo agenda
 --pr 88` does the same for a PR; `--repo` takes `org/repo`, and a bare name
-means `sanity-io/<name>`. `agenda prs --repo agenda` alone lists every open PR
+takes `github.default_org` (a bare name is an error until it is set). `agenda prs --repo agenda` alone lists every open PR
 of that repo instead of your own, for this run only: nothing is saved, and
 `esc` on the bare list brings your list back.
 
@@ -103,6 +103,7 @@ own PRs only and `w` says so.
 | `github.diff_pane` | `d` shows the diff in the pane as a file list instead of paging it through `less` |
 | `github.review_view` | what `r` opens beside the review popup: `files` (default) or `unified` |
 | `github.show_stacks` | badge PRs in a stack with their place (` 2/3`, counted from the one on the default branch) beside the number, flag ones whose base PR merged (`⚠ restack`), and show the full chain in the preview; on by default |
+| `github.default_org` | the org a bare `agenda prs --repo name` resolves to; empty (default) makes a bare name an error |
 | `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `remember_on_quit` | a `q` that quits saves the tab and filters; the next start restores them (off) |

@@ -1333,6 +1333,9 @@ func (v *View) RestoreSort() {
 }
 
 func (v *View) saveSort() {
+	if v.repoName != "" {
+		return
+	}
 	_ = cache.Save(v.sortCacheName(), ui.SortPref{Name: sortName[v.sort], Rev: v.rev})
 }
 

@@ -29,7 +29,7 @@ var extraCommands []command
 
 func commands() []command {
 	return append([]command{
-		{name: "prs", args: "[--repo [org/]repo [--pr N]]", summary: "open the TUI on the PRs view, on one PR, or on a repo's open PRs (org defaults to sanity-io)", define: definePRs},
+		{name: "prs", args: "[--repo [org/]repo [--pr N]]", summary: "open the TUI on the PRs view, on one PR, or on a repo's open PRs (a bare repo name needs github.default_org)", define: definePRs},
 		{name: "reviews", summary: "open the TUI on the Reviews view (when listed in views)"},
 		{name: "sessions", summary: "open the TUI on the Sessions view"},
 		{name: "linear", args: "[ISSUE-ID]", summary: "open the TUI on the Linear view, on one issue when given", define: defineLinear},
@@ -93,7 +93,7 @@ func defineLinear(fs *flag.FlagSet) func() (*tui.Open, error) {
 }
 
 func definePRs(fs *flag.FlagSet) func() (*tui.Open, error) {
-	repo := fs.String("repo", "", "open this repo's PRs, as org/repo or a bare name (org defaults to sanity-io)")
+	repo := fs.String("repo", "", "open this repo's PRs, as org/repo or a bare name (a bare name needs github.default_org)")
 	pr := fs.String("pr", "", "open this PR number zoomed (needs --repo)")
 	return func() (*tui.Open, error) {
 		if fs.NArg() > 0 {
@@ -106,10 +106,11 @@ func definePRs(fs *flag.FlagSet) func() (*tui.Open, error) {
 			return nil, nil
 		}
 		r := *repo
-		if !strings.Contains(r, "/") {
-			r = "sanity-io/" + r
+		owner, name, qualified := strings.Cut(r, "/")
+		if !qualified {
+			owner, name = "x", r
 		}
-		if owner, name, _ := strings.Cut(r, "/"); owner == "" || name == "" || strings.Contains(name, "/") {
+		if owner == "" || name == "" || strings.Contains(name, "/") {
 			return nil, fmt.Errorf("agenda prs: bad --repo %q, want [org/]repo", r)
 		}
 		if *pr == "" {
@@ -119,9 +120,27 @@ func definePRs(fs *flag.FlagSet) func() (*tui.Open, error) {
 		if err != nil || n < 1 {
 			return nil, fmt.Errorf("agenda prs: bad --pr %q, want a number", *pr)
 		}
-		url := fmt.Sprintf("https://github.com/%s/pull/%d", r, n)
-		return &tui.Open{Ref: ui.Ref{Kind: "pr", ID: url, URL: url}}, nil
+		return &tui.Open{Repo: r, Ref: ui.Ref{Kind: "pr", ID: strconv.Itoa(n)}}, nil
 	}
+}
+
+// resolveOpen runs after the config loads: a bare repo name takes
+// github.default_org, and a PR target becomes its URL.
+func resolveOpen(o *tui.Open, defaultOrg string) error {
+	if o == nil || o.Repo == "" {
+		return nil
+	}
+	if !strings.Contains(o.Repo, "/") {
+		if defaultOrg == "" {
+			return fmt.Errorf("agenda: --repo %q needs an org: pass org/repo or set github.default_org", o.Repo)
+		}
+		o.Repo = defaultOrg + "/" + o.Repo
+	}
+	if o.Ref.Kind == "pr" {
+		o.Ref.URL = fmt.Sprintf("https://github.com/%s/pull/%s", o.Repo, o.Ref.ID)
+		o.Ref.ID, o.Repo = o.Ref.URL, ""
+	}
+	return nil
 }
 
 // newFlagSet builds c's flag set. Its Usage is the single source of the

@@ -206,6 +206,9 @@ github:
   filter: "author:@me is:open archived:false"
   # Search query for the "needs your review" section (toggle it with 'w').
   review_filter: "review-requested:@me is:open archived:false"
+  # The org a bare `agenda prs --repo name` resolves to. Empty: a bare name
+  # is an error, pass org/repo.
+  default_org: ""
   # Show that section on startup. On by default; 'w' hides it in-app.
   show_review_requested: true
   # In the review-requested section, dim PRs you have already reviewed and

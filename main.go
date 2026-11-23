@@ -27,6 +27,8 @@ import (
 	"github.com/sanity-labs/agenda/internal/views/sessions"
 )
 
+func isDaemonArg(a string) bool { return strings.EqualFold(a, "daemon") }
+
 func main() {
 	// --herdr may come before or after a view name (`agenda --herdr prs`).
 	args := os.Args[1:]
@@ -68,6 +70,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := resolveOpen(open, cfg.GitHub.DefaultOrg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
 	// The theme applies process-wide, so resolve it before any view exists.
 	palette, err := ui.ResolvePalette(cfg.Theme.Name, cfg.Theme.Palette)
 	if err != nil {
@@ -105,7 +112,7 @@ func main() {
 	}
 
 	// `agenda daemon`: the same views, headless, behind the socket.
-	if len(args) > 0 && args[0] == "daemon" {
+	if len(args) > 0 && isDaemonArg(args[0]) {
 		if err := tui.ServeDaemon(cfg, views, versionString()); err != nil {
 			fmt.Fprintln(os.Stderr, "agenda daemon:", err)
 			os.Exit(1)

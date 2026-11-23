@@ -338,6 +338,12 @@ func settingsTable() []setting {
 			set:  func(c *config.Config, v string) { c.GitHub.Filter = v },
 		},
 		{
+			label: "default org", path: "github.default_org", kind: kindText,
+			note: noteReload,
+			get:  func(c config.Config) string { return c.GitHub.DefaultOrg },
+			set:  func(c *config.Config, v string) { c.GitHub.DefaultOrg = v },
+		},
+		{
 			label: "review search filter", path: "github.review_filter",
 			kind: kindText, note: noteReload,
 			get: func(c config.Config) string { return c.GitHub.ReviewFilter },
