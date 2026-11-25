@@ -648,6 +648,10 @@ func Load() (Config, error) {
 	// would otherwise keep its built-in meaning and the override would
 	// look like it had simply not worked.
 	cfg.Unknown = append(cfg.Unknown, cfg.Keys.reservedWarnings()...)
+	if c := cfg.Herdr.Claims; c != "" && c != "file" && c != "tokens" {
+		cfg.Unknown = append(cfg.Unknown, fmt.Sprintf(
+			"herdr.claims: %q is not file or tokens, using file", c))
+	}
 	if cfg.Linear.Filter.Limit <= 0 {
 		cfg.Linear.Filter.Limit = 100
 	}
