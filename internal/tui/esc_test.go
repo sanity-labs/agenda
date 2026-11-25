@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/herdr"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
 
@@ -192,5 +193,26 @@ func TestQClosesTheTopLayerBeforeQuitting(t *testing.T) {
 	}
 	if _, quit := cmd().(tea.QuitMsg); !quit {
 		t.Fatal("ctrl+c did not quit with a pane open")
+	}
+}
+
+// In a herdr popup esc unwinds the same layers, then closes the popup from
+// the bare list instead of doing nothing.
+func TestEscClosesTheHerdrPopupFromTheBareList(t *testing.T) {
+	v := &filterView{paneView: paneView{open: 1}, query: "foo"}
+	m := escModel(t, true, v).WithHerdr(&herdr.Opener{})
+	quits := func(cmd tea.Cmd) bool {
+		if cmd == nil {
+			return false
+		}
+		_, ok := cmd().(tea.QuitMsg)
+		return ok
+	}
+	for i, want := range []bool{false, false, true} { // pane, filter, popup
+		got, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+		m = got.(Model)
+		if quits(cmd) != want {
+			t.Fatalf("esc #%d: quit=%v, want %v (open=%d query=%q)", i+1, !want, want, v.open, v.query)
+		}
 	}
 }

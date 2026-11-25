@@ -168,6 +168,10 @@ job log → jobs/file-list focus → pane focus → the pane → zoom → filter
 The filter is the floor: with nothing open over the list, `esc` clears the
 query that narrowed it (from `/` or `f` alike), so the list is whole again.
 
+Herdr mode is the one exception to "never closes agenda". There agenda is a
+popup, and `esc` is how every popup is dismissed, so once the layers above
+and the filter are gone, `esc` on the bare list quits.
+
 Floated, `esc` does not step: it closes the whole float from any level.
 The arrows are what walk back a level at a time (see Focus), so `esc`
 is the one key that is always "get me out of this window".
