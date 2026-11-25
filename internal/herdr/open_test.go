@@ -35,6 +35,12 @@ func (f *fakeRun) run(_, name string, args ...string) ([]byte, error) {
 	if out, ok := f.out[cmd]; ok {
 		return []byte(out), nil
 	}
+	// A canned command also answers itself with trailing flags (--env ...).
+	for k, out := range f.out {
+		if strings.HasPrefix(cmd, k+" --") {
+			return []byte(out), nil
+		}
+	}
 	return []byte(`{"result":{}}`), nil
 }
 
@@ -197,6 +203,9 @@ func TestPRAddsTabToItsIssueWorkspace(t *testing.T) {
 		"worktree /tmp/agent/ops-5287\nbranch refs/heads/sre-5287-tools-staging\n"
 	e.f.fail["git rev-parse --verify --quiet refs/heads/sre-5287-timeouts"] = true
 	path := filepath.Join(e.wtDir, "argocd-ops", "sre-5287-timeouts")
+	tabCreate := "herdr tab create --workspace wP --cwd " + path + " --label SRE-5287 · argocd-ops#4454 --focus"
+	e.f.out[tabCreate] = `{"result":{"root_pane":{"pane_id":"wP:p9"}}}`
+	e.o.TabCommand = "my-claude --resume-last"
 
 	req := Request{
 		Issues: []Issue{{ID: "SRE-5287", Title: "PSC"}},
@@ -208,7 +217,9 @@ func TestPRAddsTabToItsIssueWorkspace(t *testing.T) {
 	for _, want := range []string{
 		"git worktree add --track -b sre-5287-timeouts " + path + " origin/sre-5287-timeouts",
 		"herdr workspace focus wP",
-		"herdr tab create --workspace wP --cwd " + path + " --label SRE-5287 · argocd-ops#4454 --focus",
+		tabCreate + " --env AGENDA_ISSUE=SRE-5287 --env AGENDA_TITLE=PSC --env AGENDA_REPO=sanity-io/argocd-ops" +
+			" --env AGENDA_NUMBER=4454 --env AGENDA_BRANCH=sre-5287-timeouts",
+		"herdr pane run wP:p9 my-claude --resume-last",
 	} {
 		if !e.f.called(want) {
 			t.Errorf("calls = %q\nwant %q", e.f.calls, want)
@@ -225,6 +236,8 @@ func TestPRFocusesTabAlreadyOnItsCheckout(t *testing.T) {
 		"worktree /wt/ops-timeouts\nbranch refs/heads/sre-5287-timeouts\n"
 	e.f.out["herdr pane list"] = `{"result":{"panes":[{"pane_id":"wP:p4","tab_id":"wP:t3","workspace_id":"wP","cwd":"/wt/ops-timeouts/charts"}]}}`
 
+	e.o.TabCommand = "my-claude"
+
 	req := Request{
 		Issues: []Issue{{ID: "SRE-5287"}},
 		PR:     &PR{Repo: "sanity-io/argocd-ops", Number: 4454, Branch: "sre-5287-timeouts"},
@@ -232,7 +245,8 @@ func TestPRFocusesTabAlreadyOnItsCheckout(t *testing.T) {
 	if err := e.o.Open(req); err != nil {
 		t.Fatal(err)
 	}
-	if !e.f.called("herdr tab focus wP:t3") || e.f.called("herdr tab create") || e.f.called("git worktree add") {
+	// The tab command is for new tabs: a jump to an existing one runs nothing.
+	if !e.f.called("herdr tab focus wP:t3") || e.f.called("herdr tab create") || e.f.called("git worktree add") || e.f.called("herdr pane run") {
 		t.Errorf("calls = %q, want the existing tab focused", e.f.calls)
 	}
 }

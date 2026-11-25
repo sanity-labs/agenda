@@ -162,6 +162,11 @@ type HerdrConfig struct {
 	// ~/.herdr/worktrees, Herdr's own, so its worktrees and agenda's sit
 	// together.
 	WorktreesDir string `yaml:"worktrees_dir"`
+	// TabCommand runs in the tab or workspace agenda creates for an issue or
+	// PR (not on a jump to one that exists), e.g. an agent wrapper. Its shell
+	// has the item in AGENDA_ISSUE, AGENDA_TITLE, AGENDA_REPO, AGENDA_NUMBER
+	// and AGENDA_BRANCH. Empty runs nothing.
+	TabCommand string `yaml:"tab_command"`
 }
 
 type ThemeConfig struct {

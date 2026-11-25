@@ -334,6 +334,17 @@ New worktrees go under `herdr.worktrees_dir` as `<repo>/<branch>`, and clones
 are found at `<repos_root>/<owner>/<repo>` (default `~/git`); see the `herdr:`
 section of [`config.example.yml`](./config.example.yml).
 
+`herdr.tab_command` runs a command in each tab or workspace agenda creates for
+an issue or PR, say an agent wrapper instead of a bare shell. Jumping to a tab
+that already exists runs nothing. The item reaches the command through the
+environment, never spliced into its text: `AGENDA_ISSUE`, `AGENDA_TITLE`,
+`AGENDA_REPO`, `AGENDA_NUMBER` and `AGENDA_BRANCH`.
+
+agenda only ever creates: it does not remove worktrees, branches or claims
+once a PR merges. Leave that to git (`git worktree remove`, `git branch -d`)
+and Herdr, or to whatever already tidies up after a merge. A claim on a
+workspace that is gone is ignored.
+
 ## Releasing
 
 Merges to `main` accumulate into a draft release; publishing it tags

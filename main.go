@@ -222,7 +222,9 @@ func newOpener(c config.HerdrConfig) *herdr.Opener {
 	for slug, path := range c.Repos {
 		repos.Overrides[slug] = herdr.ExpandHome(path)
 	}
-	return herdr.NewOpener(herdr.ExecRunner, repos, herdr.ExpandHome(c.WorktreesDir), herdr.LoadClaims(herdr.DefaultClaimsPath()))
+	o := herdr.NewOpener(herdr.ExecRunner, repos, herdr.ExpandHome(c.WorktreesDir), herdr.LoadClaims(herdr.DefaultClaimsPath()))
+	o.TabCommand = c.TabCommand
+	return o
 }
 
 // Set by GoReleaser via -ldflags "-X main.version=..." on release builds.

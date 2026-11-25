@@ -107,6 +107,9 @@ type Opener struct {
 	repos        Repos
 	worktreesDir string // where new worktrees go, as <repo>/<branch>
 	claims       *Claims
+	// TabCommand runs in each tab or workspace Open creates for an issue or
+	// PR; "" runs nothing.
+	TabCommand string
 }
 
 func NewOpener(run Runner, repos Repos, worktreesDir string, claims *Claims) *Opener {
@@ -242,7 +245,7 @@ func (o *Opener) choices(req Request, live []Workspace) []Choice {
 // ws is ""): it focuses the tab already on the checkout, or creates the
 // worktree and a tab for it. Then ws claims node.
 func (o *Opener) place(req Request, ws string, node Node, newLabel string, live []Workspace) error {
-	var path, tab string
+	var path, tab, branch string
 	if req.PR != nil {
 		pr := *req.PR
 		if pr.Branch == "" {
@@ -260,7 +263,7 @@ func (o *Opener) place(req Request, ws string, node Node, newLabel string, live 
 		if err != nil {
 			return err
 		}
-		path, tab = p, prKey(pr)
+		path, tab, branch = p, prKey(pr), pr.Branch
 	} else {
 		iss := req.Issues[0]
 		if ws != "" {
@@ -272,12 +275,16 @@ func (o *Opener) place(req Request, ws string, node Node, newLabel string, live 
 		switch {
 		case existing != "":
 			path, tab = existing, filepath.Base(filepath.Dir(existing))
+			if out, err := o.run(existing, "git", "branch", "--show-current"); err == nil {
+				branch = strings.TrimSpace(string(out))
+			}
 		case req.FocusOnly && ws != "":
 			return o.focus(ws, "", node, live)
 		case req.Clone == "":
 			return &RepoError{Workspace: ws}
 		default:
-			p, err := o.checkout(req.Clone, issueBranch(iss), nil)
+			branch = issueBranch(iss)
+			p, err := o.checkout(req.Clone, branch, nil)
 			if err != nil {
 				return err
 			}
@@ -288,15 +295,19 @@ func (o *Opener) place(req Request, ws string, node Node, newLabel string, live 
 		tab = req.Issues[0].ID + " · " + tab
 	}
 
+	env := itemEnv(req, branch)
 	if ws == "" {
-		r, err := o.herdr.CreateWorkspace(path, newLabel)
+		r, err := o.herdr.CreateWorkspace(path, newLabel, env)
 		if err != nil {
 			return err
 		}
 		if r.Tab.TabID != "" {
 			_ = o.herdr.RenameTab(r.Tab.TabID, tab)
 		}
-		return o.claims.Add(r.Workspace.ID, r.Workspace.Label, node)
+		if err := o.claims.Add(r.Workspace.ID, r.Workspace.Label, node); err != nil {
+			return err
+		}
+		return o.runTabCommand(r.RootPane.PaneID)
 	}
 	if t := o.tabAt(ws, path); t != "" {
 		return o.focus(ws, t, node, live)
@@ -304,10 +315,42 @@ func (o *Opener) place(req Request, ws string, node Node, newLabel string, live 
 	if err := o.herdr.FocusWorkspace(ws); err != nil {
 		return err
 	}
-	if _, err := o.herdr.CreateTab(ws, path, tab); err != nil {
+	pane, err := o.herdr.CreateTab(ws, path, tab, env)
+	if err != nil {
 		return err
 	}
-	return o.claims.Add(ws, labelOf(live, ws), node)
+	if err := o.claims.Add(ws, labelOf(live, ws), node); err != nil {
+		return err
+	}
+	return o.runTabCommand(pane)
+}
+
+// runTabCommand types the configured tab command into a new tab's pane.
+func (o *Opener) runTabCommand(pane string) error {
+	if o.TabCommand == "" || pane == "" {
+		return nil
+	}
+	return o.herdr.Run(pane, o.TabCommand)
+}
+
+// itemEnv describes the item to a new tab's shell, so a tab command reads it
+// from the environment rather than having it spliced into its text.
+func itemEnv(req Request, branch string) []string {
+	var issue, title, repo, number string
+	if len(req.Issues) > 0 {
+		issue, title = req.Issues[0].ID, req.Issues[0].Title
+	}
+	if req.PR != nil {
+		repo, number = req.PR.Repo, strconv.Itoa(req.PR.Number)
+		title = firstNonEmpty(title, req.PR.Title)
+	}
+	return []string{
+		"AGENDA_ISSUE=" + issue,
+		"AGENDA_TITLE=" + title,
+		"AGENDA_REPO=" + repo,
+		"AGENDA_NUMBER=" + number,
+		"AGENDA_BRANCH=" + branch,
+	}
 }
 
 // focus brings up workspace ws and its tab t ("" leaves the tab as it was),
@@ -377,7 +420,7 @@ func (o *Opener) openSession(s Session) error {
 	}
 	title := truncate(firstNonEmpty(s.Title, filepath.Base(s.Cwd)), 30)
 	if ws == "" {
-		r, err := o.herdr.CreateWorkspace(s.Cwd, title)
+		r, err := o.herdr.CreateWorkspace(s.Cwd, title, nil)
 		if err != nil {
 			return err
 		}
@@ -386,7 +429,7 @@ func (o *Opener) openSession(s Session) error {
 	if err := o.herdr.FocusWorkspace(ws); err != nil {
 		return err
 	}
-	pane, err := o.herdr.CreateTab(ws, s.Cwd, title)
+	pane, err := o.herdr.CreateTab(ws, s.Cwd, title, nil)
 	if err != nil {
 		return err
 	}

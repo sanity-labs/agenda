@@ -358,3 +358,7 @@ herdr:
   # Where new worktrees go, as <repo>/<branch>. The default matches Herdr's
   # own [worktrees] directory, so its worktrees and agenda's sit together.
   worktrees_dir: ~/.herdr/worktrees
+  # Run in each tab or workspace agenda creates for an issue or PR. The item
+  # is in AGENDA_ISSUE, AGENDA_TITLE, AGENDA_REPO, AGENDA_NUMBER and
+  # AGENDA_BRANCH. Empty (the default) leaves a plain shell.
+  # tab_command: my-claude

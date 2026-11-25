@@ -117,10 +117,11 @@ func (c *Client) Panes() ([]Pane, error) {
 	return r.Panes, c.call(&r, "pane", "list")
 }
 
-// CreateWorkspace opens a focused workspace whose first tab is on cwd.
-func (c *Client) CreateWorkspace(cwd, label string) (opened, error) {
+// CreateWorkspace opens a focused workspace whose first tab is on cwd, its
+// shell started with env (KEY=VALUE).
+func (c *Client) CreateWorkspace(cwd, label string, env []string) (opened, error) {
 	var r opened
-	return r, c.call(&r, "workspace", "create", "--cwd", cwd, "--label", label, "--focus")
+	return r, c.call(&r, append([]string{"workspace", "create", "--cwd", cwd, "--label", label, "--focus"}, envArgs(env)...)...)
 }
 
 func (c *Client) FocusWorkspace(id string) error {
@@ -139,13 +140,22 @@ func (c *Client) FocusAgent(paneID string) error {
 	return c.call(nil, "agent", "focus", paneID)
 }
 
-// CreateTab adds a focused tab on cwd to workspace and returns its pane.
-func (c *Client) CreateTab(workspace, cwd, label string) (string, error) {
+// CreateTab adds a focused tab on cwd to workspace, its shell started with
+// env (KEY=VALUE), and returns its pane.
+func (c *Client) CreateTab(workspace, cwd, label string, env []string) (string, error) {
 	var r struct {
 		RootPane Pane `json:"root_pane"`
 	}
-	err := c.call(&r, "tab", "create", "--workspace", workspace, "--cwd", cwd, "--label", label, "--focus")
+	err := c.call(&r, append([]string{"tab", "create", "--workspace", workspace, "--cwd", cwd, "--label", label, "--focus"}, envArgs(env)...)...)
 	return r.RootPane.PaneID, err
+}
+
+func envArgs(env []string) []string {
+	var out []string
+	for _, kv := range env {
+		out = append(out, "--env", kv)
+	}
+	return out
 }
 
 // Run types command into pane's shell and presses enter.
