@@ -385,5 +385,6 @@ func record(p pr) store.PR {
 		Review:       reviewState(p),
 		HasConflicts: p.Mergeable == "CONFLICTING",
 		UpdatedAt:    p.UpdatedAt,
+		Branch:       p.HeadRefName,
 	}
 }

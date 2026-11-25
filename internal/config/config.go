@@ -112,6 +112,7 @@ type Config struct {
 	GitHub   GitHubConfig   `yaml:"github"`
 	Linear   LinearConfig   `yaml:"linear"`
 	Sessions SessionsConfig `yaml:"sessions"`
+	Herdr    HerdrConfig    `yaml:"herdr"`
 
 	// Commands bind keys to shell commands run against the selected row.
 	Commands []Command `yaml:"commands"`
@@ -146,6 +147,26 @@ var CommandFields = map[string][]string{
 	"prs":      {"repo", "number", "branch", "base", "url", "title", "author"},
 	"linear":   {"id", "url", "branch", "title"},
 	"sessions": {"path", "cwd", "tool", "session_id", "title"},
+}
+
+// HerdrConfig configures herdr mode (`agenda --herdr`, run from a Herdr
+// popup), where selecting an item jumps to its worktree workspace.
+type HerdrConfig struct {
+	// ReposRoot is where local clones live, laid out as
+	// <repos_root>/<owner>/<repo>. Default ~/git.
+	ReposRoot string `yaml:"repos_root"`
+	// Repos maps a GitHub repository ("owner/name") to its clone, for clones
+	// that live somewhere else.
+	Repos map[string]string `yaml:"repos"`
+	// WorktreesDir is where new worktrees go, as <repo>/<branch>. Default
+	// ~/.herdr/worktrees, Herdr's own, so its worktrees and agenda's sit
+	// together.
+	WorktreesDir string `yaml:"worktrees_dir"`
+	// TabCommand runs in the tab or workspace agenda creates for an issue or
+	// PR (not on a jump to one that exists), e.g. an agent wrapper. Its shell
+	// has the item in AGENDA_ISSUE, AGENDA_TITLE, AGENDA_REPO, AGENDA_NUMBER
+	// and AGENDA_BRANCH. Empty runs nothing.
+	TabCommand string `yaml:"tab_command"`
 }
 
 type ThemeConfig struct {
@@ -534,6 +555,10 @@ func Default() Config {
 		},
 		Linear: LinearConfig{
 			Filter: LinearFilter{Limit: 100},
+		},
+		Herdr: HerdrConfig{
+			ReposRoot:    "~/git",
+			WorktreesDir: "~/.herdr/worktrees",
 		},
 	}
 }

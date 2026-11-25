@@ -61,18 +61,23 @@ type PR struct {
 	Review       ReviewState
 	HasConflicts bool
 	UpdatedAt    time.Time
+	Branch       string // head branch
 }
 
 // --- linear issues ----------------------------------------------------------
 
 // Issue is the cross-view metadata for a Linear issue, keyed by identifier.
 type Issue struct {
-	Identifier string
-	Title      string
-	State      string
-	StateType  string // backlog, unstarted, started, completed, canceled, triage
-	StateColor string // Linear's hex for the state
-	URL        string
+	Identifier  string
+	Title       string
+	State       string
+	StateType   string // backlog, unstarted, started, completed, canceled, triage
+	StateColor  string // Linear's hex for the state
+	URL         string
+	ProjectID   string
+	Project     string // the project's name
+	Parent      string // parent issue's identifier, for a sub-issue
+	ParentTitle string
 }
 
 // --- session mentions -------------------------------------------------------

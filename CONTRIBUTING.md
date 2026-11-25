@@ -26,6 +26,7 @@ Short version: read two files, run one command, open a draft.
 | `internal/config` | XDG config loading, keymap, settings persistence back to the file |
 | `internal/store` | Shared metadata the views publish and read (PR status, issue titles, session mentions) |
 | `internal/cache` | On-disk JSON cache, so the app paints before the first fetch lands |
+| `internal/herdr` | Herdr mode: claims, worktrees and tabs for an item, over the `herdr` and `git` CLIs |
 | `internal/notify` | Desktop and in-app notifications |
 | `internal/update` | The release check behind `agenda update` and the tab-bar marker |
 | `internal/daemon` | The background process's socket: protocol, server, client, spawn. The daemon itself is the root model run headless (`tui.ServeDaemon`) |

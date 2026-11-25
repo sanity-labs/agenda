@@ -31,9 +31,13 @@ func TestValidCommandsDropsDeadKeys(t *testing.T) {
 		{Key: "O", View: "nope", Run: "true"},   // unknown view
 		{Key: "O", View: "linear", Run: "true"}, // same key, other view: fine
 	}
-	ok, warn := validCommands(cfg)
+	ok, warn := validCommands(cfg, false)
 	if len(ok) != 2 || len(warn) != 6 {
 		t.Fatalf("kept %d, warned %d (%v); want 2 and 6", len(ok), len(warn), warn)
+	}
+	// Herdr mode binds O to browse in both views, so neither command can fire.
+	if ok, _ := validCommands(cfg, true); len(ok) != 0 {
+		t.Errorf("herdr mode kept %d commands on O, want 0", len(ok))
 	}
 }
 
@@ -104,7 +108,7 @@ func TestValidCommandsRefusesUnknownArg(t *testing.T) {
 		{Key: "Q", View: "linear", Run: "true", Args: []string{"number"}},
 		{Key: "R", View: "linear", Run: "true", Args: []string{"id"}},
 	}
-	ok, warn := validCommands(cfg)
+	ok, warn := validCommands(cfg, false)
 	if len(ok) != 1 || len(warn) != 3 {
 		t.Fatalf("kept %d, warned %d (%v); want 1 and 3", len(ok), len(warn), warn)
 	}
@@ -117,7 +121,7 @@ func TestValidCommandsRefusesUnknownMode(t *testing.T) {
 		{Key: "P", View: "prs", Run: "true", Mode: "foreground"},
 		{Key: "Q", View: "prs", Run: "true"},
 	}
-	ok, warn := validCommands(cfg)
+	ok, warn := validCommands(cfg, false)
 	if len(ok) != 2 || len(warn) != 1 || !strings.Contains(warn[0], "mode") {
 		t.Fatalf("kept %d, warned %v; want 2 kept and a mode warning", len(ok), warn)
 	}

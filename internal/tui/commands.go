@@ -41,7 +41,8 @@ func badArg(c config.Command) string {
 
 // validCommands keeps the commands that can fire, and says why each other
 // one was dropped: a key that is reserved or already bound would be dead.
-func validCommands(cfg config.Config) ([]config.Command, []string) {
+// herdrMode counts the keys only herdr mode binds (browse).
+func validCommands(cfg config.Config, herdrMode bool) ([]config.Command, []string) {
 	var ok []config.Command
 	var warn []string
 	for i, c := range cfg.Commands {
@@ -61,7 +62,7 @@ func validCommands(cfg config.Config) ([]config.Command, []string) {
 		default:
 			if why, reserved := config.Reserved(c.Key); reserved {
 				warn = append(warn, name+": key is reserved ("+why+")")
-			} else if e, taken := findCollision(cfg.Keys, target, c.Key); taken {
+			} else if e, taken := findCollision(cfg.Keys, target, c.Key); taken && (herdrMode || e.action != "browse") {
 				warn = append(warn, name+": key is bound to "+e.scope+"."+e.action)
 			} else if dup := commandFor(ok, c.View, c.Key); dup != nil {
 				warn = append(warn, name+": key is bound to another command")

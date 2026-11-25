@@ -211,6 +211,16 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 			m.pending = nil
 		}
 		return m, nil
+	case m.chooser != nil:
+		if !m.inCenteredBox(m.chooser.View(), x, y) {
+			m.chooser = nil
+		}
+		return m, nil
+	case m.repoPicker != nil:
+		if !m.inCenteredBox(m.repoPicker.View(), x, y) {
+			m.repoPicker = nil
+		}
+		return m, nil
 	case m.filter != nil:
 		if !m.inCenteredBox(m.filter.View(), x, y) {
 			m.filter = nil
@@ -343,7 +353,7 @@ func (m Model) clickSettings(x, y int) (tea.Model, tea.Cmd) {
 // modalOpen reports whether an overlay is capturing input, so the mouse
 // mustn't reach the panes underneath.
 func (m Model) modalOpen() bool {
-	if m.helpOpen || m.keysEd != nil || m.settings != nil || m.picker != nil || m.pending != nil || m.filter != nil || m.search != nil {
+	if m.helpOpen || m.keysEd != nil || m.settings != nil || m.picker != nil || m.pending != nil || m.repoPicker != nil || m.chooser != nil || m.filter != nil || m.search != nil {
 		return true
 	}
 	if len(m.views) == 0 {

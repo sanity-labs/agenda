@@ -13,6 +13,7 @@ import (
 
 	"github.com/sanity-labs/agenda/internal/config"
 	"github.com/sanity-labs/agenda/internal/daemon"
+	"github.com/sanity-labs/agenda/internal/herdr"
 	"github.com/sanity-labs/agenda/internal/notify"
 	"github.com/sanity-labs/agenda/internal/ui"
 )
@@ -129,6 +130,21 @@ type Model struct {
 	// wheelSt tells a wheel notch's burst of events from separate scrolls.
 	wheelSt *wheelState
 
+	// herdr is set in herdr mode (see herdr.go). herdrBusy names the
+	// workspace being opened while a request runs.
+	herdr     *herdr.Opener
+	herdrBusy string
+	// The opener's questions, asked with pickers: chooser picks where an
+	// item no workspace claims goes (backed by choices), repoPicker the
+	// clone a new issue branch starts in (backed by repoCands, after a "just
+	// open the workspace" row when repoFocusRow). herdrReq waits on them.
+	chooser      *ui.Picker
+	choices      []herdr.Choice
+	repoPicker   *ui.Picker
+	repoCands    []herdr.Candidate
+	repoFocusRow bool
+	herdrReq     herdr.Request
+
 	// version is this build's version, shown at the right of the tab bar;
 	// newer is set once a background check finds a newer release.
 	version string
@@ -175,7 +191,7 @@ func New(cfg config.Config, views []View) Model {
 			h.Hideable().SetHideHidden(cfg.HideHidden)
 		}
 	}
-	commands, warn := validCommands(cfg)
+	commands, warn := validCommands(cfg, false)
 	return Model{
 		commands:      commands,
 		commandWarn:   warn,
@@ -381,6 +397,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updateAvailableMsg:
 		m.newer = string(msg)
 		return m, nil
+
+	case herdr.Request:
+		if m.herdr == nil || m.herdrBusy != "" {
+			return m, nil
+		}
+		return m, m.openHerdr(msg)
+	case herdrDoneMsg:
+		return m.herdrDone(msg)
+	case repoCandsMsg:
+		return m.showRepoPicker(msg)
 	case ui.RevealPreviewMsg:
 		if m.previewHidden {
 			return m, m.setPreview(false, true)
@@ -523,6 +549,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.search != nil {
 			return m, m.updateSearch(msg)
+		}
+		// While one of the opener's pickers is open it captures all keys.
+		if m.chooser != nil {
+			return m.updateChooser(msg)
+		}
+		if m.repoPicker != nil {
+			return m.updateRepoPicker(msg)
 		}
 		// While the cross-reference picker is open it captures all keys.
 		if m.picker != nil {
@@ -1690,6 +1723,14 @@ func (m Model) View() tea.View {
 		content = m.overlayCentered(content, m.search.View())
 	}
 
+	// Composite the repository picker centered over the content, if open.
+	if m.repoPicker != nil {
+		content = m.overlayCentered(content, m.repoPicker.View())
+	}
+	if m.chooser != nil {
+		content = m.overlayCentered(content, m.chooser.View())
+	}
+
 	// Composite the filter modal centered over the content, if open.
 	if m.filter != nil {
 		content = m.overlayCentered(content, m.filter.View())
@@ -2086,6 +2127,9 @@ func (m Model) renderFooter() string {
 		m.keys.Config, m.keys.Help, m.keys.Quit)
 
 	status := m.views[m.current].Status()
+	if m.herdrBusy != "" {
+		status = ui.Yellow.Render("Opening " + m.herdrBusy + "…")
+	}
 
 	// Hidden: only what you cannot do without, on the right. The hotkeys
 	// are learnable; a waiting error and the way to the help are not.
