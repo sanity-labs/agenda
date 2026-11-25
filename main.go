@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -222,7 +223,11 @@ func newOpener(c config.HerdrConfig) *herdr.Opener {
 	for slug, path := range c.Repos {
 		repos.Overrides[slug] = herdr.ExpandHome(path)
 	}
-	o := herdr.NewOpener(herdr.ExecRunner, repos, herdr.ExpandHome(c.WorktreesDir), herdr.LoadClaims(herdr.DefaultClaimsPath()))
+	var claims herdr.ClaimStore = herdr.LoadClaims(herdr.DefaultClaimsPath())
+	if c.Claims == "tokens" {
+		claims = herdr.TokenClaims{Name: cmp.Or(c.ClaimsToken, "agenda-claims")}
+	}
+	o := herdr.NewOpener(herdr.ExecRunner, repos, herdr.ExpandHome(c.WorktreesDir), claims)
 	o.TabCommand = c.TabCommand
 	return o
 }

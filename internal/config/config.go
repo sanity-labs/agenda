@@ -167,6 +167,12 @@ type HerdrConfig struct {
 	// has the item in AGENDA_ISSUE, AGENDA_TITLE, AGENDA_REPO, AGENDA_NUMBER
 	// and AGENDA_BRANCH. Empty runs nothing.
 	TabCommand string `yaml:"tab_command"`
+	// Claims is where agenda keeps which workspace holds which issue,
+	// project or PR: "file" (the default) is its own state file; "tokens"
+	// reads them from the Herdr workspace token ClaimsToken, which another
+	// tool keeps, and records nothing itself.
+	Claims      string `yaml:"claims"`
+	ClaimsToken string `yaml:"claims_token"` // default agenda-claims
 }
 
 type ThemeConfig struct {

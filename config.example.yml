@@ -362,3 +362,8 @@ herdr:
   # is in AGENDA_ISSUE, AGENDA_TITLE, AGENDA_REPO, AGENDA_NUMBER and
   # AGENDA_BRANCH. Empty (the default) leaves a plain shell.
   # tab_command: my-claude
+  # Where claims live: "file" (agenda's own, the default), or "tokens" to
+  # read them from a Herdr workspace token another tool keeps, e.g.
+  # herdr-task=SRE-5170. agenda never writes the token.
+  # claims: tokens
+  # claims_token: agenda-claims

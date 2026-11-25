@@ -46,9 +46,12 @@ func NewClient(run Runner) *Client {
 // Workspace is a Herdr workspace. Worktree is set only for workspaces Herdr
 // opened on a git worktree.
 type Workspace struct {
-	ID       string `json:"workspace_id"`
-	Label    string `json:"label"`
-	Focused  bool   `json:"focused"`
+	ID      string `json:"workspace_id"`
+	Label   string `json:"label"`
+	Focused bool   `json:"focused"`
+	// Tokens is the workspace's metadata, as tools report it with
+	// `herdr workspace report-metadata`. Herdr drops it on a restart.
+	Tokens   map[string]string `json:"tokens"`
 	Worktree *struct {
 		CheckoutPath string `json:"checkout_path"`
 		RepoRoot     string `json:"repo_root"`

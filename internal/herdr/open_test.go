@@ -448,3 +448,54 @@ func TestReposCloneIgnoresCase(t *testing.T) {
 		t.Error("Clone found a repo that isn't there")
 	}
 }
+
+func TestTokenClaimsReadEveryEntryForm(t *testing.T) {
+	live := []Workspace{
+		{ID: "wA", Tokens: map[string]string{"herdr-task": "sre-5170"}},
+		{ID: "wB", Tokens: map[string]string{"herdr-task": "project:p-graf, sanity-labs/agenda#28"}},
+		{ID: "wC", Tokens: map[string]string{"herdr-task": "issue:SRE-1 pr:ops#4"}},
+		{ID: "wD", Tokens: map[string]string{"other": "SRE-2"}},
+	}
+	tc := TokenClaims{Name: "herdr-task"}
+	for n, want := range map[Node]string{
+		{"issue", "SRE-5170"}:  "wA",
+		{"project", "p-graf"}:  "wB",
+		{"pr", "agenda#28"}:    "wB",
+		{"issue", "SRE-1"}:     "wC",
+		{"pr", "ops#4"}:        "wC",
+		{"issue", "SRE-2"}:     "", // in another tool's token
+		{"issue", "SRE-51700"}: "", // only an exact entry claims
+	} {
+		if got := tc.Owner(n, live); got != want {
+			t.Errorf("Owner(%v) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+// With claims in tokens, the nearest claimed node still wins, and answering
+// the chooser records nothing: the token's owner decides.
+func TestOpenerWithTokenClaims(t *testing.T) {
+	e := newEnv(t)
+	e.o.claims = TokenClaims{Name: "agenda-claims"}
+	e.workspaces(`{"workspace_id":"w9","label":"Grafana upgrade","tokens":{"agenda-claims":"project:p-graf"}},` +
+		`{"workspace_id":"wK","label":"KTLO"}`)
+	if err := e.o.Open(Request{Issues: []Issue{grafana}, FocusOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.f.called("herdr workspace focus w9") {
+		t.Errorf("calls = %q, want w9 focused through its token", e.f.calls)
+	}
+
+	e.workspaces(`{"workspace_id":"wK","label":"KTLO"}`)
+	choice := Choice{Node: Node{"issue", "SRE-5170"}, Workspace: "wK"}
+	if err := e.o.Open(Request{Issues: []Issue{grafana}, Claim: &choice, FocusOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+	if e.f.called("herdr workspace report-metadata") {
+		t.Error("agenda wrote a token; the tool that keeps them is the only writer")
+	}
+	var ce *ChoiceError
+	if err := e.o.Open(Request{Issues: []Issue{grafana}}); !errors.As(err, &ce) {
+		t.Errorf("err = %v, want the chooser again: nothing was recorded", err)
+	}
+}
