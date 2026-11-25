@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -177,4 +178,28 @@ func TestHelpCommandMatchesDashHelp(t *testing.T) {
 func c(name string) command {
 	cmd, _ := lookup(name)
 	return cmd
+}
+
+func TestHerdrAfterValueFlag(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"prs", "--repo", "--herdr"}, "--repo needs a value before --herdr"},
+		{[]string{"prs", "-pr", "--herdr"}, "-pr needs a value before --herdr"},
+		{[]string{"prs", "--repo", "o/r", "--herdr"}, ""},
+		{[]string{"prs", "--repo=o/r", "--herdr"}, ""},
+		{[]string{"prs", "--herdr"}, ""},
+		{[]string{"--herdr", "prs"}, ""},
+		{[]string{"sessions", "--nope", "--herdr"}, ""},
+	} {
+		i := slices.Index(tc.args, "--herdr")
+		err := herdrAfterValueFlag(tc.args, i)
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%v: unexpected %v", tc.args, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%v: err = %v, want %q", tc.args, err, tc.want)
+		}
+	}
 }

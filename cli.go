@@ -192,6 +192,31 @@ func parseArgs(c command, args []string) (*tui.Open, []string, error) {
 	return open, fs.Args(), err
 }
 
+// herdrAfterValueFlag rejects `agenda prs --repo --herdr`: stripping --herdr
+// first would otherwise report the confusing "flag needs an argument".
+func herdrAfterValueFlag(args []string, herdr int) error {
+	if herdr < 2 {
+		return nil
+	}
+	c, ok := lookup(strings.ToLower(args[0]))
+	if !ok {
+		return nil
+	}
+	prev := args[herdr-1]
+	if !strings.HasPrefix(prev, "-") || strings.Contains(prev, "=") {
+		return nil
+	}
+	fs, _ := newFlagSet(c, io.Discard)
+	f := fs.Lookup(strings.TrimLeft(prev, "-"))
+	if f == nil {
+		return nil
+	}
+	if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+		return nil
+	}
+	return fmt.Errorf("agenda: %s needs a value before --herdr (agenda %s %s <value> --herdr)", prev, c.name, prev)
+}
+
 // argFailure reports a parseArgs error and returns the exit code: help goes
 // to stdout and succeeds, anything else prints the error and usage to stderr.
 func argFailure(c command, err error) int {

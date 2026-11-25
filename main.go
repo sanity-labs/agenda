@@ -34,6 +34,10 @@ func main() {
 	args := os.Args[1:]
 	herdrMode := false
 	if i := slices.Index(args, "--herdr"); i >= 0 {
+		if err := herdrAfterValueFlag(args, i); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
 		herdrMode = true
 		args = slices.Delete(slices.Clone(args), i, i+1)
 	}
