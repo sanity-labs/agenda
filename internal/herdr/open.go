@@ -413,7 +413,7 @@ func (o *Opener) openSession(s Session) error {
 	}
 	ws := ""
 	for _, p := range panes {
-		if p.Cwd == s.Cwd {
+		if realPath(p.Cwd) == realPath(s.Cwd) {
 			ws = p.WorkspaceID
 			break
 		}

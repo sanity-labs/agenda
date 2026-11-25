@@ -323,6 +323,26 @@ func TestSessionResumesInWorkspaceWithPaneThere(t *testing.T) {
 	}
 }
 
+// The session's recorded cwd may reach the directory through a symlink
+// (/tmp vs /private/tmp) that Herdr reports resolved.
+func TestSessionMatchesPaneThroughSymlink(t *testing.T) {
+	e := newEnv(t)
+	dir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	e.f.out["herdr pane list"] = `{"result":{"panes":[{"pane_id":"w3:p1","workspace_id":"w3","cwd":"` + dir + `"}]}}`
+
+	s := Session{ID: "abc", Cwd: link, Title: "Fix CI", Resume: []string{"claude", "--resume", "abc"}}
+	if err := e.o.Open(Request{Session: &s}); err != nil {
+		t.Fatal(err)
+	}
+	if !e.f.called("herdr workspace focus w3") || e.f.called("herdr workspace create") {
+		t.Errorf("calls = %q, want a tab in w3, not a new workspace", e.f.calls)
+	}
+}
+
 func TestSessionWithNoWorkspaceGetsOne(t *testing.T) {
 	e := newEnv(t)
 	dir := t.TempDir()

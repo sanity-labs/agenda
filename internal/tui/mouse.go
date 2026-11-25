@@ -211,6 +211,11 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 			m.pending = nil
 		}
 		return m, nil
+	case m.chooser != nil:
+		if !m.inCenteredBox(m.chooser.View(), x, y) {
+			m.chooser = nil
+		}
+		return m, nil
 	case m.repoPicker != nil:
 		if !m.inCenteredBox(m.repoPicker.View(), x, y) {
 			m.repoPicker = nil

@@ -145,6 +145,25 @@ func TestClickOutsidePickerClosesIt(t *testing.T) {
 	}
 }
 
+// Herdr mode's pickers close on an outside click like every other.
+func TestClickOutsideHerdrPickersClosesThem(t *testing.T) {
+	for name, open := range map[string]func(*Model) **ui.Picker{
+		"chooser":    func(m *Model) **ui.Picker { return &m.chooser },
+		"repoPicker": func(m *Model) **ui.Picker { return &m.repoPicker },
+	} {
+		m := newClickModel(&stubView{"PRs"})
+		p := ui.NewPicker("Where does SRE-1 go?", []ui.PickerItem{{Label: "New workspace"}})
+		*open(&m) = &p
+		x, y := m.centerOf(p.View())
+		if m = leftClick(m, x+1, y+1); *open(&m) == nil {
+			t.Fatalf("%s: click inside closed it", name)
+		}
+		if m = leftClick(m, 0, m.height-1); *open(&m) != nil {
+			t.Errorf("%s: click outside left it open", name)
+		}
+	}
+}
+
 func TestWheelScrollsOneStepUnderPointer(t *testing.T) {
 	v := &clickStub{stubView: stubView{"PRs"}, rows: []string{"a"}}
 	m := newClickModel(v)
