@@ -36,9 +36,10 @@ type ClaimStore interface {
 type TokenClaims struct{ Name string }
 
 func (t TokenClaims) Owner(n Node, live []Workspace) string {
+	n = foldNode(n)
 	for _, w := range live {
 		for _, e := range strings.FieldsFunc(w.Tokens[t.Name], func(r rune) bool { return r == ',' || unicode.IsSpace(r) }) {
-			if tokenNode(e) == n {
+			if foldNode(tokenNode(e)) == n {
 				return w.ID
 			}
 		}
@@ -48,6 +49,14 @@ func (t TokenClaims) Owner(n Node, live []Workspace) string {
 
 // Add records nothing: the token's owner decides what a workspace claims.
 func (TokenClaims) Add(string, string, Node) error { return nil }
+
+// foldNode lower-cases a PR key: GitHub repo names are case-insensitive.
+func foldNode(n Node) Node {
+	if n.Kind == "pr" {
+		n.Key = strings.ToLower(n.Key)
+	}
+	return n
+}
 
 // tokenNode reads one entry of a claims token as the node it names.
 func tokenNode(e string) Node {
