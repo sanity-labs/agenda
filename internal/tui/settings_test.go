@@ -158,6 +158,8 @@ func TestEveryConfigKeyHasASettingRow(t *testing.T) {
 		"prompt": true, "title": true, "options": true, "run": true, "args": true, "mode": true, "quit": true,
 		// Paths and a repo map, for herdr mode.
 		"repos_root": true, "repos": true, "worktrees_dir": true, "tab_command": true,
+		// Where herdr mode reads claims: set once, alongside the tool that keeps them.
+		"claims": true, "claims_token": true,
 	}
 	src, err := os.ReadFile("../config/config.go")
 	if err != nil {

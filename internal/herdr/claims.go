@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Node is something a workspace can claim: a Linear issue (whose sub-issues
@@ -14,6 +15,57 @@ import (
 type Node struct {
 	Kind string `json:"kind"` // "issue" | "project" | "pr"
 	Key  string `json:"key"`  // identifier, project id, or repo#N
+}
+
+// ClaimStore is where claims live: agenda's own file (Claims), or a Herdr
+// workspace token another tool keeps (TokenClaims).
+type ClaimStore interface {
+	// Owner returns the live workspace claiming n, or "".
+	Owner(n Node, live []Workspace) string
+	// Add records that workspace ws (labelled label) claims n.
+	Add(ws, label string, n Node) error
+}
+
+// TokenClaims reads claims from the workspace token Name, which another tool
+// keeps (herdr.claims: tokens). Its value lists what the workspace claims,
+// separated by spaces or commas: an issue identifier (SRE-5170), a PR
+// (agenda#28 or sanity-labs/agenda#28), or kind:key (issue:SRE-5170,
+// project:<Linear project id>, pr:agenda#28). agenda never writes the
+// token: tokens are one map per workspace that any tool can overwrite, so
+// the tool that keeps them is the only writer.
+type TokenClaims struct{ Name string }
+
+func (t TokenClaims) Owner(n Node, live []Workspace) string {
+	for _, w := range live {
+		for _, e := range strings.FieldsFunc(w.Tokens[t.Name], func(r rune) bool { return r == ',' || unicode.IsSpace(r) }) {
+			if tokenNode(e) == n {
+				return w.ID
+			}
+		}
+	}
+	return ""
+}
+
+// Add records nothing: the token's owner decides what a workspace claims.
+func (TokenClaims) Add(string, string, Node) error { return nil }
+
+// tokenNode reads one entry of a claims token as the node it names.
+func tokenNode(e string) Node {
+	kind, key, ok := strings.Cut(e, ":")
+	if !ok || (kind != "issue" && kind != "project" && kind != "pr") {
+		kind, key = "issue", e
+		if strings.Contains(e, "#") {
+			kind = "pr"
+		}
+	}
+	switch kind {
+	case "issue":
+		key = strings.ToUpper(key)
+	case "pr":
+		// prKey names a PR by repository name alone.
+		key = key[strings.LastIndexByte(key, '/')+1:]
+	}
+	return Node{kind, key}
 }
 
 type claim struct {

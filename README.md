@@ -330,6 +330,16 @@ without asking. agenda keeps the claims in
 `~/.local/state/agenda/herdr-claims.json`, since Herdr drops tool metadata on
 restart.
 
+If another tool already tags workspaces, `herdr.claims: tokens` reads the
+claims from a workspace token instead (`herdr.claims_token`, default
+`agenda-claims`) and keeps no file. The token lists what the workspace holds,
+separated by spaces or commas: `SRE-5170`, `agenda#28`, or `project:<id>`
+(also `issue:` and `pr:`). agenda only reads it. Herdr keeps one token map per
+workspace that any tool can overwrite, so the tool that owns the token is the
+one that writes it, and keeps it across a Herdr restart. An item nothing
+claims is placed where you choose but not remembered, so the chooser asks
+again until that tool tags the workspace.
+
 New worktrees go under `herdr.worktrees_dir` as `<repo>/<branch>`, and clones
 are found at `<repos_root>/<owner>/<repo>` (default `~/git`); see the `herdr:`
 section of [`config.example.yml`](./config.example.yml).

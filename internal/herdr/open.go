@@ -106,13 +106,13 @@ type Opener struct {
 	run          Runner // git and gh
 	repos        Repos
 	worktreesDir string // where new worktrees go, as <repo>/<branch>
-	claims       *Claims
+	claims       ClaimStore
 	// TabCommand runs in each tab or workspace Open creates for an issue or
 	// PR; "" runs nothing.
 	TabCommand string
 }
 
-func NewOpener(run Runner, repos Repos, worktreesDir string, claims *Claims) *Opener {
+func NewOpener(run Runner, repos Repos, worktreesDir string, claims ClaimStore) *Opener {
 	return &Opener{herdr: NewClient(run), run: run, repos: repos, worktreesDir: worktreesDir, claims: claims}
 }
 
