@@ -2,6 +2,8 @@ package prs
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -394,5 +396,52 @@ func TestFallbackMethod(t *testing.T) {
 		if got := fallbackMethod(c.tried, c.allowed); got != c.want {
 			t.Errorf("fallbackMethod(%q, %v) = %q, want %q", c.tried, c.allowed, got, c.want)
 		}
+	}
+}
+
+// A PR in a GitHub stack is refused by gh's synchronous merge; it goes
+// through the async endpoint with the configured method instead.
+func TestMergeStackedPRUsesAsyncMerge(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	script := `#!/bin/sh
+case "$1" in
+pr) echo "GraphQL: This pull request is part of a stack and must be merged using the asynchronous merge REST API." >&2; exit 1 ;;
+api) echo "$@" >> ` + log + `; echo '{"status":"pending"}' ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	v := mergeView(t, mergeable(7))
+	v.cfg.MergeDeleteBranch = true
+	v.Update(tea.KeyPressMsg{Code: 'r'})
+	v.Update(tea.KeyPressMsg{Code: 'm'})
+	cmd := v.Update(tea.KeyPressMsg{Code: 'y'})
+	var done mergeDoneMsg
+	msg := cmd()
+	if b, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range b {
+			if m, ok := c().(mergeDoneMsg); ok {
+				done = m
+			}
+		}
+	} else {
+		done, _ = msg.(mergeDoneMsg)
+	}
+	if done.err != nil || !done.async {
+		t.Fatalf("done = %+v, want an async merge request", done)
+	}
+	calls, _ := os.ReadFile(log)
+	for _, want := range []string{"repos/o/r/pulls/7/merge-async", "merge_method=squash"} {
+		if !strings.Contains(string(calls), want) {
+			t.Errorf("gh api call is missing %q:\n%s", want, calls)
+		}
+	}
+	v.Update(done)
+	if got := v.Overlay(); strings.Contains(got, "branch deleted") || !strings.Contains(got, "requested") {
+		t.Errorf("popup claims more than was done:\n%s", got)
 	}
 }
