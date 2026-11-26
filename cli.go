@@ -1,10 +1,17 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/sanity-labs/agenda/internal/tui"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 // command is one `agenda <name>` subcommand. run returns the process exit
@@ -12,6 +19,9 @@ import (
 type command struct {
 	name, args, summary string
 	run                 func(w io.Writer, args []string) int
+	// define registers the command's flags on fs and returns a func that
+	// turns the parsed result into the view to open.
+	define func(fs *flag.FlagSet) func() (*tui.Open, error)
 }
 
 // extraCommands is appended by tests to exercise the generators.
@@ -19,11 +29,11 @@ var extraCommands []command
 
 func commands() []command {
 	return append([]command{
-		{name: "prs", summary: "open the TUI on the PRs view"},
+		{name: "prs", args: "[--repo [org/]repo [--pr N]]", summary: "open the TUI on the PRs view, on one PR, or on a repo's open PRs (a bare repo name needs github.default_org)", define: definePRs},
 		{name: "reviews", summary: "open the TUI on the Reviews view (when listed in views)"},
 		{name: "sessions", summary: "open the TUI on the Sessions view"},
-		{name: "linear", summary: "open the TUI on the Linear view"},
-		{name: "daemon", summary: "run the background daemon in the foreground (the TUI starts one when daemon: true)"},
+		{name: "linear", args: "[ISSUE-ID]", summary: "open the TUI on the Linear view, on one issue when given", define: defineLinear},
+		{name: "daemon", summary: "run the background daemon in the foreground (the TUI starts one when daemon: true)", define: defineDaemon},
 		{name: "status", summary: "show whether the daemon is running", run: runStatus},
 		{name: "stop", summary: "stop the daemon", run: runStop},
 		{name: "restart", summary: "stop the daemon and start a fresh one", run: runRestart},
@@ -58,6 +68,168 @@ func daemonArgError(args []string) string {
 	return msg
 }
 
+func defineDaemon(fs *flag.FlagSet) func() (*tui.Open, error) {
+	return func() (*tui.Open, error) {
+		if msg := daemonArgError(fs.Args()); msg != "" {
+			return nil, errors.New(msg)
+		}
+		return nil, nil
+	}
+}
+
+var issueID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*-[0-9]+$`)
+
+func defineLinear(fs *flag.FlagSet) func() (*tui.Open, error) {
+	return func() (*tui.Open, error) {
+		args := fs.Args()
+		switch {
+		case len(args) == 0:
+			return nil, nil
+		case len(args) > 1 || !issueID.MatchString(args[0]):
+			return nil, fmt.Errorf("agenda linear: want an issue id like SRE-1234, got %q", strings.Join(args, " "))
+		}
+		return &tui.Open{Ref: ui.Ref{Kind: "linear", ID: strings.ToUpper(args[0])}}, nil
+	}
+}
+
+func definePRs(fs *flag.FlagSet) func() (*tui.Open, error) {
+	repo := fs.String("repo", "", "open this repo's PRs, as org/repo or a bare name (a bare name needs github.default_org)")
+	pr := fs.String("pr", "", "open this PR number zoomed (needs --repo)")
+	return func() (*tui.Open, error) {
+		if fs.NArg() > 0 {
+			return nil, fmt.Errorf("agenda prs: unexpected argument %q", fs.Arg(0))
+		}
+		if *repo == "" {
+			if *pr != "" {
+				return nil, fmt.Errorf("agenda prs: --pr needs --repo")
+			}
+			return nil, nil
+		}
+		r := *repo
+		owner, name, qualified := strings.Cut(r, "/")
+		if !qualified {
+			owner, name = "x", r
+		}
+		if owner == "" || name == "" || strings.Contains(name, "/") {
+			return nil, fmt.Errorf("agenda prs: bad --repo %q, want [org/]repo", r)
+		}
+		if *pr == "" {
+			return &tui.Open{Repo: r}, nil
+		}
+		n, err := strconv.Atoi(*pr)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("agenda prs: bad --pr %q, want a number", *pr)
+		}
+		return &tui.Open{Repo: r, Ref: ui.Ref{Kind: "pr", ID: strconv.Itoa(n)}}, nil
+	}
+}
+
+// resolveOpen runs after the config loads: a bare repo name takes
+// github.default_org, and a PR target becomes its URL.
+func resolveOpen(o *tui.Open, defaultOrg string) error {
+	if o == nil || o.Repo == "" {
+		return nil
+	}
+	if !strings.Contains(o.Repo, "/") {
+		if defaultOrg == "" {
+			return fmt.Errorf("agenda: --repo %q needs an org: pass org/repo or set github.default_org", o.Repo)
+		}
+		o.Repo = defaultOrg + "/" + o.Repo
+	}
+	if o.Ref.Kind == "pr" {
+		o.Ref.URL = fmt.Sprintf("https://github.com/%s/pull/%s", o.Repo, o.Ref.ID)
+		o.Ref.ID, o.Repo = o.Ref.URL, ""
+	}
+	return nil
+}
+
+// newFlagSet builds c's flag set. Its Usage is the single source of the
+// command's help text, used by `<cmd> --help` and `agenda help <cmd>` alike.
+func newFlagSet(c command, out io.Writer) (*flag.FlagSet, func() (*tui.Open, error)) {
+	fs := flag.NewFlagSet("agenda "+c.name, flag.ContinueOnError)
+	fs.SetOutput(out)
+	var finish func() (*tui.Open, error)
+	if c.define != nil {
+		finish = c.define(fs)
+	}
+	fs.Usage = func() {
+		fmt.Fprintf(out, "Usage: agenda %s\n\n%s\n", strings.TrimSpace(c.name+" "+c.args), c.summary)
+		n := 0
+		fs.VisitAll(func(*flag.Flag) { n++ })
+		if n > 0 {
+			fmt.Fprint(out, "\nFlags:\n")
+			fs.PrintDefaults()
+		}
+	}
+	return fs, finish
+}
+
+func printUsage(w io.Writer, c command) {
+	fs, _ := newFlagSet(c, w)
+	fs.Usage()
+}
+
+// parseArgs parses the arguments after `agenda <c.name>`. It returns the
+// view to open (nil to open as is) and the positional arguments left over.
+// A -h or --help anywhere, even after a positional, yields flag.ErrHelp.
+func parseArgs(c command, args []string) (*tui.Open, []string, error) {
+	fs, finish := newFlagSet(c, io.Discard)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("agenda %s: %w", c.name, err)
+	}
+	for _, a := range fs.Args() {
+		if a == "-h" || a == "--help" {
+			return nil, nil, flag.ErrHelp
+		}
+	}
+	if finish == nil {
+		return nil, fs.Args(), nil
+	}
+	open, err := finish()
+	return open, fs.Args(), err
+}
+
+// herdrAfterValueFlag rejects `agenda prs --repo --herdr`: stripping --herdr
+// first would otherwise report the confusing "flag needs an argument".
+func herdrAfterValueFlag(args []string, herdr int) error {
+	if herdr < 2 {
+		return nil
+	}
+	c, ok := lookup(strings.ToLower(args[0]))
+	if !ok {
+		return nil
+	}
+	prev := args[herdr-1]
+	if !strings.HasPrefix(prev, "-") || strings.Contains(prev, "=") {
+		return nil
+	}
+	fs, _ := newFlagSet(c, io.Discard)
+	f := fs.Lookup(strings.TrimLeft(prev, "-"))
+	if f == nil {
+		return nil
+	}
+	if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
+		return nil
+	}
+	return fmt.Errorf("agenda: %s needs a value before --herdr (agenda %s %s <value> --herdr)", prev, c.name, prev)
+}
+
+// argFailure reports a parseArgs error and returns the exit code: help goes
+// to stdout and succeeds, anything else prints the error and usage to stderr.
+func argFailure(c command, err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		printUsage(os.Stdout, c)
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, err)
+	fmt.Fprintln(os.Stderr)
+	printUsage(os.Stderr, c)
+	return 2
+}
+
 func runVersion(w io.Writer, _ []string) int {
 	fmt.Fprintln(w, "agenda", versionString())
 	return 0
@@ -70,7 +242,7 @@ func runHelp(w io.Writer, args []string) int {
 			fmt.Fprintf(w, "agenda: unknown command %q\n", args[0])
 			return 1
 		}
-		fmt.Fprintf(w, "agenda %s %s\n    %s\n", c.name, c.args, c.summary)
+		printUsage(w, c)
 		return 0
 	}
 

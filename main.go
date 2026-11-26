@@ -27,17 +27,24 @@ import (
 	"github.com/sanity-labs/agenda/internal/views/sessions"
 )
 
+func isDaemonArg(a string) bool { return strings.EqualFold(a, "daemon") }
+
 func main() {
 	// --herdr may come before or after a view name (`agenda --herdr prs`).
 	args := os.Args[1:]
 	herdrMode := false
 	if i := slices.Index(args, "--herdr"); i >= 0 {
+		if err := herdrAfterValueFlag(args, i); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
 		herdrMode = true
 		args = slices.Delete(slices.Clone(args), i, i+1)
 	}
 
 	// Subcommands run before config load, so a broken config never blocks
 	// `agenda version` or `agenda help`.
+	var open *tui.Open
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "-v":
@@ -45,17 +52,15 @@ func main() {
 		case "--help", "-h":
 			os.Exit(runHelp(os.Stdout, nil))
 		}
-		if args[0] == "daemon" {
-			if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
-				os.Exit(runHelp(os.Stdout, []string{"daemon"}))
+		if c, ok := lookup(strings.ToLower(args[0])); ok {
+			o, rest, err := parseArgs(c, args[1:])
+			if err != nil {
+				os.Exit(argFailure(c, err))
 			}
-			if msg := daemonArgError(args[1:]); msg != "" {
-				fmt.Fprintln(os.Stderr, msg)
-				os.Exit(2)
+			open = o
+			if c.run != nil {
+				os.Exit(c.run(os.Stdout, rest))
 			}
-		}
-		if c, ok := lookup(args[0]); ok && c.run != nil {
-			os.Exit(c.run(os.Stdout, args[1:]))
 		}
 	}
 	if herdrMode && os.Getenv("HERDR_ENV") != "1" {
@@ -67,6 +72,11 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "agenda: config error:", err)
 		os.Exit(1)
+	}
+
+	if err := resolveOpen(open, cfg.GitHub.DefaultOrg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
 	}
 
 	// The theme applies process-wide, so resolve it before any view exists.
@@ -106,7 +116,7 @@ func main() {
 	}
 
 	// `agenda daemon`: the same views, headless, behind the socket.
-	if len(args) > 0 && args[0] == "daemon" {
+	if len(args) > 0 && isDaemonArg(args[0]) {
 		if err := tui.ServeDaemon(cfg, views, versionString()); err != nil {
 			fmt.Fprintln(os.Stderr, "agenda daemon:", err)
 			os.Exit(1)
@@ -146,6 +156,9 @@ func main() {
 	reloaded := os.Getenv(reloadEnv)
 	os.Unsetenv(reloadEnv)
 	m := tui.New(cfg, views).WithVersion(versionString()).WithInitialView(initial).WithReloaded(reloaded)
+	if open != nil && reloaded == "" {
+		m = m.WithOpen(*open)
+	}
 	if reloaded == "" {
 		m = m.WithSnapshot(len(args) > 0)
 	}

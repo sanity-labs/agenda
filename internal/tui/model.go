@@ -56,6 +56,7 @@ type Model struct {
 	headless   bool
 	emit       func(event string, data any)
 	startup    []tea.Msg
+	open       *Open
 	theme      theme
 	views      []View
 	current    int
@@ -223,6 +224,39 @@ func (m Model) WithInitialView(i int) Model {
 	return m
 }
 
+// Open is what a command line like `agenda linear SRE-1` asks for on
+// launch: Ref is jumped to and zoomed, Repo lists that repo's open PRs.
+type Open struct {
+	Ref  ui.Ref
+	Repo string
+}
+
+// WithOpen sets what to open once the screen has a size.
+func (m Model) WithOpen(o Open) Model {
+	m.open = &o
+	return m
+}
+
+// repoLister is implemented by a view that can list every open PR of a repo
+// as a temporary set, left again by LeaveRepo.
+type repoLister interface {
+	ShowRepo(repo string) tea.Cmd
+	LeaveRepo() bool
+}
+
+func (m *Model) openStart(o Open) tea.Cmd {
+	if o.Repo != "" {
+		if r, ok := m.views[m.current].(repoLister); ok {
+			return r.ShowRepo(o.Repo)
+		}
+		return nil
+	}
+	cmd := m.followRef(o.Ref)
+	m.zoomed = true
+	m.layout()
+	return cmd
+}
+
 // refreshIntervals resolves each view's auto-refresh interval. The config
 // names views by their lowercased tab title ("PRs" -> "prs").
 func refreshIntervals(cfg config.Config, views []View) []time.Duration {
@@ -346,6 +380,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.ready = true
 		m.layout()
+		if o := m.open; o != nil {
+			m.open = nil
+			return m, m.openStart(*o)
+		}
 		return m, nil
 
 	case spinnerTickMsg:
@@ -1420,6 +1458,10 @@ func (m *Model) clearFilter() bool {
 			m.syncPreviewKey(false)
 			return true
 		}
+	}
+	if r, ok := m.views[m.current].(repoLister); ok && r.LeaveRepo() {
+		m.syncPreviewKey(false)
+		return true
 	}
 	return false
 }

@@ -348,6 +348,9 @@ type GitHubConfig struct {
 	// reviewed and tags them "reviewed", so the eye can skip them. Off by
 	// default.
 	MarkReviewed bool `yaml:"mark_reviewed"`
+	// DefaultOrg is the org a bare `agenda prs --repo name` resolves to.
+	// Empty means a bare name is an error.
+	DefaultOrg string `yaml:"default_org"`
 	// Sort is the sort the view opens on: date, review, checks, repo, size
 	// or author. Empty means the view's own default (date). Reverse flips
 	// it, the same as pressing the reverse key at startup.

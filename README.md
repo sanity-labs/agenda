@@ -33,10 +33,17 @@ go install github.com/sanity-labs/agenda@latest
 
 `agenda` opens on the first tab; `agenda prs`, `agenda reviews`,
 `agenda sessions`, `agenda linear` open on that view. `agenda help` lists the
-commands, `agenda version` prints the build, `agenda update` says whether a
+commands (`agenda help prs` or `agenda prs --help` shows one command and its flags), `agenda version` prints the build, `agenda update` says whether a
 newer release exists and how to get it for this install (it never replaces
 the binary itself). The same check runs once at startup and shows in the tab
 bar; `update_check: false` turns it off.
+
+Two views take a target. `agenda linear SRE-1234` opens that issue zoomed,
+fetching it in when the source does not list it. `agenda prs --repo agenda
+--pr 88` does the same for a PR; `--repo` takes `org/repo`, and a bare name
+takes `github.default_org` (a bare name is an error until it is set). `agenda prs --repo agenda` alone lists every open PR
+of that repo instead of your own, for this run only: nothing is saved, and
+`esc` on the bare list brings your list back.
 
 Shell completion, once per shell:
 
@@ -96,6 +103,7 @@ own PRs only and `w` says so.
 | `github.diff_pane` | `d` shows the diff in the pane as a file list instead of paging it through `less` |
 | `github.review_view` | what `r` opens beside the review popup: `files` (default) or `unified` |
 | `github.show_stacks` | badge PRs in a stack with their place (` 2/3`, counted from the one on the default branch) beside the number, flag ones whose base PR merged (`⚠ restack`), and show the full chain in the preview; on by default |
+| `github.default_org` | the org a bare `agenda prs --repo name` resolves to; empty (default) makes a bare name an error |
 | `github.hide_drafts` | leave draft PRs out of both sections; `D` toggles in-app |
 | `grouping` | swimlanes under the active sort (status, repo, Today/Yesterday/…) |
 | `remember_on_quit` | a `q` that quits saves the tab and filters; the next start restores them (off) |
@@ -302,7 +310,8 @@ height = "85%"
 
 In the popup, `enter` (or a double-click) jumps to the selection and closes the
 popup; `O` still opens PRs and issues in the browser. `esc` steps back out of
-whatever is open as usual, then closes the popup from the bare list.
+whatever is open as usual (a `--repo` list included), then closes the popup
+from the bare list.
 
 **How work maps onto Herdr.** A workspace *claims* part of Linear's tree: one
 issue, a parent issue with its sub-issues, or a whole project. An issue opens
