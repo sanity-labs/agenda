@@ -301,7 +301,8 @@ height = "85%"
 ```
 
 In the popup, `enter` (or a double-click) jumps to the selection and closes the
-popup; `O` still opens PRs and issues in the browser.
+popup; `O` still opens PRs and issues in the browser. `esc` steps back out of
+whatever is open as usual, then closes the popup from the bare list.
 
 **How work maps onto Herdr.** A workspace *claims* part of Linear's tree: one
 issue, a parent issue with its sub-issues, or a whole project. An issue opens

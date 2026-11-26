@@ -613,10 +613,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "esc":
 			// One rule for esc: step back one layer, and never close the
 			// app. With nothing open over the list, it clears the filter.
+			// A herdr popup is the exception: from the bare list esc
+			// closes it, since that is how every other popup is dismissed.
 			if cmd, closed := m.closeTop(); closed {
 				return m, cmd
 			}
-			return m, m.clearFilter()
+			if !m.clearFilter() && m.herdr != nil {
+				return m, tea.Quit
+			}
+			return m, nil
 		case key.Matches(msg, m.keys.Quit):
 			// q closes what is open before it closes agenda, the way a
 			// pager's q closes the pager; ctrl+c always quits.
@@ -1405,17 +1410,18 @@ func (m *Model) closeTop() (tea.Cmd, bool) {
 }
 
 // clearFilter drops the query narrowing the focused list, if any.
-func (m *Model) clearFilter() tea.Cmd {
+func (m *Model) clearFilter() bool {
 	if len(m.views) == 0 {
-		return nil
+		return false
 	}
 	if f, ok := m.views[m.current].(filterable); ok {
 		if q, enabled, cs := f.FilterState(); q != "" {
 			f.SetFilter("", enabled, cs)
 			m.syncPreviewKey(false)
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 // overlayProvider is optionally implemented by views that render their own
