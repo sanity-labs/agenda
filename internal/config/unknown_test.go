@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestUnknownKeysReported(t *testing.T) {
 	writeConfig(t, "notifications:\n  enabled: true\n  desktop: false\ntheme:\n  markdown: standard\n")
@@ -31,5 +34,22 @@ func TestUnknownKeysEmptyForValidConfig(t *testing.T) {
 	}
 	if cfg.GitHub.ResolvedPageSize() != 30 {
 		t.Errorf("page size = %d, want 30", cfg.GitHub.ResolvedPageSize())
+	}
+}
+
+func TestUnknownHerdrClaimsReported(t *testing.T) {
+	writeConfig(t, "herdr:\n  claims: token\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Unknown) != 1 || !strings.Contains(cfg.Unknown[0], "herdr.claims") {
+		t.Errorf("Unknown = %v, want a herdr.claims warning", cfg.Unknown)
+	}
+	for _, ok := range []string{"file", "tokens"} {
+		writeConfig(t, "herdr:\n  claims: "+ok+"\n")
+		if cfg, _ := Load(); len(cfg.Unknown) != 0 {
+			t.Errorf("claims %q: Unknown = %v, want none", ok, cfg.Unknown)
+		}
 	}
 }

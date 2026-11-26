@@ -472,6 +472,17 @@ func TestTokenClaimsReadEveryEntryForm(t *testing.T) {
 	}
 }
 
+func TestTokenClaimsPRRepoCaseInsensitive(t *testing.T) {
+	live := []Workspace{{ID: "wA", Tokens: map[string]string{"herdr-task": "Agenda#28"}}}
+	tc := TokenClaims{Name: "herdr-task"}
+	if got := tc.Owner(Node{"pr", "agenda#28"}, live); got != "wA" {
+		t.Errorf("lower-case node: Owner = %q, want wA", got)
+	}
+	if got := tc.Owner(Node{"pr", "AGENDA#28"}, live); got != "wA" {
+		t.Errorf("upper-case node: Owner = %q, want wA", got)
+	}
+}
+
 // With claims in tokens, the nearest claimed node still wins, and answering
 // the chooser records nothing: the token's owner decides.
 func TestOpenerWithTokenClaims(t *testing.T) {
