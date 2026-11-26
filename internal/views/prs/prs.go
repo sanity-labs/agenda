@@ -1642,12 +1642,16 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 		if v.foreign(msg.from) {
 			return nil
 		}
-		if msg.err != nil {
+		if msg.err != nil && len(msg.page.prs) == 0 {
 			return statusCmd(ui.SeverityWarn, msg.err)
 		}
 		v.repoName, v.repoSet, v.repoTotal = msg.repo, msg.page.prs, msg.page.total
 		v.applySort()
-		return v.scheduleSettle()
+		cmd := v.scheduleSettle()
+		if msg.err != nil {
+			cmd = tea.Batch(cmd, statusCmd(ui.SeverityWarn, msg.err))
+		}
+		return cmd
 	case prFetchedMsg:
 		if v.foreign(msg.from) {
 			return nil

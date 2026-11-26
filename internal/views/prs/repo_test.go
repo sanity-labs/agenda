@@ -1,9 +1,12 @@
 package prs
 
 import (
+	"errors"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/sanity-labs/agenda/internal/config"
+	"github.com/sanity-labs/agenda/internal/ui"
 )
 
 // A repo's open PRs replace the list until LeaveRepo, which restores the
@@ -23,4 +26,37 @@ func TestRepoSetReplacesListTemporarily(t *testing.T) {
 	if !v.list.Any(matchURL("u1")) || v.list.Any(matchURL("u2")) {
 		t.Error("leaving did not restore the configured list")
 	}
+}
+
+// A partly forbidden repo search returns rows and an error together: show
+// the rows and raise the note.
+func TestRepoSetKeepsRowsWhenSomeAreHidden(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	v := New(config.GitHubConfig{}, nil, nil, nil)
+	v.SetSize(90, 40, 20)
+	cmd := v.Update(repoMsg{from: v, repo: "o/r", err: errors.New("1 hidden"),
+		page: searchPage{prs: []pr{{Number: 2, URL: "u2", State: "OPEN"}}}})
+	if !v.list.Any(matchURL("u2")) {
+		t.Fatal("readable rows dropped because some were hidden")
+	}
+	if !hasWarn(cmd) {
+		t.Error("no warning raised for the hidden rows")
+	}
+}
+
+func hasWarn(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	switch m := cmd().(type) {
+	case ui.StatusMsg:
+		return m.Severity == ui.SeverityWarn
+	case tea.BatchMsg:
+		for _, c := range m {
+			if hasWarn(c) {
+				return true
+			}
+		}
+	}
+	return false
 }
