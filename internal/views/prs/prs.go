@@ -1028,6 +1028,9 @@ type reviewFlow struct {
 	// method is the merge method that landed, which differs from config
 	// when the repo forbade it.
 	method string
+	// async is set when the merge was only requested, so nothing was
+	// deleted yet.
+	async bool
 }
 
 // standalone is a verdict opened from cmd+k: esc closes the popup, as there
@@ -1837,7 +1840,7 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 			return statusCmd(ui.SeverityError, msg.err)
 		}
 		if r != nil {
-			r.done, r.method = msg.what, msg.method
+			r.done, r.method, r.async = msg.what, msg.method, msg.async
 		}
 		v.flash = ui.Green.Render("✓ " + msg.what)
 		// A merged PR leaves the search on the next fetch; auto-merge
@@ -2566,7 +2569,7 @@ func (v *View) mergeDetail(past bool) string {
 		detail = v.review.method
 	}
 	switch {
-	case !v.cfg.MergeDeleteBranch:
+	case !v.cfg.MergeDeleteBranch, past && v.review != nil && v.review.async:
 	case past:
 		detail += ", branch deleted"
 	default:
@@ -2756,6 +2759,7 @@ type mergeDoneMsg struct {
 	// the row is not struck through for a PR that is still open.
 	auto   bool
 	method string
+	async  bool
 	err    error
 }
 
@@ -2792,11 +2796,34 @@ func (v *View) submitMerge(auto bool) tea.Cmd {
 				out, err = merge(method)
 			}
 		}
+		if err != nil && !auto && strings.Contains(string(out), "asynchronous merge") {
+			return mergeStack(v, repo, url, r.num, method)
+		}
 		if err != nil {
 			return mergeDoneMsg{from: v, err: ghErr(err, out), auto: auto}
 		}
 		return mergeDoneMsg{from: v, what: what, url: url, auto: auto, method: method}
 	}
+}
+
+// mergeStack merges a PR in a GitHub stack, which the synchronous merge that
+// gh uses refuses. The async endpoint also merges the open PRs below it.
+func mergeStack(v *View, repo, url string, num int, method string) tea.Msg {
+	out, err := exec.Command("gh", "api", "-X", "PUT", "-H", "X-GitHub-Api-Version: 2026-03-10",
+		fmt.Sprintf("repos/%s/pulls/%d/merge-async", repo, num), "-f", "merge_method="+method).Output()
+	if err != nil {
+		return mergeDoneMsg{from: v, err: cmdErr(err)}
+	}
+	var res struct{ Status string }
+	_ = json.Unmarshal(out, &res)
+	what := fmt.Sprintf("merge of %s#%d (and the PRs below it) requested, GitHub finishes it in the background", repo, num)
+	switch res.Status {
+	case "merged":
+		what = fmt.Sprintf("merged %s#%d (and the PRs below it)", repo, num)
+	case "enqueued":
+		what = fmt.Sprintf("%s#%d added to the merge queue", repo, num)
+	}
+	return mergeDoneMsg{from: v, what: what, url: url, method: method, async: true}
 }
 
 // allowedMethods is the merge methods the repo permits, by gh flag name, or
